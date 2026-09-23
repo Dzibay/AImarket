@@ -327,8 +327,15 @@
         button.onclick = async () => {
           const amount = Number(String(input.value).replace(",", "."));
           if (!amount) return;
-          await api("/api/admin/users/" + item.id + "/credit", { method: "POST", body: JSON.stringify({ amount_usd: amount }) });
-          await load();
+          try {
+            await api("/api/admin/users/" + item.id + "/credit", { method: "POST", body: JSON.stringify({ amount_usd: amount }) });
+            await load();
+          } catch (error) {
+            const text = error.message === "supplier"
+              ? "На счёте поставщика не хватает лимита для этого начисления."
+              : error.message;
+            alert(text);
+          }
         };
         credit.append(input, button);
         const remove = document.createElement("td");

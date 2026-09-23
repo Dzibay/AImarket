@@ -213,8 +213,19 @@ def _sync_key(user_id: int, upstream_id: int) -> None:
 
 
 def _ensure_pool(extra: Decimal) -> None:
+    # Баланс на уже выпущенном ключе уже списан со счёта поставщика.
+    # Сверяем только деньги, которые ещё предстоит оттуда забрать.
     with pool.connection() as conn:
-        row = conn.execute("SELECT COALESCE(SUM(balance_usd), 0) AS total FROM users").fetchone()
+        row = conn.execute(
+            """
+            SELECT COALESCE(SUM(u.balance_usd), 0) AS total
+            FROM users u
+            WHERE NOT EXISTS (
+                SELECT 1 FROM api_keys k
+                WHERE k.user_id = u.id AND k.revoked_at IS NULL AND k.upstream_id IS NOT NULL
+            )
+            """
+        ).fetchone()
     promised = Decimal(row["total"]) + extra
     try:
         master = upstream.supplier_balance_usd()
