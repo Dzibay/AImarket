@@ -1,5 +1,6 @@
 import html
 from datetime import datetime
+from decimal import Decimal, ROUND_DOWN, ROUND_HALF_UP
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -56,6 +57,7 @@ _MONTHS = (
 
 class Topup(StatesGroup):
     amount = State()
+    confirm = State()
 
 
 def _usd(value: float) -> str:
@@ -181,19 +183,39 @@ def _topup_screen(profile: dict) -> tuple[str, InlineKeyboardMarkup]:
     return text, InlineKeyboardMarkup(inline_keyboard=[_back_row()])
 
 
-def _pay_screen(created: dict) -> tuple[str, InlineKeyboardMarkup]:
-    text = (
+def _rub_to_usd(amount_rub: float, price_rub: float) -> float:
+    amount = Decimal(str(amount_rub)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    price = Decimal(str(price_rub))
+    if price <= 0:
+        return 0.0
+    return float((amount / price).quantize(Decimal("0.01"), rounding=ROUND_DOWN))
+
+
+def _pay_text(amount_rub: float, amount_usd: float) -> str:
+    return (
         "<b>Оплата</b>\n\n"
-        f"К оплате <b>{float(created['amount_rub']):.2f} ₽</b>\n"
-        f"На баланс придёт <b>{_usd(float(created['amount_usd']))}</b>\n\n"
+        f"К оплате <b>{amount_rub:.2f} ₽</b>\n"
+        f"На баланс придёт <b>{_usd(amount_usd)}</b>\n\n"
         "После оплаты ЮKassa вернёт вас в этот чат. "
         "Если токен уже выпущен, лимит увеличится на эту сумму."
     )
+
+
+def _pay_screen(created: dict) -> tuple[str, InlineKeyboardMarkup]:
+    text = _pay_text(float(created["amount_rub"]), float(created["amount_usd"]))
     rows = [
         [_button("Оплатить", url=str(created["pay_url"]), green=True)],
         _back_row(),
     ]
     return text, InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def _pay_confirm_screen(amount_rub: float, amount_usd: float) -> tuple[str, InlineKeyboardMarkup]:
+    rows = [
+        [_button("Оплатить", callback="topup:pay", green=True)],
+        _back_row(),
+    ]
+    return _pay_text(amount_rub, amount_usd), InlineKeyboardMarkup(inline_keyboard=rows)
 
 
 def _empty_balance_screen() -> tuple[str, InlineKeyboardMarkup]:
@@ -314,6 +336,36 @@ async def _show_callback(query: CallbackQuery, scene: str, text: str, markup: In
 async def _remember_screen(state: FSMContext, message: Message) -> None:
     await state.set_state(Topup.amount)
     await state.update_data(screen_chat_id=message.chat.id, screen_message_id=message.message_id)
+
+
+async def _replace_saved_screen(
+    message: Message,
+    state: FSMContext,
+    scene: str,
+    text: str,
+    markup: InlineKeyboardMarkup,
+) -> None:
+    data = await state.get_data()
+    edited = False
+    chat_id = data.get("screen_chat_id")
+    message_id = data.get("screen_message_id")
+    if chat_id and message_id:
+        try:
+            await message.bot.edit_message_media(
+                media=_media(scene, text),
+                chat_id=chat_id,
+                message_id=message_id,
+                reply_markup=markup,
+            )
+            edited = True
+        except TelegramBadRequest:
+            edited = False
+    if not edited:
+        await _deliver(message, scene, text, markup)
+    try:
+        await message.delete()
+    except TelegramBadRequest:
+        pass
 
 
 @router.message(CommandStart())
@@ -444,9 +496,6 @@ async def topup_open(query: CallbackQuery, state: FSMContext) -> None:
     if float(profile.get("usd_price_rub") or 0) <= 0:
         await query.answer(_explain(BackendError(402, "sales-closed")), show_alert=True)
         return
-    if not profile.get("yookassa_enabled"):
-        await query.answer(_explain(BackendError(402, "no-yookassa")), show_alert=True)
-        return
     text, markup = _topup_screen(profile)
     await _show_callback(query, "topup", text, markup)
     if query.message is not None:
@@ -470,34 +519,55 @@ async def topup_amount(message: Message, state: FSMContext) -> None:
     if message.from_user is None:
         return
     try:
+        profile = await get_user(message.from_user.id)
+    except BackendError as exc:
+        await _say(message, _explain(exc))
+        return
+    if not profile.get("yookassa_enabled"):
+        price = float(profile.get("usd_price_rub") or 0)
+        text, markup = _pay_confirm_screen(amount, _rub_to_usd(amount, price))
+        await state.update_data(amount_rub=amount)
+        await _replace_saved_screen(message, state, "pay", text, markup)
+        await state.set_state(Topup.confirm)
+        return
+    try:
         created = await create_topup(message.from_user.id, amount)
     except BackendError as exc:
         await state.clear()
         await _say(message, _explain(exc))
         return
     text, markup = _pay_screen(created)
-    data = await state.get_data()
+    await _replace_saved_screen(message, state, "pay", text, markup)
     await state.clear()
-    edited = False
-    chat_id = data.get("screen_chat_id")
-    message_id = data.get("screen_message_id")
-    if chat_id and message_id:
-        try:
-            await message.bot.edit_message_media(
-                media=_media("pay", text),
-                chat_id=chat_id,
-                message_id=message_id,
-                reply_markup=markup,
-            )
-            edited = True
-        except TelegramBadRequest:
-            edited = False
-    if not edited:
-        await _deliver(message, "pay", text, markup)
+
+
+@router.callback_query(F.data == "topup:pay")
+async def topup_pay(query: CallbackQuery, state: FSMContext) -> None:
+    user = query.from_user
+    data = await state.get_data()
+    amount = data.get("amount_rub")
     try:
-        await message.delete()
-    except TelegramBadRequest:
-        pass
+        profile = await _profile_of(user.id, user.username or "", user.first_name or "")
+    except BackendError:
+        await query.answer(UNAVAILABLE, show_alert=True)
+        return
+    if not profile.get("yookassa_enabled"):
+        await query.answer(_explain(BackendError(402, "no-yookassa")), show_alert=True)
+        return
+    if not isinstance(amount, (int, float)) or float(amount) < 1:
+        await query.answer("Сначала укажите сумму пополнения.", show_alert=True)
+        return
+    await query.answer()
+    try:
+        created = await create_topup(user.id, float(amount))
+    except BackendError as exc:
+        if query.message is not None:
+            await _say(query.message, _explain(exc))
+        return
+    text, markup = _pay_screen(created)
+    await state.clear()
+    if query.message is not None:
+        await _edit(query.message, "pay", text, markup)
 
 
 @router.callback_query(F.data == "issue")
