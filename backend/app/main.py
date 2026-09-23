@@ -1,9 +1,10 @@
 import logging
+import re
 import threading
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
 
 from app.api.admin import router as admin_router
@@ -20,6 +21,10 @@ logging.basicConfig(level=logging.INFO)
 log = logging.getLogger("app.main")
 _stop = threading.Event()
 _ADMIN_PAGE = Path(__file__).resolve().parent / "web" / "admin-panel" / "index.html"
+_SETUP_DIR = Path(__file__).resolve().parent / "web" / "downloads" / "setup"
+_SETUP_NAME = re.compile(
+    r"routercheap-[a-z0-9-]+-(windows|macos)-(ru|en)\.zip|setup-routercheap-[a-z0-9-]+-(ru|en)\.sh"
+)
 
 
 def _sync_loop() -> None:
@@ -84,6 +89,17 @@ def admin_redirect() -> RedirectResponse:
 @app.get("/admin-panel")
 def admin_panel() -> FileResponse:
     return FileResponse(_ADMIN_PAGE)
+
+
+@app.get("/downloads/setup/{name}")
+def download_setup(name: str) -> FileResponse:
+    if _SETUP_NAME.fullmatch(name) is None:
+        raise HTTPException(status_code=404, detail="not found")
+    path = _SETUP_DIR / name
+    if not path.is_file():
+        raise HTTPException(status_code=404, detail="not found")
+    media = "application/zip" if name.endswith(".zip") else "text/x-sh"
+    return FileResponse(path, filename=name, media_type=media)
 
 
 app.include_router(products_router, prefix="/api")

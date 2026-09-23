@@ -20,6 +20,7 @@ from aiogram.types import (
     ReplyKeyboardRemove,
 )
 
+from app.guide import apps_screen, known_app, os_screen, other_screen, steps_screen
 from app.backend import (
     BackendError,
     accept_offer,
@@ -112,6 +113,30 @@ def _back_row() -> list[InlineKeyboardButton]:
     return [_button("← Назад", callback="cabinet")]
 
 
+def _markup(rows: list[list[tuple]]) -> InlineKeyboardMarkup:
+    built: list[list[InlineKeyboardButton]] = []
+    for row in rows:
+        buttons: list[InlineKeyboardButton] = []
+        for item in row:
+            kind, label, value = item[0], item[1], item[2]
+            green = len(item) > 3 and bool(item[3])
+            if kind == "url":
+                buttons.append(_button(label, url=value, green=green))
+            elif kind == "copy":
+                buttons.append(_button(label, copy=value, green=green))
+            else:
+                buttons.append(_button(label, callback=value, green=green))
+        built.append(buttons)
+    return InlineKeyboardMarkup(inline_keyboard=built)
+
+
+def _site(profile: dict) -> str:
+    url = str(profile.get("offer_url") or "").strip().rstrip("/")
+    if url.endswith("/offer"):
+        url = url[: -len("/offer")]
+    return url
+
+
 def _offer_screen(profile: dict) -> tuple[str, InlineKeyboardMarkup]:
     url = str(profile.get("offer_url") or "")
     text = (
@@ -140,6 +165,7 @@ def _cabinet_screen(profile: dict, notice: str = "") -> tuple[str, InlineKeyboar
     rows = [
         [_button("Пополнить баланс", callback="topup", green=True)],
         [_button(label, callback=action)],
+        [_button("Инструкция", callback="guide")],
     ]
     return text, InlineKeyboardMarkup(inline_keyboard=rows)
 
@@ -185,8 +211,8 @@ def _empty_balance_screen() -> tuple[str, InlineKeyboardMarkup]:
 
 def _token_screen(key: dict, title: str = "Ваш токен") -> tuple[str, InlineKeyboardMarkup]:
     secret = str(key.get("secret") or "")
-    base = html.escape(str(key.get("base_url") or ""))
     shown = html.escape(secret) if secret else "не удалось получить ключ"
+    base = html.escape(str(key.get("base_url") or "https://router.cheap/v1"))
     text = (
         f"<b>{html.escape(title)}</b>\n\n"
         f"Выпущен: {_when(str(key.get('created_at') or ''))}\n"
@@ -362,6 +388,46 @@ async def cabinet(query: CallbackQuery, state: FSMContext) -> None:
         return
     text, markup = _cabinet_screen(profile)
     await _show_callback(query, "cabinet", text, markup)
+
+
+@router.callback_query(F.data == "guide")
+async def guide(query: CallbackQuery, state: FSMContext) -> None:
+    await state.clear()
+    text, rows = apps_screen()
+    await _show_callback(query, "catalog", text, _markup(rows))
+
+
+@router.callback_query(F.data.startswith("guide:"))
+async def guide_pick(query: CallbackQuery, state: FSMContext) -> None:
+    await state.clear()
+    parts = (query.data or "").split(":")
+    if len(parts) == 3 and parts[1] == "a" and known_app(parts[2]):
+        app_id = parts[2]
+        if app_id == "other":
+            text, rows = other_screen()
+        else:
+            screen = os_screen(app_id)
+            if screen is None:
+                await query.answer("Такой программы нет.", show_alert=True)
+                return
+            text, rows = screen
+        await _show_callback(query, "catalog", text, _markup(rows))
+        return
+    if len(parts) == 4 and parts[1] == "s":
+        origin = ""
+        try:
+            profile = await get_user(query.from_user.id)
+            origin = _site(profile)
+        except BackendError:
+            origin = ""
+        screen = steps_screen(parts[2], parts[3], origin)
+        if screen is None:
+            await query.answer("Такой инструкции нет.", show_alert=True)
+            return
+        text, rows = screen
+        await _show_callback(query, "catalog", text, _markup(rows))
+        return
+    await query.answer("Такой инструкции нет.", show_alert=True)
 
 
 @router.callback_query(F.data == "topup")
