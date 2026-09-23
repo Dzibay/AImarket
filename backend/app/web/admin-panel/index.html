@@ -22,22 +22,34 @@
     textarea { min-height: 88px; resize: vertical; }
     button { background: #1c1915; color: #fff; border: 0; border-radius: 8px; padding: 8px 12px; font: inherit; cursor: pointer; }
     button.quiet { background: #efeae2; color: #1c1915; }
-    .row { display: flex; gap: 8px; align-items: center; margin-top: 12px; }
+    .row { display: flex; gap: 8px; align-items: center; margin-top: 12px; flex-wrap: wrap; }
     .error { color: #8d2b2b; }
+    .table-wrap { overflow-x: auto; margin-top: 8px; }
     table { width: 100%; border-collapse: collapse; }
     th, td { text-align: left; padding: 8px 6px; border-bottom: 1px solid #eee6dc; vertical-align: top; }
+    td.num, th.num { text-align: right; white-space: nowrap; }
     td input { width: 90px; }
+    button.danger { background: #8d2b2b; }
     .hidden { display: none; }
-    .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 10px; }
-    .card { background: #faf7f2; border-radius: 10px; padding: 12px; }
-    .card b { display: block; font-size: 20px; letter-spacing: -0.03em; margin-top: 4px; }
+    .panel-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
+    .panel-head h2 { margin: 0; }
+    .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px; margin-top: 14px; }
+    .card { background: #faf7f2; border-radius: 10px; padding: 12px 14px; min-width: 0; }
+    .card b { display: block; font-size: 20px; letter-spacing: -0.03em; margin-top: 4px; overflow-wrap: anywhere; }
     .card span { color: #6b645b; font-size: 13px; }
-    .chart { display: flex; align-items: flex-end; gap: 3px; height: 140px; margin-top: 12px; }
-    .chart i { flex: 1; background: #1c1915; border-radius: 4px 4px 0 0; min-height: 2px; display: block; }
-    .chart.alt i { background: #8a8175; }
-    .split { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+    .block { margin-top: 22px; }
+    .block h2 { margin: 0 0 4px; }
+    .chart-scroll { overflow-x: auto; margin-top: 8px; padding-bottom: 4px; }
+    .chart, .axis { display: flex; align-items: flex-end; gap: 4px; min-width: 100%; }
+    .chart { height: 148px; }
+    .chart i { flex: 1 0 10px; background: #1c1915; border-radius: 4px 4px 0 0; min-height: 0; display: block; }
+    .chart i.empty { background: #e7e0d6; min-height: 4px; }
+    .chart.alt i:not(.empty) { background: #5c564c; }
+    .axis { margin-top: 6px; }
+    .axis b { flex: 1 0 10px; font-weight: 400; font-size: 11px; color: #6b645b; text-align: center; }
+    .split { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; margin-top: 8px; }
     @media (max-width: 800px) { .split { grid-template-columns: 1fr; } }
-    .periods { display: flex; gap: 8px; }
+    .periods { display: flex; gap: 8px; flex-wrap: wrap; }
   </style>
 </head>
 <body>
@@ -61,7 +73,7 @@
       </nav>
 
       <section id="tab-analytics">
-        <div class="row" style="justify-content: space-between;">
+        <div class="panel-head">
           <h2>Аналитика</h2>
           <div class="periods">
             <button type="button" data-days="7">7 дней</button>
@@ -70,32 +82,38 @@
           </div>
         </div>
         <div class="cards" id="kpis"></div>
-        <h2 style="margin-top: 18px;">Выручка по дням</h2>
-        <div class="chart" id="revenue-chart"></div>
-        <h2 style="margin-top: 18px;">Расход клиентов по дням</h2>
-        <div class="chart alt" id="spend-chart"></div>
+        <div class="block">
+          <h2>Выручка по дням</h2>
+          <div class="chart-scroll"><div class="chart" id="revenue-chart"></div><div class="axis" id="revenue-axis"></div></div>
+        </div>
+        <div class="block">
+          <h2>Расход клиентов по дням</h2>
+          <div class="chart-scroll"><div class="chart alt" id="spend-chart"></div><div class="axis" id="spend-axis"></div></div>
+        </div>
         <div class="split">
-          <div>
-            <h2 style="margin-top: 18px;">Модели</h2>
-            <table><thead><tr><th>Модель</th><th>Расход</th><th>Запросы</th></tr></thead><tbody id="models"></tbody></table>
+          <div class="block">
+            <h2>Модели</h2>
+            <div class="table-wrap"><table><thead><tr><th>Модель</th><th class="num">Расход</th><th class="num">Запросы</th></tr></thead><tbody id="models"></tbody></table></div>
           </div>
-          <div>
-            <h2 style="margin-top: 18px;">Кто сколько потратил</h2>
-            <table><thead><tr><th>Клиент</th><th>Расход</th><th>Запросы</th></tr></thead><tbody id="spenders"></tbody></table>
+          <div class="block">
+            <h2>Кто сколько потратил</h2>
+            <div class="table-wrap"><table><thead><tr><th>Клиент</th><th class="num">Расход</th><th class="num">Запросы</th></tr></thead><tbody id="spenders"></tbody></table></div>
           </div>
         </div>
         <div class="split">
-          <div>
-            <h2 style="margin-top: 18px;">Кто сколько оплатил</h2>
-            <table><thead><tr><th>Клиент</th><th>Оплата</th><th>Платежи</th></tr></thead><tbody id="payers"></tbody></table>
+          <div class="block">
+            <h2>Кто сколько оплатил</h2>
+            <div class="table-wrap"><table><thead><tr><th>Клиент</th><th class="num">Оплата</th><th class="num">Платежи</th></tr></thead><tbody id="payers"></tbody></table></div>
           </div>
-          <div>
-            <h2 style="margin-top: 18px;">Статусы платежей</h2>
-            <table><thead><tr><th>Статус</th><th>Штук</th><th>Сумма</th></tr></thead><tbody id="statuses"></tbody></table>
+          <div class="block">
+            <h2>Статусы платежей</h2>
+            <div class="table-wrap"><table><thead><tr><th>Статус</th><th class="num">Штук</th><th class="num">Сумма</th></tr></thead><tbody id="statuses"></tbody></table></div>
           </div>
         </div>
-        <h2 style="margin-top: 18px;">Последние запросы</h2>
-        <table><thead><tr><th>Когда</th><th>Клиент</th><th>Модель</th><th>Токены</th><th>Расход</th></tr></thead><tbody id="recent"></tbody></table>
+        <div class="block">
+          <h2>Последние запросы</h2>
+          <div class="table-wrap"><table><thead><tr><th>Когда</th><th>Клиент</th><th>Модель</th><th class="num">Токены</th><th class="num">Расход</th></tr></thead><tbody id="recent"></tbody></table></div>
+        </div>
       </section>
 
       <section id="tab-settings" class="hidden">
@@ -130,10 +148,12 @@
 
       <section id="tab-users" class="hidden">
         <h2>Пользователи</h2>
+        <div class="table-wrap">
         <table>
-          <thead><tr><th>Кто</th><th>Баланс</th><th>Ключ</th><th>Начислить $</th></tr></thead>
+          <thead><tr><th>Кто</th><th>Баланс</th><th>Ключ</th><th>Начислить $</th><th></th></tr></thead>
           <tbody id="users"></tbody>
         </table>
+        </div>
       </section>
     </div>
   </main>
@@ -186,15 +206,22 @@
 
     function chart(id, rows, field) {
       const box = $(id);
+      const axis = $(id.replace("-chart", "-axis"));
       box.innerHTML = "";
-      const max = Math.max(...rows.map((row) => Number(row[field]) || 0), 0.0001);
-      for (const row of rows) {
-        const bar = document.createElement("i");
+      axis.innerHTML = "";
+      const max = Math.max(...rows.map((row) => Number(row[field]) || 0), 0);
+      const step = rows.length > 40 ? 14 : rows.length > 14 ? 5 : 1;
+      rows.forEach((row, index) => {
         const value = Number(row[field]) || 0;
-        bar.style.height = Math.max(2, Math.round(value / max * 140)) + "px";
+        const bar = document.createElement("i");
+        if (max === 0 || value === 0) bar.className = "empty";
+        else bar.style.height = Math.max(6, Math.round(value / max * 140)) + "px";
         bar.title = row.day + ": " + (field === "rub" ? rub(value) : usd4(value));
         box.append(bar);
-      }
+        const label = document.createElement("b");
+        label.textContent = index % step === 0 ? row.day.slice(5) : "";
+        axis.append(label);
+      });
     }
 
     function fillTable(id, rows, cells) {
@@ -203,7 +230,7 @@
       if (!rows.length) {
         const tr = document.createElement("tr");
         const td = document.createElement("td");
-        td.colSpan = cells.length;
+        td.colSpan = 5;
         td.textContent = "Пока пусто";
         tr.append(td);
         body.append(tr);
@@ -211,11 +238,12 @@
       }
       for (const row of rows) {
         const tr = document.createElement("tr");
-        for (const text of cells(row)) {
+        cells(row).forEach((text, index, all) => {
           const td = document.createElement("td");
+          if (all.length >= 3 && index >= all.length - 2) td.className = "num";
           td.textContent = text;
           tr.append(td);
-        }
+        });
         body.append(tr);
       }
     }
@@ -239,15 +267,13 @@
         ["Приняли оферту", String(data.users_accepted)],
         ["Активные ключи", String(data.keys_active)],
         ["Балансы клиентов", usd(data.customer_balance_usd)],
-        ["Баланс поставщика", supplier]
+        ["Баланс поставщика", supplier],
+        ["Расход за период", usd4(data.spend_by_day.reduce((sum, row) => sum + row.usd, 0))],
+        ["Запросов за период", String(data.spend_by_day.reduce((sum, row) => sum + row.requests, 0))]
       ];
       for (const pair of cards) box.append(card(pair[0], pair[1]));
       chart("revenue-chart", data.revenue_by_day, "rub");
       chart("spend-chart", data.spend_by_day, "usd");
-      const requests = data.spend_by_day.reduce((sum, row) => sum + row.requests, 0);
-      const spent = data.spend_by_day.reduce((sum, row) => sum + row.usd, 0);
-      box.append(card("Расход за период", usd4(spent)));
-      box.append(card("Запросов за период", String(requests)));
       fillTable("models", data.models, (row) => [row.model, usd4(row.usd), String(row.requests) + " · " + row.tokens + " ток."]);
       fillTable("spenders", data.spenders, (row) => [row.name, usd4(row.usd), String(row.requests)]);
       fillTable("payers", data.payers, (row) => [row.name, rub(row.rub) + " → " + usd(row.usd), String(row.payments)]);
@@ -305,7 +331,22 @@
           await load();
         };
         credit.append(input, button);
-        tr.append(who, balance, key, credit);
+        const remove = document.createElement("td");
+        const removeButton = document.createElement("button");
+        removeButton.className = "danger";
+        removeButton.textContent = "Удалить";
+        removeButton.onclick = async () => {
+          const name = person(item);
+          if (!confirm("Удалить " + name + "? Ключ у поставщика тоже будет удалён, история платежей пропадёт.")) return;
+          try {
+            await api("/api/admin/users/" + item.id, { method: "DELETE" });
+            await load();
+          } catch (error) {
+            alert(error.message === "upstream" ? "Ключ у поставщика не удалился. Пользователь оставлен." : error.message);
+          }
+        };
+        remove.append(removeButton);
+        tr.append(who, balance, key, credit, remove);
         $("users").append(tr);
       }
       await loadAnalytics();

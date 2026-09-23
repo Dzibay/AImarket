@@ -1,3 +1,4 @@
+import logging
 from datetime import date, datetime, timedelta
 from decimal import Decimal
 from zoneinfo import ZoneInfo
@@ -13,6 +14,7 @@ from app.settings_store import get_setting, offer_url, public_base_url, set_sett
 from app.upstream import UpstreamError, upstream
 
 router = APIRouter()
+log = logging.getLogger("app.admin")
 _MSK = ZoneInfo("Europe/Moscow")
 
 _TEXT_KEYS = (
@@ -143,6 +145,39 @@ def credit_user(user_id: int, body: CreditIn) -> dict:
         status = 409 if exc.code == "supplier" else 502
         raise HTTPException(status_code=status, detail=exc.code) from exc
     return {"balance_usd": float(balance)}
+
+
+@router.delete("/users/{user_id}", dependencies=[Depends(require_admin)])
+def delete_user(user_id: int) -> dict:
+    with pool.connection() as conn:
+        row = conn.execute("SELECT id FROM users WHERE id = %s", (user_id,)).fetchone()
+        if row is None:
+            raise HTTPException(status_code=404, detail="user")
+        keys = conn.execute(
+            """
+            SELECT upstream_id
+            FROM api_keys
+            WHERE user_id = %s AND revoked_at IS NULL AND upstream_id IS NOT NULL
+            """,
+            (user_id,),
+        ).fetchall()
+    for key in keys:
+        token_id = int(key["upstream_id"])
+        try:
+            upstream.delete_key(token_id)
+        except UpstreamError as exc:
+            text = exc.message.lower()
+            if "404" in text or "not found" in text or "не найден" in text:
+                continue
+            log.warning("не удалось удалить ключ %s: %s", token_id, exc.message)
+            raise HTTPException(status_code=502, detail="upstream") from exc
+    with pool.connection() as conn:
+        conn.execute("DELETE FROM usage WHERE user_id = %s", (user_id,))
+        conn.execute("DELETE FROM ledger WHERE user_id = %s", (user_id,))
+        conn.execute("DELETE FROM topups WHERE user_id = %s", (user_id,))
+        conn.execute("DELETE FROM api_keys WHERE user_id = %s", (user_id,))
+        conn.execute("DELETE FROM users WHERE id = %s", (user_id,))
+    return {"ok": True}
 
 
 def _person(row: dict) -> str:
