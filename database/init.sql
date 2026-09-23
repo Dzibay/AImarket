@@ -82,7 +82,7 @@ CREATE INDEX IF NOT EXISTS idx_usage_user_time ON usage (user_id, created_at DES
 CREATE UNIQUE INDEX IF NOT EXISTS idx_ledger_topup_note
     ON ledger (note) WHERE kind = 'topup' AND note <> '';
 
--- Заявки на пополнение. Деньги зачисляет админ после оплаты.
+-- Платежи ЮKassa. Баланс зачисляется автоматически после успешной оплаты.
 CREATE TABLE IF NOT EXISTS topups (
     id             BIGSERIAL PRIMARY KEY,
     user_id        BIGINT NOT NULL REFERENCES users (id),
@@ -100,7 +100,7 @@ CREATE INDEX IF NOT EXISTS idx_topups_status ON topups (status, created_at DESC)
 CREATE UNIQUE INDEX IF NOT EXISTS idx_topups_payment
     ON topups (payment_id) WHERE payment_id IS NOT NULL;
 
--- Настройки админки: корневой ключ, цена, реквизиты, текст оферты.
+-- Настройки админки: корневой ключ, цена, продавец, текст оферты.
 CREATE TABLE IF NOT EXISTS app_settings (
     key   TEXT PRIMARY KEY,
     value TEXT NOT NULL DEFAULT ''

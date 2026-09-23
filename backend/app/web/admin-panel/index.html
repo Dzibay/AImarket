@@ -8,11 +8,14 @@
   <style>
     :root { color-scheme: light; }
     body { margin: 0; background: #f4f1ea; color: #1c1915; font: 15px/1.45 "Segoe UI", sans-serif; }
-    main { max-width: 920px; margin: 0 auto; padding: 32px 18px 72px; }
+    main { max-width: 1100px; margin: 0 auto; padding: 28px 18px 80px; }
     h1 { font-size: 28px; letter-spacing: -0.03em; margin: 0 0 6px; }
     h2 { font-size: 18px; margin: 0 0 8px; }
     a { color: inherit; }
     .lead { color: #6b645b; margin: 0 0 18px; }
+    nav { display: flex; gap: 8px; flex-wrap: wrap; margin: 14px 0; }
+    nav button, .periods button { background: #efeae2; color: #1c1915; }
+    nav button.on, .periods button.on { background: #1c1915; color: #fff; }
     section { background: #fff; border: 1px solid #e4ddd2; border-radius: 12px; padding: 16px 18px 18px; margin-top: 14px; }
     label { display: block; margin: 12px 0 4px; color: #5c564c; font-size: 13px; }
     input, textarea { width: 100%; box-sizing: border-box; border: 1px solid #d9d0c3; border-radius: 8px; padding: 8px 10px; font: inherit; background: #fff; }
@@ -25,6 +28,16 @@
     th, td { text-align: left; padding: 8px 6px; border-bottom: 1px solid #eee6dc; vertical-align: top; }
     td input { width: 90px; }
     .hidden { display: none; }
+    .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 10px; }
+    .card { background: #faf7f2; border-radius: 10px; padding: 12px; }
+    .card b { display: block; font-size: 20px; letter-spacing: -0.03em; margin-top: 4px; }
+    .card span { color: #6b645b; font-size: 13px; }
+    .chart { display: flex; align-items: flex-end; gap: 3px; height: 140px; margin-top: 12px; }
+    .chart i { flex: 1; background: #1c1915; border-radius: 4px 4px 0 0; min-height: 2px; display: block; }
+    .chart.alt i { background: #8a8175; }
+    .split { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+    @media (max-width: 800px) { .split { grid-template-columns: 1fr; } }
+    .periods { display: flex; gap: 8px; }
   </style>
 </head>
 <body>
@@ -40,7 +53,52 @@
     </section>
 
     <div id="app" class="hidden">
-      <section>
+      <nav>
+        <button type="button" data-tab="analytics" class="on">Аналитика</button>
+        <button type="button" data-tab="settings">Настройки</button>
+        <button type="button" data-tab="payments">Платежи</button>
+        <button type="button" data-tab="users">Пользователи</button>
+      </nav>
+
+      <section id="tab-analytics">
+        <div class="row" style="justify-content: space-between;">
+          <h2>Аналитика</h2>
+          <div class="periods">
+            <button type="button" data-days="7">7 дней</button>
+            <button type="button" data-days="30" class="on">30 дней</button>
+            <button type="button" data-days="90">90 дней</button>
+          </div>
+        </div>
+        <div class="cards" id="kpis"></div>
+        <h2 style="margin-top: 18px;">Выручка по дням</h2>
+        <div class="chart" id="revenue-chart"></div>
+        <h2 style="margin-top: 18px;">Расход клиентов по дням</h2>
+        <div class="chart alt" id="spend-chart"></div>
+        <div class="split">
+          <div>
+            <h2 style="margin-top: 18px;">Модели</h2>
+            <table><thead><tr><th>Модель</th><th>Расход</th><th>Запросы</th></tr></thead><tbody id="models"></tbody></table>
+          </div>
+          <div>
+            <h2 style="margin-top: 18px;">Кто сколько потратил</h2>
+            <table><thead><tr><th>Клиент</th><th>Расход</th><th>Запросы</th></tr></thead><tbody id="spenders"></tbody></table>
+          </div>
+        </div>
+        <div class="split">
+          <div>
+            <h2 style="margin-top: 18px;">Кто сколько оплатил</h2>
+            <table><thead><tr><th>Клиент</th><th>Оплата</th><th>Платежи</th></tr></thead><tbody id="payers"></tbody></table>
+          </div>
+          <div>
+            <h2 style="margin-top: 18px;">Статусы платежей</h2>
+            <table><thead><tr><th>Статус</th><th>Штук</th><th>Сумма</th></tr></thead><tbody id="statuses"></tbody></table>
+          </div>
+        </div>
+        <h2 style="margin-top: 18px;">Последние запросы</h2>
+        <table><thead><tr><th>Когда</th><th>Клиент</th><th>Модель</th><th>Токены</th><th>Расход</th></tr></thead><tbody id="recent"></tbody></table>
+      </section>
+
+      <section id="tab-settings" class="hidden">
         <h2>Кабинет router.cheap</h2>
         <p class="lead" id="supplier">Баланс поставщика: —</p>
         <label for="root">Корневой API-ключ</label>
@@ -50,8 +108,6 @@
         <input id="base" placeholder="https://example.com">
         <label for="price">Цена, ₽ за $1 лимита</label>
         <input id="price" inputmode="decimal" placeholder="100">
-        <label for="pay">Реквизиты для оплаты</label>
-        <textarea id="pay" placeholder="Карта, СБП или другой способ, который увидит покупатель"></textarea>
         <label for="seller">Продавец</label>
         <input id="seller" placeholder="ИП или название">
         <label for="inn">ИНН</label>
@@ -63,15 +119,16 @@
         <div class="row"><button id="save" type="button">Сохранить</button><span id="save-status"></span></div>
       </section>
 
-      <section>
-        <h2>Заявки на пополнение</h2>
+      <section id="tab-payments" class="hidden">
+        <h2>Платежи ЮKassa</h2>
+        <p class="lead">Баланс зачисляется автоматически после оплаты.</p>
         <table>
-          <thead><tr><th>Кто</th><th>Сумма</th><th></th></tr></thead>
+          <thead><tr><th>Кто</th><th>Сумма</th></tr></thead>
           <tbody id="topups"></tbody>
         </table>
       </section>
 
-      <section>
+      <section id="tab-users" class="hidden">
         <h2>Пользователи</h2>
         <table>
           <thead><tr><th>Кто</th><th>Баланс</th><th>Ключ</th><th>Начислить $</th></tr></thead>
@@ -83,6 +140,7 @@
   <script>
     const tokenKey = "aimarket-admin";
     const $ = (id) => document.getElementById(id);
+    let period = 30;
 
     function authHeaders() {
       return { Authorization: "Bearer " + sessionStorage.getItem(tokenKey), "Content-Type": "application/json" };
@@ -111,11 +169,96 @@
       return (name + " " + user).trim();
     }
 
+    function rub(value) { return Number(value).toFixed(2) + " ₽"; }
+    function usd(value) { return "$" + Number(value).toFixed(2); }
+    function usd4(value) { return "$" + Number(value).toFixed(4); }
+
+    function card(label, value) {
+      const node = document.createElement("div");
+      node.className = "card";
+      const caption = document.createElement("span");
+      caption.textContent = label;
+      const strong = document.createElement("b");
+      strong.textContent = value;
+      node.append(caption, strong);
+      return node;
+    }
+
+    function chart(id, rows, field) {
+      const box = $(id);
+      box.innerHTML = "";
+      const max = Math.max(...rows.map((row) => Number(row[field]) || 0), 0.0001);
+      for (const row of rows) {
+        const bar = document.createElement("i");
+        const value = Number(row[field]) || 0;
+        bar.style.height = Math.max(2, Math.round(value / max * 140)) + "px";
+        bar.title = row.day + ": " + (field === "rub" ? rub(value) : usd4(value));
+        box.append(bar);
+      }
+    }
+
+    function fillTable(id, rows, cells) {
+      const body = $(id);
+      body.innerHTML = "";
+      if (!rows.length) {
+        const tr = document.createElement("tr");
+        const td = document.createElement("td");
+        td.colSpan = cells.length;
+        td.textContent = "Пока пусто";
+        tr.append(td);
+        body.append(tr);
+        return;
+      }
+      for (const row of rows) {
+        const tr = document.createElement("tr");
+        for (const text of cells(row)) {
+          const td = document.createElement("td");
+          td.textContent = text;
+          tr.append(td);
+        }
+        body.append(tr);
+      }
+    }
+
+    async function loadAnalytics() {
+      const data = await api("/api/admin/analytics?days=" + period);
+      const box = $("kpis");
+      box.innerHTML = "";
+      const supplier = data.supplier_balance_usd == null ? "—" : usd(data.supplier_balance_usd);
+      const cards = [
+        ["Выручка сегодня", rub(data.revenue_today_rub)],
+        ["Выручка за период", rub(data.revenue_rub)],
+        ["Зачислено лимита", usd(data.revenue_usd)],
+        ["Средний чек", rub(data.average_check_rub)],
+        ["Оплат", String(data.payments_paid) + " из " + data.payments],
+        ["Платящих", String(data.paying_users)],
+        ["Расход сегодня", usd4(data.spend_today_usd)],
+        ["Запросов сегодня", String(data.requests_today)],
+        ["Пользователи", String(data.users)],
+        ["Новые", String(data.users_new)],
+        ["Приняли оферту", String(data.users_accepted)],
+        ["Активные ключи", String(data.keys_active)],
+        ["Балансы клиентов", usd(data.customer_balance_usd)],
+        ["Баланс поставщика", supplier]
+      ];
+      for (const pair of cards) box.append(card(pair[0], pair[1]));
+      chart("revenue-chart", data.revenue_by_day, "rub");
+      chart("spend-chart", data.spend_by_day, "usd");
+      const requests = data.spend_by_day.reduce((sum, row) => sum + row.requests, 0);
+      const spent = data.spend_by_day.reduce((sum, row) => sum + row.usd, 0);
+      box.append(card("Расход за период", usd4(spent)));
+      box.append(card("Запросов за период", String(requests)));
+      fillTable("models", data.models, (row) => [row.model, usd4(row.usd), String(row.requests) + " · " + row.tokens + " ток."]);
+      fillTable("spenders", data.spenders, (row) => [row.name, usd4(row.usd), String(row.requests)]);
+      fillTable("payers", data.payers, (row) => [row.name, rub(row.rub) + " → " + usd(row.usd), String(row.payments)]);
+      fillTable("statuses", data.statuses, (row) => [row.status, String(row.count), rub(row.rub)]);
+      fillTable("recent", data.recent, (row) => [row.at.replace("T", " ").slice(0, 16), row.name, row.model, String(row.tokens), usd4(row.usd)]);
+    }
+
     async function load() {
       const settings = await api("/api/admin/settings");
       $("base").value = settings.public_base_url || "";
       $("price").value = settings.usd_price_rub || "";
-      $("pay").value = settings.payment_details || "";
       $("seller").value = settings.seller_name || "";
       $("inn").value = settings.seller_inn || "";
       $("email").value = settings.seller_email || "";
@@ -136,25 +279,7 @@
         who.textContent = person(item);
         const sum = document.createElement("td");
         sum.textContent = item.amount_rub.toFixed(2) + " ₽ → $" + Number(item.amount_usd).toFixed(2) + " · " + item.status;
-        const actions = document.createElement("td");
-        if (item.status === "pending") {
-          const ok = document.createElement("button");
-          ok.textContent = "Проверить оплату";
-          ok.onclick = async () => {
-            try {
-              await api("/api/admin/topups/" + item.id + "/confirm", { method: "POST" });
-              await load();
-            } catch (error) {
-              alert(error.message === "unpaid" ? "Платёж ещё не оплачен" : error.message);
-            }
-          };
-          const no = document.createElement("button");
-          no.className = "quiet";
-          no.textContent = "Отклонить";
-          no.onclick = async () => { await api("/api/admin/topups/" + item.id + "/reject", { method: "POST" }); await load(); };
-          actions.append(ok, document.createTextNode(" "), no);
-        }
-        tr.append(who, sum, actions);
+        tr.append(who, sum);
         $("topups").append(tr);
       }
 
@@ -183,9 +308,29 @@
         tr.append(who, balance, key, credit);
         $("users").append(tr);
       }
+      await loadAnalytics();
       $("login").classList.add("hidden");
       $("app").classList.remove("hidden");
     }
+
+    document.querySelectorAll("nav button").forEach((button) => {
+      button.onclick = () => {
+        document.querySelectorAll("nav button").forEach((item) => item.classList.remove("on"));
+        button.classList.add("on");
+        for (const name of ["analytics", "settings", "payments", "users"]) {
+          $("tab-" + name).classList.toggle("hidden", name !== button.dataset.tab);
+        }
+      };
+    });
+
+    document.querySelectorAll(".periods button").forEach((button) => {
+      button.onclick = async () => {
+        period = Number(button.dataset.days);
+        document.querySelectorAll(".periods button").forEach((item) => item.classList.remove("on"));
+        button.classList.add("on");
+        await loadAnalytics();
+      };
+    });
 
     $("enter").onclick = async () => {
       $("login-error").textContent = "";
@@ -212,7 +357,6 @@
           body: JSON.stringify({
             public_base_url: $("base").value,
             usd_price_rub: $("price").value,
-            payment_details: $("pay").value,
             seller_name: $("seller").value,
             seller_inn: $("inn").value,
             seller_email: $("email").value,

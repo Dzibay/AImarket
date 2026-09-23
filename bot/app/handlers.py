@@ -1,8 +1,10 @@
 import html
 from datetime import datetime
+from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from aiogram import F, Router
+from aiogram.enums import ParseMode
 from aiogram.exceptions import TelegramBadRequest
 from aiogram.filters import Command, CommandObject, CommandStart
 from aiogram.fsm.context import FSMContext
@@ -10,8 +12,10 @@ from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import (
     CallbackQuery,
     CopyTextButton,
+    FSInputFile,
     InlineKeyboardButton,
     InlineKeyboardMarkup,
+    InputMediaPhoto,
     Message,
     ReplyKeyboardRemove,
 )
@@ -31,6 +35,7 @@ from app.backend import (
 
 router = Router()
 UNAVAILABLE = "Сервис сейчас недоступен. Попробуйте чуть позже."
+_IMAGES = Path(__file__).resolve().parent / "images"
 _MSK = ZoneInfo("Europe/Moscow")
 _MONTHS = (
     "января",
@@ -197,7 +202,7 @@ def _token_screen(key: dict, title: str = "Ваш токен") -> tuple[str, Inl
     return text, InlineKeyboardMarkup(inline_keyboard=rows)
 
 
-def _chunks(text: str, limit: int = 3500) -> list[str]:
+def _chunks(text: str, limit: int = 900) -> list[str]:
     parts: list[str] = []
     current = ""
     for line in text.split("\n"):
@@ -234,38 +239,50 @@ def _plain(markup: InlineKeyboardMarkup) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
-async def _deliver(message: Message, text: str, markup: InlineKeyboardMarkup) -> Message:
+def _photo(scene: str) -> FSInputFile:
+    return FSInputFile(_IMAGES / f"{scene}.png")
+
+
+def _media(scene: str, text: str) -> InputMediaPhoto:
+    return InputMediaPhoto(media=_photo(scene), caption=text, parse_mode=ParseMode.HTML)
+
+
+async def _say(message: Message, text: str) -> Message:
+    return await message.answer_photo(_photo("notice"), caption=text)
+
+
+async def _deliver(message: Message, scene: str, text: str, markup: InlineKeyboardMarkup) -> Message:
     try:
-        return await message.answer(text, reply_markup=markup)
+        return await message.answer_photo(_photo(scene), caption=text, reply_markup=markup)
     except TelegramBadRequest:
-        return await message.answer(text, reply_markup=_plain(markup))
+        return await message.answer_photo(_photo(scene), caption=text, reply_markup=_plain(markup))
 
 
-async def _edit(message: Message, text: str, markup: InlineKeyboardMarkup) -> None:
+async def _edit(message: Message, scene: str, text: str, markup: InlineKeyboardMarkup) -> None:
     try:
-        await message.edit_text(text, reply_markup=markup)
+        await message.edit_media(media=_media(scene, text), reply_markup=markup)
     except TelegramBadRequest as exc:
-        if "message is not modified" in str(exc).lower():
+        if "not modified" in str(exc).lower():
             return
         try:
-            await message.edit_text(text, reply_markup=_plain(markup))
+            await message.edit_media(media=_media(scene, text), reply_markup=_plain(markup))
         except TelegramBadRequest:
-            await _deliver(message, text, markup)
+            await _deliver(message, scene, text, markup)
 
 
-async def _open(message: Message, text: str, markup: InlineKeyboardMarkup) -> Message:
+async def _open(message: Message, scene: str, text: str, markup: InlineKeyboardMarkup) -> Message:
     hidden = await message.answer("\u2060", reply_markup=ReplyKeyboardRemove())
     try:
         await hidden.delete()
     except TelegramBadRequest:
         pass
-    return await _deliver(message, text, markup)
+    return await _deliver(message, scene, text, markup)
 
 
-async def _show_callback(query: CallbackQuery, text: str, markup: InlineKeyboardMarkup) -> None:
+async def _show_callback(query: CallbackQuery, scene: str, text: str, markup: InlineKeyboardMarkup) -> None:
     await query.answer()
     if query.message is not None:
-        await _edit(query.message, text, markup)
+        await _edit(query.message, scene, text, markup)
 
 
 async def _remember_screen(state: FSMContext, message: Message) -> None:
@@ -282,7 +299,7 @@ async def start(message: Message, state: FSMContext, command: CommandObject) -> 
     try:
         profile = await _profile_of(user.id, user.username or "", user.first_name or "")
     except BackendError:
-        await message.answer(UNAVAILABLE)
+        await _say(message, UNAVAILABLE)
         return
     payload = (command.args or "").strip()
     notice = ""
@@ -296,10 +313,10 @@ async def start(message: Message, state: FSMContext, command: CommandObject) -> 
                 pass
     if not profile["offer_accepted"]:
         text, markup = _offer_screen(profile)
-        await _open(message, text, markup)
+        await _open(message, "offer", text, markup)
         return
     text, markup = _cabinet_screen(profile, notice)
-    await _open(message, text, markup)
+    await _open(message, "cabinet", text, markup)
 
 
 async def _payment_notice(telegram_id: int, topup_id: int) -> str:
@@ -327,7 +344,7 @@ async def accept(query: CallbackQuery, state: FSMContext) -> None:
         await query.answer(_explain(exc), show_alert=True)
         return
     text, markup = _cabinet_screen(profile, "Оферта принята.")
-    await _show_callback(query, text, markup)
+    await _show_callback(query, "cabinet", text, markup)
 
 
 @router.callback_query(F.data == "cabinet")
@@ -341,10 +358,10 @@ async def cabinet(query: CallbackQuery, state: FSMContext) -> None:
         return
     if not profile["offer_accepted"]:
         text, markup = _offer_screen(profile)
-        await _show_callback(query, text, markup)
+        await _show_callback(query, "offer", text, markup)
         return
     text, markup = _cabinet_screen(profile)
-    await _show_callback(query, text, markup)
+    await _show_callback(query, "cabinet", text, markup)
 
 
 @router.callback_query(F.data == "topup")
@@ -365,7 +382,7 @@ async def topup_open(query: CallbackQuery, state: FSMContext) -> None:
         await query.answer(_explain(BackendError(402, "no-yookassa")), show_alert=True)
         return
     text, markup = _topup_screen(profile)
-    await _show_callback(query, text, markup)
+    await _show_callback(query, "topup", text, markup)
     if query.message is not None:
         await _remember_screen(state, query.message)
 
@@ -379,10 +396,10 @@ async def topup_amount(message: Message, state: FSMContext) -> None:
     try:
         amount = float(raw)
     except ValueError:
-        await message.answer("Нужно число в рублях, например 500.")
+        await _say(message, "Нужно число в рублях, например 500.")
         return
     if amount < 1:
-        await message.answer("Минимальная сумма — 1 ₽.")
+        await _say(message, "Минимальная сумма — 1 ₽.")
         return
     if message.from_user is None:
         return
@@ -390,7 +407,7 @@ async def topup_amount(message: Message, state: FSMContext) -> None:
         created = await create_topup(message.from_user.id, amount)
     except BackendError as exc:
         await state.clear()
-        await message.answer(_explain(exc))
+        await _say(message, _explain(exc))
         return
     text, markup = _pay_screen(created)
     data = await state.get_data()
@@ -400,8 +417,8 @@ async def topup_amount(message: Message, state: FSMContext) -> None:
     message_id = data.get("screen_message_id")
     if chat_id and message_id:
         try:
-            await message.bot.edit_message_text(
-                text,
+            await message.bot.edit_message_media(
+                media=_media("pay", text),
                 chat_id=chat_id,
                 message_id=message_id,
                 reply_markup=markup,
@@ -410,7 +427,7 @@ async def topup_amount(message: Message, state: FSMContext) -> None:
         except TelegramBadRequest:
             edited = False
     if not edited:
-        await message.answer(text, reply_markup=markup)
+        await _deliver(message, "pay", text, markup)
     try:
         await message.delete()
     except TelegramBadRequest:
@@ -431,18 +448,18 @@ async def issue(query: CallbackQuery, state: FSMContext) -> None:
         return
     if float(profile["balance_usd"]) <= 0:
         text, markup = _empty_balance_screen()
-        await _show_callback(query, text, markup)
+        await _show_callback(query, "empty", text, markup)
         return
     await query.answer()
     try:
         created = await issue_key(user.id)
     except BackendError as exc:
         if query.message is not None:
-            await query.message.answer(_explain(exc))
+            await _say(query.message, _explain(exc))
         return
     text, markup = _token_screen(created, "Токен выпущен")
     if query.message is not None:
-        await _edit(query.message, text, markup)
+        await _edit(query.message, "token", text, markup)
 
 
 @router.callback_query(F.data == "token")
@@ -458,7 +475,7 @@ async def _show_token(query: CallbackQuery, title: str) -> None:
         await query.answer(_explain(exc), show_alert=True)
         return
     text, markup = _token_screen(key, title)
-    await _show_callback(query, text, markup)
+    await _show_callback(query, "token", text, markup)
 
 
 @router.callback_query(F.data == "reissue")
@@ -481,7 +498,7 @@ async def reissue_ask(query: CallbackQuery, state: FSMContext) -> None:
             _back_row(),
         ]
     )
-    await _show_callback(query, text, markup)
+    await _show_callback(query, "reissue", text, markup)
 
 
 @router.callback_query(F.data == "reissue:yes")
@@ -491,11 +508,11 @@ async def reissue_confirm(query: CallbackQuery) -> None:
         created = await reissue_key(query.from_user.id)
     except BackendError as exc:
         if query.message is not None:
-            await query.message.answer(_explain(exc))
+            await _say(query.message, _explain(exc))
         return
     text, markup = _token_screen(created, "Новый токен")
     if query.message is not None:
-        await _edit(query.message, text, markup)
+        await _edit(query.message, "token", text, markup)
 
 
 @router.message(Command("cancel"))
@@ -509,14 +526,14 @@ async def legacy_menu(message: Message, state: FSMContext) -> None:
         try:
             profile = await _profile_of(user.id, user.username or "", user.first_name or "")
         except BackendError:
-            await message.answer(UNAVAILABLE)
+            await _say(message, UNAVAILABLE)
             return
         if not profile["offer_accepted"]:
             body, markup = _offer_screen(profile)
-            await _open(message, body, markup)
+            await _open(message, "offer", body, markup)
             return
         body, markup = _topup_screen(profile)
-        sent = await _open(message, body, markup)
+        sent = await _open(message, "topup", body, markup)
         await _remember_screen(state, sent)
         return
     if text == "Каталог":
@@ -533,13 +550,14 @@ async def cabinet_from_message(message: Message, state: FSMContext) -> None:
     try:
         profile = await _profile_of(user.id, user.username or "", user.first_name or "")
     except BackendError:
-        await message.answer(UNAVAILABLE)
+        await _say(message, UNAVAILABLE)
         return
     if not profile["offer_accepted"]:
         text, markup = _offer_screen(profile)
-    else:
-        text, markup = _cabinet_screen(profile)
-    await _open(message, text, markup)
+        await _open(message, "offer", text, markup)
+        return
+    text, markup = _cabinet_screen(profile)
+    await _open(message, "cabinet", text, markup)
 
 
 @router.message(Command("catalog"))
@@ -551,19 +569,19 @@ async def catalog(message: Message, state: FSMContext) -> None:
     try:
         profile = await upsert_user(user.id, user.username or "", user.first_name or "")
     except BackendError:
-        await message.answer(UNAVAILABLE)
+        await _say(message, UNAVAILABLE)
         return
     if not profile["offer_accepted"]:
         text, markup = _offer_screen(profile)
-        await _open(message, text, markup)
+        await _open(message, "offer", text, markup)
         return
     try:
         items = await list_products()
     except BackendError:
-        await message.answer(UNAVAILABLE)
+        await _say(message, UNAVAILABLE)
         return
     if not items:
-        await message.answer("Каталог пока пуст.")
+        await _say(message, "Каталог пока пуст.")
         return
     lines = ["Модели, которые открывает токен:\n"]
     for item in items:
@@ -574,4 +592,4 @@ async def catalog(message: Message, state: FSMContext) -> None:
         else:
             lines.append(f"• {name}")
     for part in _chunks("\n".join(lines)):
-        await message.answer(part)
+        await message.answer_photo(_photo("catalog"), caption=part)

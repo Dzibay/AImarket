@@ -4,7 +4,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI
-from fastapi.responses import FileResponse, HTMLResponse
+from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
 
 from app.api.admin import router as admin_router
 from app.api.products import router as products_router
@@ -19,7 +19,7 @@ from app.settings_store import bootstrap_settings
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger("app.main")
 _stop = threading.Event()
-_ADMIN_PAGE = Path(__file__).resolve().parent / "web" / "admin.html"
+_ADMIN_PAGE = Path(__file__).resolve().parent / "web" / "admin-panel" / "index.html"
 
 
 def _sync_loop() -> None:
@@ -67,7 +67,7 @@ def home() -> HTMLResponse:
   main { max-width: 520px; margin: 15vh auto; padding: 24px; }
   a { color: inherit; }
 </style></head>
-<body><main><h1>Aimarket</h1><p><a href="/offer">Оферта</a></p><p><a href="/admin">Админка</a></p></main></body></html>"""
+<body><main><h1>Aimarket</h1><p><a href="/offer">Оферта</a></p><p><a href="/admin-panel">Админка</a></p></main></body></html>"""
     return HTMLResponse(page)
 
 
@@ -77,7 +77,12 @@ def offer() -> HTMLResponse:
 
 
 @app.get("/admin")
-def admin() -> FileResponse:
+def admin_redirect() -> RedirectResponse:
+    return RedirectResponse("/admin-panel", status_code=307)
+
+
+@app.get("/admin-panel")
+def admin_panel() -> FileResponse:
     return FileResponse(_ADMIN_PAGE)
 
 
