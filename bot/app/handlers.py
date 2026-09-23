@@ -1,10 +1,20 @@
 import html
+from datetime import datetime
+from zoneinfo import ZoneInfo
 
 from aiogram import F, Router
+from aiogram.exceptions import TelegramBadRequest
 from aiogram.filters import Command, CommandObject, CommandStart
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
-from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, KeyboardButton, Message, ReplyKeyboardMarkup
+from aiogram.types import (
+    CallbackQuery,
+    CopyTextButton,
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+    Message,
+    ReplyKeyboardRemove,
+)
 
 from app.backend import (
     BackendError,
@@ -14,22 +24,28 @@ from app.backend import (
     get_user,
     issue_key,
     list_products,
+    read_key,
     reissue_key,
     upsert_user,
 )
 
 router = Router()
-
-MENU = ReplyKeyboardMarkup(
-    keyboard=[
-        [KeyboardButton(text="Баланс"), KeyboardButton(text="Пополнить")],
-        [KeyboardButton(text="Выпустить токен"), KeyboardButton(text="Перевыпустить")],
-        [KeyboardButton(text="Каталог")],
-    ],
-    resize_keyboard=True,
-)
-MENU_TEXTS = {"Баланс", "Пополнить", "Выпустить токен", "Перевыпустить", "Каталог"}
 UNAVAILABLE = "Сервис сейчас недоступен. Попробуйте чуть позже."
+_MSK = ZoneInfo("Europe/Moscow")
+_MONTHS = (
+    "января",
+    "февраля",
+    "марта",
+    "апреля",
+    "мая",
+    "июня",
+    "июля",
+    "августа",
+    "сентября",
+    "октября",
+    "ноября",
+    "декабря",
+)
 
 
 class Topup(StatesGroup):
@@ -38,6 +54,17 @@ class Topup(StatesGroup):
 
 def _usd(value: float) -> str:
     return f"${value:.2f}"
+
+
+def _spent(value: float) -> str:
+    return f"${value:.4f}"
+
+
+def _when(value: str) -> str:
+    if not value:
+        return "только что"
+    moment = datetime.fromisoformat(value.replace("Z", "+00:00")).astimezone(_MSK)
+    return f"{moment.day} {_MONTHS[moment.month - 1]} {moment.year}, {moment:%H:%M}"
 
 
 def _explain(exc: BackendError) -> str:
@@ -50,7 +77,7 @@ def _explain(exc: BackendError) -> str:
         "no-yookassa": "Оплата не настроена.",
         "no-bot": "Не удалось открыть возврат в бота. Проверьте токен бота в настройках.",
         "yookassa": "Платёж сейчас не создаётся. Попробуйте позже.",
-        "key-exists": "Токен уже выпущен. Новый секрет делается кнопкой «Перевыпустить».",
+        "key-exists": "Токен уже выпущен. Откройте «Мой токен».",
         "no-key": "Токена ещё нет. Пополните баланс и нажмите «Выпустить токен».",
         "supplier": "Сейчас нельзя провести операцию: на счёте поставщика не хватает лимита.",
         "reissue-failed": "Старый токен удалён, новый не создался. Лимит сохранён — нажмите «Выпустить токен».",
@@ -58,6 +85,116 @@ def _explain(exc: BackendError) -> str:
     if exc.status == 0:
         return UNAVAILABLE
     return reasons.get(exc.detail, UNAVAILABLE)
+
+
+def _button(
+    text: str,
+    *,
+    callback: str = "",
+    url: str = "",
+    copy: str = "",
+    green: bool = False,
+) -> InlineKeyboardButton:
+    extra: dict = {"style": "success"} if green else {}
+    if copy:
+        return InlineKeyboardButton(text=text, copy_text=CopyTextButton(text=copy), **extra)
+    if url:
+        return InlineKeyboardButton(text=text, url=url, **extra)
+    return InlineKeyboardButton(text=text, callback_data=callback, **extra)
+
+
+def _back_row() -> list[InlineKeyboardButton]:
+    return [_button("← Назад", callback="cabinet")]
+
+
+def _offer_screen(profile: dict) -> tuple[str, InlineKeyboardMarkup]:
+    url = str(profile.get("offer_url") or "")
+    text = (
+        "<b>Aimarket</b>\n\n"
+        "Перед началом прочитайте оферту и примите её.\n"
+        "После этого откроется личный кабинет: баланс, пополнение и токен."
+    )
+    if not url:
+        text += "\n\nСсылка на оферту появится, когда в админке будет указан адрес сайта."
+    rows = [[_button("✅ Принимаю", callback="offer:yes", green=True)]]
+    if url:
+        rows.append([_button("Оферта", url=url)])
+    return text, InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def _cabinet_screen(profile: dict, notice: str = "") -> tuple[str, InlineKeyboardMarkup]:
+    head = f"{notice}\n\n" if notice else ""
+    text = (
+        f"{head}<b>Личный кабинет</b>\n\n"
+        f"Баланс\n<b>{_usd(float(profile['balance_usd']))}</b>\n\n"
+        f"Расход сегодня: {_spent(float(profile.get('spent_today_usd') or 0))}\n"
+        f"Расход за месяц: {_spent(float(profile.get('spent_month_usd') or 0))}"
+    )
+    action = "token" if profile.get("has_key") else "issue"
+    label = "Мой токен" if profile.get("has_key") else "Выпустить токен"
+    rows = [
+        [_button("Пополнить баланс", callback="topup", green=True)],
+        [_button(label, callback=action)],
+    ]
+    return text, InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def _topup_screen(profile: dict) -> tuple[str, InlineKeyboardMarkup]:
+    price = float(profile.get("usd_price_rub") or 0)
+    text = (
+        "<b>Пополнение</b>\n\n"
+        f"1 $ стоит {price:.2f} ₽.\n"
+        "Напишите сумму в рублях, минимум 1.\n"
+        "Например: <b>500</b>"
+    )
+    return text, InlineKeyboardMarkup(inline_keyboard=[_back_row()])
+
+
+def _pay_screen(created: dict) -> tuple[str, InlineKeyboardMarkup]:
+    text = (
+        "<b>Оплата</b>\n\n"
+        f"К оплате <b>{float(created['amount_rub']):.2f} ₽</b>\n"
+        f"На баланс придёт <b>{_usd(float(created['amount_usd']))}</b>\n\n"
+        "После оплаты ЮKassa вернёт вас в этот чат. "
+        "Если токен уже выпущен, лимит увеличится на эту сумму."
+    )
+    rows = [
+        [_button("Оплатить", url=str(created["pay_url"]), green=True)],
+        _back_row(),
+    ]
+    return text, InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def _empty_balance_screen() -> tuple[str, InlineKeyboardMarkup]:
+    text = (
+        "<b>Токен</b>\n\n"
+        "Баланс нулевой, выпускать пока нечего.\n"
+        "Пополните баланс — токен получит весь этот лимит."
+    )
+    rows = [
+        [_button("Пополнить баланс", callback="topup", green=True)],
+        _back_row(),
+    ]
+    return text, InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def _token_screen(key: dict, title: str = "Ваш токен") -> tuple[str, InlineKeyboardMarkup]:
+    secret = str(key.get("secret") or "")
+    base = html.escape(str(key.get("base_url") or ""))
+    shown = html.escape(secret) if secret else "не удалось получить ключ"
+    text = (
+        f"<b>{html.escape(title)}</b>\n\n"
+        f"Выпущен: {_when(str(key.get('created_at') or ''))}\n"
+        f"Лимит: <b>{_usd(float(key.get('balance_usd') or 0))}</b>\n\n"
+        f"Адрес API\n<code>{base}</code>\n\n"
+        f"Ключ\n<code>{shown}</code>"
+    )
+    rows = []
+    if secret:
+        rows.append([_button("Скопировать токен", copy=secret, green=True)])
+    rows.append([_button("Перевыпустить", callback="reissue")])
+    rows.append(_back_row())
+    return text, InlineKeyboardMarkup(inline_keyboard=rows)
 
 
 def _chunks(text: str, limit: int = 3500) -> list[str]:
@@ -75,239 +212,323 @@ def _chunks(text: str, limit: int = 3500) -> list[str]:
     return parts
 
 
-def _offer_text(profile: dict) -> str:
-    url = str(profile.get("offer_url") or "")
-    if not url:
-        return "Ссылка на оферту появится, когда в админке будет указан адрес сайта."
-    return (
-        "Чтобы пользоваться Aimarket, прочитайте оферту и примите её:\n"
-        f"<a href=\"{html.escape(url, quote=True)}\">{html.escape(url)}</a>"
-    )
+async def _profile_of(user_id: int, username: str, first_name: str) -> dict:
+    await upsert_user(user_id, username, first_name)
+    return await get_user(user_id)
 
 
-def _offer_keyboard(profile: dict) -> InlineKeyboardMarkup | None:
-    if not profile.get("offer_url"):
-        return None
-    return InlineKeyboardMarkup(
-        inline_keyboard=[[InlineKeyboardButton(text="Принимаю оферту", callback_data="offer:yes")]]
-    )
-
-
-async def _profile(message: Message) -> dict | None:
-    user = message.from_user
-    if user is None:
-        return None
+async def _edit(message: Message, text: str, markup: InlineKeyboardMarkup) -> None:
     try:
-        return await upsert_user(user.id, user.username or "", user.first_name or "")
-    except BackendError:
-        await message.answer(UNAVAILABLE)
-        return None
+        await message.edit_text(text, reply_markup=markup)
+    except TelegramBadRequest as exc:
+        if "message is not modified" in str(exc).lower():
+            return
+        await message.answer(text, reply_markup=markup)
 
 
-async def _require(message: Message) -> dict | None:
-    profile = await _profile(message)
-    if profile is None:
-        return None
-    if not profile["offer_accepted"]:
-        await message.answer(_offer_text(profile), reply_markup=_offer_keyboard(profile))
-        return None
-    return profile
-
-
-def _secret_text(created: dict) -> str:
-    secret = html.escape(str(created["secret"]))
-    base = html.escape(str(created["base_url"]))
-    limit = _usd(float(created["balance_usd"]))
-    return (
-        f"Токен выпущен, лимит <b>{limit}</b>.\n"
-        "Сохраните его: повторно он не показывается.\n\n"
-        f"Адрес API: <code>{base}</code>\n"
-        f"Ключ: <code>{secret}</code>"
-    )
-
-
-async def _after_payment(message: Message, topup_id: int, profile: dict) -> None:
-    markup = MENU if profile.get("offer_accepted") else _offer_keyboard(profile)
-    user = message.from_user
-    if user is None:
-        return
+async def _open(message: Message, text: str, markup: InlineKeyboardMarkup) -> Message:
+    sent = await message.answer(text, reply_markup=ReplyKeyboardRemove())
     try:
-        result = await check_topup(user.id, topup_id)
-    except BackendError:
-        await message.answer(UNAVAILABLE, reply_markup=markup)
-        return
-    status = str(result.get("status") or "")
-    if status == "paid":
-        text = f"Оплата прошла. Баланс: <b>{_usd(float(result['balance_usd']))}</b>."
-    elif status in {"rejected", "failed"}:
-        text = "Платёж не прошёл."
-    else:
-        text = "Платёж ещё не подтверждён. Через минуту нажмите «Баланс»."
-    await message.answer(text, reply_markup=markup)
+        await sent.edit_reply_markup(reply_markup=markup)
+    except TelegramBadRequest:
+        await sent.edit_text(text, reply_markup=markup)
+    return sent
+
+
+async def _show_callback(query: CallbackQuery, text: str, markup: InlineKeyboardMarkup) -> None:
+    await query.answer()
+    if query.message is not None:
+        await _edit(query.message, text, markup)
+
+
+async def _remember_screen(state: FSMContext, message: Message) -> None:
+    await state.set_state(Topup.amount)
+    await state.update_data(screen_chat_id=message.chat.id, screen_message_id=message.message_id)
 
 
 @router.message(CommandStart())
 async def start(message: Message, state: FSMContext, command: CommandObject) -> None:
     await state.clear()
-    profile = await _profile(message)
-    if profile is None:
+    user = message.from_user
+    if user is None:
+        return
+    try:
+        profile = await _profile_of(user.id, user.username or "", user.first_name or "")
+    except BackendError:
+        await message.answer(UNAVAILABLE)
         return
     payload = (command.args or "").strip()
+    notice = ""
     if payload.startswith("paid_"):
         raw = payload.removeprefix("paid_")
         if raw.isdigit():
-            await _after_payment(message, int(raw), profile)
-            return
+            notice = await _payment_notice(user.id, int(raw))
+            try:
+                profile = await get_user(user.id)
+            except BackendError:
+                pass
     if not profile["offer_accepted"]:
-        await message.answer(_offer_text(profile), reply_markup=_offer_keyboard(profile))
+        text, markup = _offer_screen(profile)
+        await _open(message, text, markup)
         return
-    await message.answer("Aimarket. Баланс — это лимит вашего токена.", reply_markup=MENU)
+    text, markup = _cabinet_screen(profile, notice)
+    await _open(message, text, markup)
+
+
+async def _payment_notice(telegram_id: int, topup_id: int) -> str:
+    try:
+        result = await check_topup(telegram_id, topup_id)
+    except BackendError:
+        return "Не удалось проверить платёж."
+    status = str(result.get("status") or "")
+    if status == "paid":
+        return "Оплата прошла."
+    if status in {"rejected", "failed"}:
+        return "Платёж не прошёл."
+    return "Платёж ещё не подтверждён. Баланс обновится, когда оплата дойдёт."
 
 
 @router.callback_query(F.data == "offer:yes")
-async def accept(query: CallbackQuery) -> None:
+async def accept(query: CallbackQuery, state: FSMContext) -> None:
+    await state.clear()
     user = query.from_user
     try:
         await upsert_user(user.id, user.username or "", user.first_name or "")
         await accept_offer(user.id)
+        profile = await get_user(user.id)
     except BackendError as exc:
         await query.answer(_explain(exc), show_alert=True)
         return
-    await query.answer("Оферта принята")
-    if query.message is not None:
-        await query.message.answer("Оферта принята.", reply_markup=MENU)
+    text, markup = _cabinet_screen(profile, "Оферта принята.")
+    await _show_callback(query, text, markup)
 
 
-@router.message(Command("balance"))
-@router.message(F.text == "Баланс")
-async def balance(message: Message, state: FSMContext) -> None:
+@router.callback_query(F.data == "cabinet")
+async def cabinet(query: CallbackQuery, state: FSMContext) -> None:
     await state.clear()
-    profile = await _require(message)
-    if profile is None or message.from_user is None:
-        return
+    user = query.from_user
     try:
-        fresh = await get_user(message.from_user.id)
+        profile = await _profile_of(user.id, user.username or "", user.first_name or "")
     except BackendError:
-        await message.answer(UNAVAILABLE)
+        await query.answer(UNAVAILABLE, show_alert=True)
         return
-    lines = [f"Баланс: <b>{_usd(float(fresh['balance_usd']))}</b>"]
-    if fresh["has_key"]:
-        lines.append(f"Токен: <code>{html.escape(str(fresh['key_prefix']))}…</code>")
-        lines.append("Остаток сверяется с лимитом ключа.")
-    else:
-        lines.append("Токен ещё не выпущен.")
-    price = float(fresh.get("usd_price_rub") or 0)
-    if price > 0:
-        lines.append(f"Цена пополнения: {price:.2f} ₽ за $1")
-    await message.answer("\n".join(lines))
+    if not profile["offer_accepted"]:
+        text, markup = _offer_screen(profile)
+        await _show_callback(query, text, markup)
+        return
+    text, markup = _cabinet_screen(profile)
+    await _show_callback(query, text, markup)
 
 
-@router.message(Command("topup"))
-@router.message(F.text == "Пополнить")
-async def topup_start(message: Message, state: FSMContext) -> None:
-    await state.clear()
-    profile = await _require(message)
-    if profile is None:
+@router.callback_query(F.data == "topup")
+async def topup_open(query: CallbackQuery, state: FSMContext) -> None:
+    user = query.from_user
+    try:
+        profile = await _profile_of(user.id, user.username or "", user.first_name or "")
+    except BackendError:
+        await query.answer(UNAVAILABLE, show_alert=True)
+        return
+    if not profile["offer_accepted"]:
+        await query.answer("Сначала примите оферту.", show_alert=True)
         return
     if float(profile.get("usd_price_rub") or 0) <= 0:
-        await message.answer(_explain(BackendError(402, "sales-closed")))
+        await query.answer(_explain(BackendError(402, "sales-closed")), show_alert=True)
         return
     if not profile.get("yookassa_enabled"):
-        await message.answer(_explain(BackendError(402, "no-yookassa")))
+        await query.answer(_explain(BackendError(402, "no-yookassa")), show_alert=True)
         return
-    await state.set_state(Topup.amount)
-    await message.answer("Сумма пополнения в рублях. Например: 500\nОтмена: /cancel")
+    text, markup = _topup_screen(profile)
+    await _show_callback(query, text, markup)
+    if query.message is not None:
+        await _remember_screen(state, query.message)
 
 
-@router.message(Command("cancel"))
-async def cancel(message: Message, state: FSMContext) -> None:
-    await state.clear()
-    await message.answer("Отменено.", reply_markup=MENU)
-
-
-@router.message(F.text == "Выпустить токен")
-async def issue_ask(message: Message, state: FSMContext) -> None:
-    await state.clear()
-    profile = await _require(message)
-    if profile is None or message.from_user is None:
+@router.message(Topup.amount)
+async def topup_amount(message: Message, state: FSMContext) -> None:
+    raw = (message.text or "").strip().replace(",", ".")
+    if raw.lower() in {"/cancel", "отмена"}:
+        await cabinet_from_message(message, state)
         return
     try:
-        fresh = await get_user(message.from_user.id)
-    except BackendError:
-        await message.answer(UNAVAILABLE)
+        amount = float(raw)
+    except ValueError:
+        await message.answer("Нужно число в рублях, например 500.")
         return
-    if fresh["has_key"]:
-        await message.answer(_explain(BackendError(409, "key-exists")))
+    if amount < 1:
+        await message.answer("Минимальная сумма — 1 ₽.")
         return
-    if float(fresh["balance_usd"]) <= 0:
-        await message.answer(_explain(BackendError(402, "balance")))
+    if message.from_user is None:
         return
-    keyboard = InlineKeyboardMarkup(
-        inline_keyboard=[[InlineKeyboardButton(text="Выпустить", callback_data="issue:yes")]]
-    )
-    await message.answer(
-        f"Выпустить токен с лимитом <b>{_usd(float(fresh['balance_usd']))}</b>?",
-        reply_markup=keyboard,
-    )
-
-
-@router.callback_query(F.data == "issue:yes")
-async def issue_confirm(query: CallbackQuery) -> None:
     try:
-        created = await issue_key(query.from_user.id)
+        created = await create_topup(message.from_user.id, amount)
     except BackendError as exc:
-        await query.answer()
+        await state.clear()
+        await message.answer(_explain(exc))
+        return
+    text, markup = _pay_screen(created)
+    data = await state.get_data()
+    await state.clear()
+    edited = False
+    chat_id = data.get("screen_chat_id")
+    message_id = data.get("screen_message_id")
+    if chat_id and message_id:
+        try:
+            await message.bot.edit_message_text(
+                text,
+                chat_id=chat_id,
+                message_id=message_id,
+                reply_markup=markup,
+            )
+            edited = True
+        except TelegramBadRequest:
+            edited = False
+    if not edited:
+        await message.answer(text, reply_markup=markup)
+    try:
+        await message.delete()
+    except TelegramBadRequest:
+        pass
+
+
+@router.callback_query(F.data == "issue")
+async def issue(query: CallbackQuery, state: FSMContext) -> None:
+    await state.clear()
+    user = query.from_user
+    try:
+        profile = await _profile_of(user.id, user.username or "", user.first_name or "")
+    except BackendError:
+        await query.answer(UNAVAILABLE, show_alert=True)
+        return
+    if profile.get("has_key"):
+        await _show_token(query, "Ваш токен")
+        return
+    if float(profile["balance_usd"]) <= 0:
+        text, markup = _empty_balance_screen()
+        await _show_callback(query, text, markup)
+        return
+    await query.answer()
+    try:
+        created = await issue_key(user.id)
+    except BackendError as exc:
         if query.message is not None:
             await query.message.answer(_explain(exc))
         return
-    await query.answer("Токен выпущен")
+    text, markup = _token_screen(created, "Токен выпущен")
     if query.message is not None:
-        await query.message.answer(_secret_text(created))
+        await _edit(query.message, text, markup)
 
 
-@router.message(F.text == "Перевыпустить")
-async def reissue_ask(message: Message, state: FSMContext) -> None:
+@router.callback_query(F.data == "token")
+async def token(query: CallbackQuery, state: FSMContext) -> None:
     await state.clear()
-    profile = await _require(message)
-    if profile is None or message.from_user is None:
-        return
+    await _show_token(query, "Ваш токен")
+
+
+async def _show_token(query: CallbackQuery, title: str) -> None:
     try:
-        fresh = await get_user(message.from_user.id)
+        key = await read_key(query.from_user.id)
+    except BackendError as exc:
+        await query.answer(_explain(exc), show_alert=True)
+        return
+    text, markup = _token_screen(key, title)
+    await _show_callback(query, text, markup)
+
+
+@router.callback_query(F.data == "reissue")
+async def reissue_ask(query: CallbackQuery, state: FSMContext) -> None:
+    await state.clear()
+    user = query.from_user
+    try:
+        profile = await get_user(user.id)
     except BackendError:
-        await message.answer(UNAVAILABLE)
+        await query.answer(UNAVAILABLE, show_alert=True)
         return
-    if not fresh["has_key"]:
-        await message.answer(_explain(BackendError(409, "no-key")))
-        return
-    keyboard = InlineKeyboardMarkup(
-        inline_keyboard=[[InlineKeyboardButton(text="Заменить токен", callback_data="reissue:yes")]]
-    )
-    await message.answer(
+    text = (
+        "<b>Перевыпуск</b>\n\n"
         "Старый токен будет удалён. Новый получит тот же оставшийся лимит "
-        f"<b>{_usd(float(fresh['balance_usd']))}</b>.",
-        reply_markup=keyboard,
+        f"<b>{_usd(float(profile['balance_usd']))}</b>."
     )
+    markup = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [_button("Перевыпустить", callback="reissue:yes")],
+            _back_row(),
+        ]
+    )
+    await _show_callback(query, text, markup)
 
 
 @router.callback_query(F.data == "reissue:yes")
 async def reissue_confirm(query: CallbackQuery) -> None:
+    await query.answer()
     try:
         created = await reissue_key(query.from_user.id)
     except BackendError as exc:
-        await query.answer()
         if query.message is not None:
             await query.message.answer(_explain(exc))
         return
-    await query.answer("Токен заменён")
+    text, markup = _token_screen(created, "Новый токен")
     if query.message is not None:
-        await query.message.answer(_secret_text(created))
+        await _edit(query.message, text, markup)
+
+
+@router.message(Command("cancel"))
+@router.message(F.text.in_({"Баланс", "Пополнить", "Выпустить токен", "Перевыпустить", "Каталог"}))
+async def legacy_menu(message: Message, state: FSMContext) -> None:
+    text = message.text or ""
+    if text == "Пополнить":
+        user = message.from_user
+        if user is None:
+            return
+        try:
+            profile = await _profile_of(user.id, user.username or "", user.first_name or "")
+        except BackendError:
+            await message.answer(UNAVAILABLE)
+            return
+        if not profile["offer_accepted"]:
+            body, markup = _offer_screen(profile)
+            await _open(message, body, markup)
+            return
+        body, markup = _topup_screen(profile)
+        sent = await _open(message, body, markup)
+        await _remember_screen(state, sent)
+        return
+    if text == "Каталог":
+        await catalog(message, state)
+        return
+    await cabinet_from_message(message, state)
+
+
+async def cabinet_from_message(message: Message, state: FSMContext) -> None:
+    await state.clear()
+    user = message.from_user
+    if user is None:
+        return
+    try:
+        profile = await _profile_of(user.id, user.username or "", user.first_name or "")
+    except BackendError:
+        await message.answer(UNAVAILABLE)
+        return
+    if not profile["offer_accepted"]:
+        text, markup = _offer_screen(profile)
+    else:
+        text, markup = _cabinet_screen(profile)
+    await _open(message, text, markup)
 
 
 @router.message(Command("catalog"))
-@router.message(F.text == "Каталог")
 async def catalog(message: Message, state: FSMContext) -> None:
     await state.clear()
-    if await _require(message) is None:
+    user = message.from_user
+    if user is None:
+        return
+    try:
+        profile = await upsert_user(user.id, user.username or "", user.first_name or "")
+    except BackendError:
+        await message.answer(UNAVAILABLE)
+        return
+    if not profile["offer_accepted"]:
+        text, markup = _offer_screen(profile)
+        await _open(message, text, markup)
         return
     try:
         items = await list_products()
@@ -327,37 +548,3 @@ async def catalog(message: Message, state: FSMContext) -> None:
             lines.append(f"• {name}")
     for part in _chunks("\n".join(lines)):
         await message.answer(part)
-
-
-@router.message(Topup.amount)
-async def topup_amount(message: Message, state: FSMContext) -> None:
-    text = (message.text or "").strip().replace(",", ".")
-    if text in MENU_TEXTS:
-        await state.clear()
-        await message.answer("Нажмите кнопку ещё раз.")
-        return
-    try:
-        amount = float(text)
-    except ValueError:
-        await message.answer("Нужно число в рублях, например 500.")
-        return
-    if amount <= 0:
-        await message.answer("Сумма должна быть больше нуля.")
-        return
-    if message.from_user is None:
-        return
-    try:
-        created = await create_topup(message.from_user.id, amount)
-    except BackendError as exc:
-        await state.clear()
-        await message.answer(_explain(exc), reply_markup=MENU)
-        return
-    await state.clear()
-    keyboard = InlineKeyboardMarkup(
-        inline_keyboard=[[InlineKeyboardButton(text="Оплатить", url=str(created["pay_url"]))]]
-    )
-    await message.answer(
-        f"К оплате {created['amount_rub']:.2f} ₽. На баланс придёт {_usd(float(created['amount_usd']))}.\n"
-        "После оплаты ЮKassa вернёт вас в этот чат. Если токен уже выпущен, лимит увеличится на эту сумму.",
-        reply_markup=keyboard,
-    )

@@ -2,10 +2,11 @@ import hashlib
 import logging
 import secrets
 import threading
+from datetime import datetime, timezone
 from decimal import Decimal
 
 from app.db import pool
-from app.money import units_to_usd
+from app.money import usd_to_units, units_to_usd
 from app.upstream import UpstreamError, upstream
 
 log = logging.getLogger("app.billing")
@@ -90,8 +91,13 @@ def issue_key(user_id: int, telegram_id: int) -> dict:
             upstream_id, secret = upstream.create_child_key(name, amount)
         except UpstreamError as exc:
             _reraise(exc)
-        _store_key(user_id, name, secret, upstream_id, amount)
-        return {"secret": secret, "base_url": _base_url(), "balance_usd": float(amount)}
+        created_at = _store_key(user_id, name, secret, upstream_id, amount)
+        return {
+            "secret": secret,
+            "base_url": _base_url(),
+            "balance_usd": float(amount),
+            "created_at": created_at.isoformat(),
+        }
 
 
 def reissue_key(user_id: int, telegram_id: int) -> dict:
@@ -124,8 +130,36 @@ def reissue_key(user_id: int, telegram_id: int) -> dict:
         except UpstreamError as exc:
             log.warning("перевыпуск не создал новый ключ, лимит сохранён у пользователя %s", user_id)
             raise BillingError("reissue-failed") from exc
-        _store_key(user_id, name, secret, new_id, amount)
-        return {"secret": secret, "base_url": _base_url(), "balance_usd": float(amount)}
+        created_at = _store_key(user_id, name, secret, new_id, amount)
+        return {
+            "secret": secret,
+            "base_url": _base_url(),
+            "balance_usd": float(amount),
+            "created_at": created_at.isoformat(),
+        }
+
+
+def describe_key(user_id: int) -> dict:
+    with billing_lock:
+        key = _active_key(user_id)
+        if key is None:
+            raise BillingError("no-key")
+        secret = str(key["secret"] or "")
+        if not secret:
+            try:
+                secret = upstream.reveal_key(int(key["upstream_id"]))
+            except UpstreamError as exc:
+                _reraise(exc)
+            with pool.connection() as conn:
+                conn.execute("UPDATE api_keys SET secret = %s WHERE id = %s", (secret, key["id"]))
+        created_at = key["created_at"]
+        return {
+            "secret": secret,
+            "prefix": key["prefix"],
+            "base_url": _base_url(),
+            "balance_usd": float(_balance(user_id)),
+            "created_at": created_at.isoformat() if created_at is not None else "",
+        }
 
 
 def _sync_key(user_id: int, upstream_id: int) -> None:
@@ -142,6 +176,30 @@ def _sync_key(user_id: int, upstream_id: int) -> None:
             )
         return
     amount = units_to_usd(int(token.get("remain_quota") or 0))
+    with pool.connection() as conn:
+        row = conn.execute(
+            """
+            SELECT u.balance_usd, k.id, k.name
+            FROM users u
+            JOIN api_keys k ON k.user_id = u.id AND k.revoked_at IS NULL
+            WHERE u.id = %s AND k.upstream_id = %s
+            """,
+            (user_id, upstream_id),
+        ).fetchone()
+    previous = Decimal(row["balance_usd"]) if row else amount
+    key_id = int(row["id"]) if row else None
+    token_name = str((row or {}).get("name") or token.get("name") or "")
+    imported = _import_usage(user_id, key_id, upstream_id, token_name)
+    if imported:
+        with pool.connection() as conn:
+            conn.execute(
+                "DELETE FROM usage WHERE user_id = %s AND upstream_log_id IS NULL",
+                (user_id,),
+            )
+    elif previous - amount >= Decimal("0.0001") and key_id is not None:
+        units = usd_to_units(previous - amount)
+        if units > 0:
+            _insert_usage(user_id, key_id, None, "", 0, 0, units, datetime.now(timezone.utc))
     _set_balance(user_id, amount, "", "", 0, Decimal(0), write_ledger=False)
     with pool.connection() as conn:
         conn.execute(
@@ -177,7 +235,7 @@ def _active_key(user_id: int) -> dict | None:
     with pool.connection() as conn:
         return conn.execute(
             """
-            SELECT id, upstream_id, prefix
+            SELECT id, upstream_id, prefix, secret, created_at
             FROM api_keys
             WHERE user_id = %s AND revoked_at IS NULL AND upstream_id IS NOT NULL
             """,
@@ -224,18 +282,20 @@ def _revoke_key(key_id: int) -> None:
         conn.execute("UPDATE api_keys SET revoked_at = NOW() WHERE id = %s", (key_id,))
 
 
-def _store_key(user_id: int, name: str, secret: str, upstream_id: int, amount: Decimal) -> None:
+def _store_key(user_id: int, name: str, secret: str, upstream_id: int, amount: Decimal) -> datetime:
     prefix = secret[:12]
     digest = hashlib.sha256(secret.encode()).hexdigest()
     try:
         with pool.connection() as conn:
-            conn.execute(
+            row = conn.execute(
                 """
-                INSERT INTO api_keys (user_id, name, prefix, secret_hash, upstream_id, quota_usd)
-                VALUES (%s, %s, %s, %s, %s, %s)
+                INSERT INTO api_keys (user_id, name, prefix, secret_hash, secret, upstream_id, quota_usd)
+                VALUES (%s, %s, %s, %s, %s, %s, %s)
+                RETURNING created_at
                 """,
-                (user_id, name, prefix, digest, upstream_id, amount),
-            )
+                (user_id, name, prefix, digest, secret, upstream_id, amount),
+            ).fetchone()
+        return row["created_at"]
     except Exception:
         try:
             upstream.delete_key(upstream_id)
@@ -252,6 +312,125 @@ def upstream_base() -> str:
     from app.config import settings
 
     return settings.router_base_url.rstrip("/") + "/v1"
+
+
+def _import_usage(user_id: int, key_id: int | None, upstream_id: int, token_name: str) -> int:
+    if not token_name or key_id is None:
+        return 0
+    inserted = 0
+    try:
+        for page in range(10):
+            items = upstream.spend_logs(token_name, page)
+            if not items:
+                break
+            matched = [item for item in items if _log_matches(item, token_name, upstream_id)]
+            if not matched:
+                break
+            page_inserted, seen_old = _save_usage_page(user_id, key_id, matched)
+            inserted += page_inserted
+            if seen_old or len(items) < 100:
+                break
+    except UpstreamError as exc:
+        log.warning("журнал расходов router.cheap не прочитан: %s", exc.message)
+    return inserted
+
+
+def _log_matches(item: dict, token_name: str, upstream_id: int) -> bool:
+    raw_id = item.get("token_id")
+    if raw_id not in (None, ""):
+        try:
+            if int(raw_id) == upstream_id:
+                return True
+        except (TypeError, ValueError):
+            pass
+    return str(item.get("token_name") or "") == token_name
+
+
+def _save_usage_page(user_id: int, key_id: int, items: list[dict]) -> tuple[int, bool]:
+    ids = [int(item["id"]) for item in items if str(item.get("id") or "").isdigit() or isinstance(item.get("id"), int)]
+    if not ids:
+        return 0, False
+    with pool.connection() as conn:
+        known = {
+            int(row["upstream_log_id"])
+            for row in conn.execute(
+                "SELECT upstream_log_id FROM usage WHERE upstream_log_id = ANY(%s)",
+                (ids,),
+            ).fetchall()
+        }
+        inserted = 0
+        for item in items:
+            log_id = item.get("id")
+            if not isinstance(log_id, int) and not str(log_id or "").isdigit():
+                continue
+            log_id = int(log_id)
+            if log_id in known:
+                continue
+            units = int(item.get("quota") or 0)
+            if units < 0:
+                units = 0
+            _insert_usage(
+                user_id,
+                key_id,
+                log_id,
+                str(item.get("model_name") or ""),
+                int(item.get("prompt_tokens") or 0),
+                int(item.get("completion_tokens") or 0),
+                units,
+                _log_time(item.get("created_at")),
+                conn,
+            )
+            inserted += 1
+    return inserted, bool(known)
+
+
+def _log_time(value: object) -> datetime:
+    try:
+        stamp = int(value or 0)
+    except (TypeError, ValueError):
+        stamp = 0
+    if stamp > 10_000_000_000:
+        stamp //= 1000
+    if stamp <= 0:
+        return datetime.now(timezone.utc)
+    return datetime.fromtimestamp(stamp, timezone.utc)
+
+
+def _insert_usage(
+    user_id: int,
+    key_id: int,
+    upstream_log_id: int | None,
+    model_name: str,
+    prompt_tokens: int,
+    completion_tokens: int,
+    quota_units: int,
+    created_at: datetime,
+    conn=None,
+) -> None:
+    sql = """
+        INSERT INTO usage (
+            user_id, api_key_id, upstream_log_id, model_name,
+            prompt_tokens, completion_tokens, quota_units, created_at
+        )
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+    """
+    if upstream_log_id is not None:
+        sql += " ON CONFLICT (upstream_log_id) WHERE upstream_log_id IS NOT NULL DO NOTHING"
+    params = (
+        user_id,
+        key_id,
+        upstream_log_id,
+        model_name[:200],
+        max(prompt_tokens, 0),
+        max(completion_tokens, 0),
+        quota_units,
+        created_at,
+    )
+    if conn is None:
+        with pool.connection() as own:
+            own.execute(sql, params)
+    else:
+        conn.execute(sql, params)
 
 
 def _reraise(exc: UpstreamError) -> None:

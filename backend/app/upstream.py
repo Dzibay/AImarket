@@ -118,13 +118,29 @@ class RouterCheap:
             except UpstreamError:
                 self._delete_quiet(token_id)
                 raise
-        data = revealed.get("data") if isinstance(revealed, dict) else None
-        raw = data.get("key") if isinstance(data, dict) else None
-        if not isinstance(raw, str) or not raw:
+        secret = _secret_from(revealed)
+        if not secret:
             self.delete_key(token_id)
             raise UpstreamError("router.cheap не вернул ключ")
-        secret = raw if raw.startswith("sk-") else f"sk-{raw}"
         return token_id, secret
+
+    def reveal_key(self, token_id: int) -> str:
+        with self._lock:
+            self._ensure_login()
+            revealed = self._authed("POST", f"/api/token/{token_id}/key", {})
+        secret = _secret_from(revealed)
+        if not secret:
+            raise UpstreamError("router.cheap не вернул ключ")
+        return secret
+
+    def spend_logs(self, token_name: str, page: int, page_size: int = 100) -> list[dict]:
+        query = urllib.parse.urlencode(
+            {"p": str(page), "page_size": str(page_size), "type": "2", "token_name": token_name}
+        )
+        with self._lock:
+            self._ensure_login()
+            payload = self._authed("GET", f"/api/log/?{query}")
+        return _token_items(payload)
 
     def delete_key(self, token_id: int) -> None:
         with self._lock:
@@ -266,6 +282,14 @@ class RouterCheap:
             if "=" in pair:
                 key, value = pair.split("=", 1)
                 self._cookies[key] = value
+
+
+def _secret_from(payload: dict) -> str:
+    data = payload.get("data") if isinstance(payload, dict) else None
+    raw = data.get("key") if isinstance(data, dict) else None
+    if not isinstance(raw, str) or not raw:
+        return ""
+    return raw if raw.startswith("sk-") else f"sk-{raw}"
 
 
 def _token_items(payload: dict) -> list[dict]:

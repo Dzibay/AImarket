@@ -70,6 +70,10 @@ async def issue_key(telegram_id: int) -> dict:
     return await _request("POST", f"/api/users/{telegram_id}/keys")
 
 
+async def read_key(telegram_id: int) -> dict:
+    return await _request("GET", f"/api/users/{telegram_id}/key")
+
+
 async def reissue_key(telegram_id: int) -> dict:
     return await _request("POST", f"/api/users/{telegram_id}/keys/reissue")
 

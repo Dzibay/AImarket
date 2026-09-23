@@ -3,10 +3,10 @@ from decimal import Decimal, ROUND_HALF_UP
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
-from app.billing import BillingError, issue_key, reissue_key, sync_user
+from app.billing import BillingError, describe_key, issue_key, reissue_key, sync_user
 from app.payments import settle_payment
 from app.db import pool
-from app.money import rub_to_usd, usd_price_rub
+from app.money import rub_to_usd, units_to_usd, usd_price_rub
 from app.security import require_bot
 from app.settings_store import offer_url
 from app.telegram_link import bot_start_url, bot_username
@@ -43,7 +43,7 @@ def _profile(conn, telegram_id: int) -> dict | None:
     return conn.execute(
         """
         SELECT u.id, u.telegram_id, u.username, u.first_name, u.balance_usd,
-               u.offer_accepted_at, k.prefix AS key_prefix
+               u.offer_accepted_at, k.prefix AS key_prefix, k.created_at AS key_created_at
         FROM users u
         LEFT JOIN api_keys k ON k.user_id = u.id AND k.revoked_at IS NULL
         WHERE u.telegram_id = %s
@@ -52,14 +52,41 @@ def _profile(conn, telegram_id: int) -> dict | None:
     ).fetchone()
 
 
-def _public(row: dict) -> dict:
+def _spent(conn, user_id: int) -> tuple[float, float]:
+    row = conn.execute(
+        """
+        SELECT
+            COALESCE(SUM(quota_units) FILTER (
+                WHERE created_at >= date_trunc('day', NOW() AT TIME ZONE 'Europe/Moscow')
+                    AT TIME ZONE 'Europe/Moscow'
+            ), 0) AS today_units,
+            COALESCE(SUM(quota_units) FILTER (
+                WHERE created_at >= date_trunc('month', NOW() AT TIME ZONE 'Europe/Moscow')
+                    AT TIME ZONE 'Europe/Moscow'
+            ), 0) AS month_units
+        FROM usage
+        WHERE user_id = %s
+          AND created_at >= date_trunc('month', NOW() AT TIME ZONE 'Europe/Moscow')
+              AT TIME ZONE 'Europe/Moscow'
+        """,
+        (user_id,),
+    ).fetchone()
+    return float(units_to_usd(int(row["today_units"]))), float(units_to_usd(int(row["month_units"])))
+
+
+def _public(conn, row: dict) -> dict:
     price = usd_price_rub()
+    spent_today, spent_month = _spent(conn, int(row["id"]))
+    created = row.get("key_created_at")
     return {
         "id": row["id"],
         "telegram_id": row["telegram_id"],
         "balance_usd": float(row["balance_usd"]),
+        "spent_today_usd": spent_today,
+        "spent_month_usd": spent_month,
         "offer_accepted": row["offer_accepted_at"] is not None,
         "key_prefix": row["key_prefix"] or "",
+        "key_created_at": created.isoformat() if created is not None else "",
         "has_key": bool(row["key_prefix"]),
         "offer_url": offer_url(),
         "usd_price_rub": float(price),
@@ -87,7 +114,7 @@ def upsert_user(body: UserIn) -> dict:
             """,
             (body.telegram_id, body.username.strip(), body.first_name.strip()),
         )
-        return _public(_user_or_404(conn, body.telegram_id))
+        return _public(conn, _user_or_404(conn, body.telegram_id))
 
 
 @router.get("/users/{telegram_id}")
@@ -97,7 +124,7 @@ def get_user(telegram_id: int) -> dict:
         user_id = int(row["id"])
     sync_user(user_id)
     with pool.connection() as conn:
-        return _public(_user_or_404(conn, telegram_id))
+        return _public(conn, _user_or_404(conn, telegram_id))
 
 
 @router.post("/users/{telegram_id}/offer")
@@ -114,7 +141,7 @@ def accept_offer(telegram_id: int) -> dict:
             """,
             (row["id"],),
         )
-        return _public(_user_or_404(conn, telegram_id))
+        return _public(conn, _user_or_404(conn, telegram_id))
 
 
 @router.post("/users/{telegram_id}/topups")
@@ -192,6 +219,18 @@ def check_topup(telegram_id: int, topup_id: int) -> dict:
     with pool.connection() as conn:
         fresh = _user_or_404(conn, telegram_id)
     return {"status": status, "balance_usd": float(fresh["balance_usd"])}
+
+
+@router.get("/users/{telegram_id}/key")
+def read_key(telegram_id: int) -> dict:
+    with pool.connection() as conn:
+        row = _user_or_404(conn, telegram_id)
+        user_id = int(row["id"])
+    sync_user(user_id)
+    try:
+        return describe_key(user_id)
+    except BillingError as exc:
+        raise_billing(exc)
 
 
 @router.post("/users/{telegram_id}/keys")
