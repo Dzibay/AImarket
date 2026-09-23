@@ -217,22 +217,49 @@ async def _profile_of(user_id: int, username: str, first_name: str) -> dict:
     return await get_user(user_id)
 
 
+def _plain(markup: InlineKeyboardMarkup) -> InlineKeyboardMarkup:
+    rows = []
+    for row in markup.inline_keyboard:
+        rows.append(
+            [
+                InlineKeyboardButton(
+                    text=button.text,
+                    callback_data=button.callback_data,
+                    url=button.url,
+                    copy_text=button.copy_text,
+                )
+                for button in row
+            ]
+        )
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+async def _deliver(message: Message, text: str, markup: InlineKeyboardMarkup) -> Message:
+    try:
+        return await message.answer(text, reply_markup=markup)
+    except TelegramBadRequest:
+        return await message.answer(text, reply_markup=_plain(markup))
+
+
 async def _edit(message: Message, text: str, markup: InlineKeyboardMarkup) -> None:
     try:
         await message.edit_text(text, reply_markup=markup)
     except TelegramBadRequest as exc:
         if "message is not modified" in str(exc).lower():
             return
-        await message.answer(text, reply_markup=markup)
+        try:
+            await message.edit_text(text, reply_markup=_plain(markup))
+        except TelegramBadRequest:
+            await _deliver(message, text, markup)
 
 
 async def _open(message: Message, text: str, markup: InlineKeyboardMarkup) -> Message:
-    sent = await message.answer(text, reply_markup=ReplyKeyboardRemove())
+    hidden = await message.answer("\u2060", reply_markup=ReplyKeyboardRemove())
     try:
-        await sent.edit_reply_markup(reply_markup=markup)
+        await hidden.delete()
     except TelegramBadRequest:
-        await sent.edit_text(text, reply_markup=markup)
-    return sent
+        pass
+    return await _deliver(message, text, markup)
 
 
 async def _show_callback(query: CallbackQuery, text: str, markup: InlineKeyboardMarkup) -> None:
