@@ -40,7 +40,7 @@ async def webhook(request: Request) -> dict:
     return {"ok": True}
 
 
-@router.get("/return")
+@router.get("/return", response_model=None)
 def payment_return(topup: int = 0) -> RedirectResponse | HTMLResponse:
     if topup:
         with pool.connection() as conn:
