@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex">
+  <title>Админка — Aimarket</title>
+  <style>
+    :root { color-scheme: light; }
+    body { margin: 0; background: #f4f1ea; color: #1c1915; font: 15px/1.45 "Segoe UI", sans-serif; }
+    main { max-width: 920px; margin: 0 auto; padding: 32px 18px 72px; }
+    h1 { font-size: 28px; letter-spacing: -0.03em; margin: 0 0 6px; }
+    h2 { font-size: 18px; margin: 0 0 8px; }
+    a { color: inherit; }
+    .lead { color: #6b645b; margin: 0 0 18px; }
+    section { background: #fff; border: 1px solid #e4ddd2; border-radius: 12px; padding: 16px 18px 18px; margin-top: 14px; }
+    label { display: block; margin: 12px 0 4px; color: #5c564c; font-size: 13px; }
+    input, textarea { width: 100%; box-sizing: border-box; border: 1px solid #d9d0c3; border-radius: 8px; padding: 8px 10px; font: inherit; background: #fff; }
+    textarea { min-height: 88px; resize: vertical; }
+    button { background: #1c1915; color: #fff; border: 0; border-radius: 8px; padding: 8px 12px; font: inherit; cursor: pointer; }
+    button.quiet { background: #efeae2; color: #1c1915; }
+    .row { display: flex; gap: 8px; align-items: center; margin-top: 12px; }
+    .error { color: #8d2b2b; }
+    table { width: 100%; border-collapse: collapse; }
+    th, td { text-align: left; padding: 8px 6px; border-bottom: 1px solid #eee6dc; vertical-align: top; }
+    td input { width: 90px; }
+    .hidden { display: none; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Aimarket</h1>
+    <p class="lead">Админка. <a href="/offer">Оферта</a></p>
+
+    <section id="login">
+      <h2>Вход</h2>
+      <label for="password">Пароль</label>
+      <input id="password" type="password" autocomplete="current-password">
+      <div class="row"><button id="enter" type="button">Войти</button><span id="login-error" class="error"></span></div>
+    </section>
+
+    <div id="app" class="hidden">
+      <section>
+        <h2>Кабинет router.cheap</h2>
+        <p class="lead" id="supplier">Баланс поставщика: —</p>
+        <label for="root">Корневой API-ключ</label>
+        <input id="root" type="password" placeholder="Оставьте пустым, чтобы не менять" autocomplete="off">
+        <p class="lead" id="root-hint"></p>
+        <label for="base">Публичный адрес сайта</label>
+        <input id="base" placeholder="https://example.com">
+        <label for="price">Цена, ₽ за $1 лимита</label>
+        <input id="price" inputmode="decimal" placeholder="100">
+        <label for="pay">Реквизиты для оплаты</label>
+        <textarea id="pay" placeholder="Карта, СБП или другой способ, который увидит покупатель"></textarea>
+        <label for="seller">Продавец</label>
+        <input id="seller" placeholder="ИП или название">
+        <label for="inn">ИНН</label>
+        <input id="inn">
+        <label for="email">Почта</label>
+        <input id="email" type="email">
+        <label for="offer">Текст оферты</label>
+        <textarea id="offer" style="min-height: 180px" placeholder="Пусто — на сайте стандартный текст"></textarea>
+        <div class="row"><button id="save" type="button">Сохранить</button><span id="save-status"></span></div>
+      </section>
+
+      <section>
+        <h2>Заявки на пополнение</h2>
+        <table>
+          <thead><tr><th>Кто</th><th>Сумма</th><th></th></tr></thead>
+          <tbody id="topups"></tbody>
+        </table>
+      </section>
+
+      <section>
+        <h2>Пользователи</h2>
+        <table>
+          <thead><tr><th>Кто</th><th>Баланс</th><th>Ключ</th><th>Начислить $</th></tr></thead>
+          <tbody id="users"></tbody>
+        </table>
+      </section>
+    </div>
+  </main>
+  <script>
+    const tokenKey = "aimarket-admin";
+    const $ = (id) => document.getElementById(id);
+
+    function authHeaders() {
+      return { Authorization: "Bearer " + sessionStorage.getItem(tokenKey), "Content-Type": "application/json" };
+    }
+
+    async function api(path, options) {
+      const response = await fetch(path, { ...options, headers: { ...authHeaders(), ...(options && options.headers) } });
+      if (response.status === 401) {
+        sessionStorage.removeItem(tokenKey);
+        showLogin();
+        throw new Error("unauthorized");
+      }
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(body.detail || "error");
+      return body;
+    }
+
+    function showLogin() {
+      $("login").classList.remove("hidden");
+      $("app").classList.add("hidden");
+    }
+
+    function person(row) {
+      const name = row.first_name || "";
+      const user = row.username ? "@" + row.username : String(row.telegram_id);
+      return (name + " " + user).trim();
+    }
+
+    async function load() {
+      const settings = await api("/api/admin/settings");
+      $("base").value = settings.public_base_url || "";
+      $("price").value = settings.usd_price_rub || "";
+      $("pay").value = settings.payment_details || "";
+      $("seller").value = settings.seller_name || "";
+      $("inn").value = settings.seller_inn || "";
+      $("email").value = settings.seller_email || "";
+      $("offer").value = settings.offer_text || "";
+      $("root").value = "";
+      $("root-hint").textContent = settings.router_root_key_set
+        ? "Ключ задан, окончание " + settings.router_root_key_hint
+        : "Ключ ещё не задан";
+      $("supplier").textContent = settings.supplier_balance_usd == null
+        ? "Баланс поставщика не прочитан" + (settings.supplier_error ? ": " + settings.supplier_error : "")
+        : "Баланс поставщика: $" + Number(settings.supplier_balance_usd).toFixed(2);
+
+      const topups = await api("/api/admin/topups");
+      $("topups").innerHTML = "";
+      for (const item of topups.items) {
+        const tr = document.createElement("tr");
+        const who = document.createElement("td");
+        who.textContent = person(item);
+        const sum = document.createElement("td");
+        sum.textContent = item.amount_rub.toFixed(2) + " ₽ → $" + Number(item.amount_usd).toFixed(2) + " · " + item.status;
+        const actions = document.createElement("td");
+        if (item.status === "pending") {
+          const ok = document.createElement("button");
+          ok.textContent = "Проверить оплату";
+          ok.onclick = async () => {
+            try {
+              await api("/api/admin/topups/" + item.id + "/confirm", { method: "POST" });
+              await load();
+            } catch (error) {
+              alert(error.message === "unpaid" ? "Платёж ещё не оплачен" : error.message);
+            }
+          };
+          const no = document.createElement("button");
+          no.className = "quiet";
+          no.textContent = "Отклонить";
+          no.onclick = async () => { await api("/api/admin/topups/" + item.id + "/reject", { method: "POST" }); await load(); };
+          actions.append(ok, document.createTextNode(" "), no);
+        }
+        tr.append(who, sum, actions);
+        $("topups").append(tr);
+      }
+
+      const users = await api("/api/admin/users");
+      $("users").innerHTML = "";
+      for (const item of users.items) {
+        const tr = document.createElement("tr");
+        const who = document.createElement("td");
+        who.textContent = person(item) + (item.offer_accepted ? "" : " · оферта не принята");
+        const balance = document.createElement("td");
+        balance.textContent = "$" + Number(item.balance_usd).toFixed(2);
+        const key = document.createElement("td");
+        key.textContent = item.key_prefix ? item.key_prefix + "…" : "нет";
+        const credit = document.createElement("td");
+        const input = document.createElement("input");
+        input.placeholder = "5";
+        const button = document.createElement("button");
+        button.textContent = "Начислить";
+        button.onclick = async () => {
+          const amount = Number(String(input.value).replace(",", "."));
+          if (!amount) return;
+          await api("/api/admin/users/" + item.id + "/credit", { method: "POST", body: JSON.stringify({ amount_usd: amount }) });
+          await load();
+        };
+        credit.append(input, button);
+        tr.append(who, balance, key, credit);
+        $("users").append(tr);
+      }
+      $("login").classList.add("hidden");
+      $("app").classList.remove("hidden");
+    }
+
+    $("enter").onclick = async () => {
+      $("login-error").textContent = "";
+      const response = await fetch("/api/admin/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ password: $("password").value })
+      });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        $("login-error").textContent = "Неверный пароль";
+        return;
+      }
+      sessionStorage.setItem(tokenKey, body.token);
+      $("password").value = "";
+      await load();
+    };
+
+    $("save").onclick = async () => {
+      $("save-status").textContent = "";
+      try {
+        await api("/api/admin/settings", {
+          method: "PUT",
+          body: JSON.stringify({
+            public_base_url: $("base").value,
+            usd_price_rub: $("price").value,
+            payment_details: $("pay").value,
+            seller_name: $("seller").value,
+            seller_inn: $("inn").value,
+            seller_email: $("email").value,
+            offer_text: $("offer").value,
+            router_root_key: $("root").value
+          })
+        });
+        $("save-status").textContent = "Сохранено";
+        await load();
+      } catch (error) {
+        $("save-status").textContent = error.message;
+      }
+    };
+
+    if (sessionStorage.getItem(tokenKey)) load().catch(showLogin);
+  </script>
+</body>
+</html>
