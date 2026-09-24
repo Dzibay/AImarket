@@ -123,8 +123,8 @@ def known_app(app_id: str) -> bool:
 
 def _filename(file_id: str, os_id: str, os_folder: str) -> str:
     if os_id == "lin":
-        return f"setup-routercheap-{file_id}-ru.sh"
-    return f"routercheap-{file_id}-{os_folder}-ru.zip"
+        return f"setup-aimarket-{file_id}-ru.sh"
+    return f"aimarket-{file_id}-{os_folder}-ru.zip"
 
 
 def _run_file(file_id: str, os_id: str) -> str:
@@ -132,7 +132,7 @@ def _run_file(file_id: str, os_id: str) -> str:
         return "start.cmd"
     if os_id == "mac":
         return "start.command"
-    return f"bash setup-routercheap-{file_id}-ru.sh"
+    return f"bash setup-aimarket-{file_id}-ru.sh"
 
 
 def _steps_text(app_id: str, title: str, os_name: str, run: str) -> str:

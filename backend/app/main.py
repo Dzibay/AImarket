@@ -23,7 +23,7 @@ _stop = threading.Event()
 _ADMIN_PAGE = Path(__file__).resolve().parent / "web" / "admin-panel" / "index.html"
 _SETUP_DIR = Path(__file__).resolve().parent / "web" / "downloads" / "setup"
 _SETUP_NAME = re.compile(
-    r"routercheap-[a-z0-9-]+-(windows|macos)-(ru|en)\.zip|setup-routercheap-[a-z0-9-]+-(ru|en)\.sh"
+    r"aimarket-[a-z0-9-]+-(windows|macos)-(ru|en)\.zip|setup-aimarket-[a-z0-9-]+-(ru|en)\.sh"
 )
 
 
