@@ -186,21 +186,17 @@ def _sync_key(user_id: int, upstream_id: int) -> None:
             """,
             (user_id, upstream_id),
         ).fetchone()
-    previous = Decimal(row["balance_usd"]) if row else amount
     key_id = int(row["id"]) if row else None
     token_name = str((row or {}).get("name") or token.get("name") or "")
-    imported = _import_usage(user_id, key_id, upstream_id, token_name)
-    if imported:
-        with pool.connection() as conn:
-            conn.execute(
-                "DELETE FROM usage WHERE user_id = %s AND upstream_log_id IS NULL",
-                (user_id,),
-            )
-    elif previous - amount >= Decimal("0.0001") and key_id is not None:
-        units = usd_to_units(previous - amount)
-        if units > 0:
-            _insert_usage(user_id, key_id, None, "", 0, 0, units, datetime.now(timezone.utc))
-    _record_balance(user_id, amount)
+    spent = _import_usage(user_id, key_id, upstream_id, token_name)
+    # Падение лимита без записи в журнале router.cheap — это правка квоты, не запрос.
+    with pool.connection() as conn:
+        conn.execute(
+            "DELETE FROM usage WHERE user_id = %s AND upstream_log_id IS NULL",
+            (user_id,),
+        )
+    _record_balance(user_id, amount, spent)
+    _warn_if_usage_differs(key_id, token)
     with pool.connection() as conn:
         conn.execute(
             """
@@ -262,15 +258,38 @@ def _balance(user_id: int) -> Decimal:
     return Decimal(row["balance_usd"])
 
 
-def _record_balance(user_id: int, amount: Decimal) -> None:
-    """Записывает изменение баланса, увиденное при сверке с поставщиком."""
-    delta = (_balance(user_id) - amount).quantize(Decimal("0.0001"))
-    if delta >= Decimal("0.0001"):
-        _set_balance(user_id, amount, "spend", "расход", 0, delta)
-    elif delta <= Decimal("-0.0001"):
-        _set_balance(user_id, amount, "adjust", "сверка с поставщиком", 0, -delta)
+def _record_balance(user_id: int, amount: Decimal, spent: Decimal | None = None) -> None:
+    """Сверяет локальный баланс с остатком ключа.
+
+    Уменьшение, подтверждённое новыми строками журнала, — расход.
+    Остальная разница — ручное изменение лимита, оно не увеличивает расход.
+    """
+    current = _balance(user_id)
+    delta = (current - amount).quantize(Decimal("0.0001"))
+    if spent is None:
+        consumed = delta if delta > 0 else Decimal(0)
     else:
-        _set_balance(user_id, amount, "", "", 0, Decimal(0), write_ledger=False)
+        consumed = min(max(spent, Decimal(0)), delta) if delta > 0 else Decimal(0)
+        consumed = consumed.quantize(Decimal("0.0001"))
+    adjustment = (consumed - delta).quantize(Decimal("0.0001"))
+    with pool.connection() as conn:
+        conn.execute("UPDATE users SET balance_usd = %s WHERE id = %s", (amount, user_id))
+        if consumed > 0:
+            conn.execute(
+                """
+                INSERT INTO ledger (user_id, amount_kopecks, kind, note, amount_usd)
+                VALUES (%s, 0, 'spend', 'расход', %s)
+                """,
+                (user_id, consumed),
+            )
+        if adjustment != 0:
+            conn.execute(
+                """
+                INSERT INTO ledger (user_id, amount_kopecks, kind, note, amount_usd)
+                VALUES (%s, 0, 'adjust', 'изменение лимита', %s)
+                """,
+                (user_id, adjustment),
+            )
 
 
 def _set_balance(
@@ -336,10 +355,10 @@ def upstream_base() -> str:
     return settings.router_base_url.rstrip("/") + "/v1"
 
 
-def _import_usage(user_id: int, key_id: int | None, upstream_id: int, token_name: str) -> int:
+def _import_usage(user_id: int, key_id: int | None, upstream_id: int, token_name: str) -> Decimal:
     if not token_name or key_id is None:
-        return 0
-    inserted = 0
+        return Decimal(0)
+    inserted_units = 0
     try:
         for page in range(10):
             items = upstream.spend_logs(token_name, page)
@@ -348,13 +367,13 @@ def _import_usage(user_id: int, key_id: int | None, upstream_id: int, token_name
             matched = [item for item in items if _log_matches(item, token_name, upstream_id)]
             if not matched:
                 break
-            page_inserted, seen_old = _save_usage_page(user_id, key_id, matched)
-            inserted += page_inserted
+            page_units, seen_old = _save_usage_page(user_id, key_id, matched)
+            inserted_units += page_units
             if seen_old or len(items) < 100:
                 break
     except UpstreamError as exc:
         log.warning("журнал расходов router.cheap не прочитан: %s", exc.message)
-    return inserted
+    return units_to_usd(inserted_units)
 
 
 def _log_matches(item: dict, token_name: str, upstream_id: int) -> bool:
@@ -380,7 +399,7 @@ def _save_usage_page(user_id: int, key_id: int, items: list[dict]) -> tuple[int,
                 (ids,),
             ).fetchall()
         }
-        inserted = 0
+        inserted_units = 0
         for item in items:
             log_id = item.get("id")
             if not isinstance(log_id, int) and not str(log_id or "").isdigit():
@@ -402,8 +421,31 @@ def _save_usage_page(user_id: int, key_id: int, items: list[dict]) -> tuple[int,
                 _log_time(item.get("created_at")),
                 conn,
             )
-            inserted += 1
-    return inserted, bool(known)
+            inserted_units += units
+    return inserted_units, bool(known)
+
+
+def _warn_if_usage_differs(key_id: int | None, token: dict) -> None:
+    raw_used = token.get("used_quota")
+    if key_id is None or raw_used in (None, ""):
+        return
+    try:
+        official = int(raw_used)
+    except (TypeError, ValueError):
+        return
+    with pool.connection() as conn:
+        row = conn.execute(
+            "SELECT COALESCE(SUM(quota_units), 0) AS units FROM usage WHERE api_key_id = %s",
+            (key_id,),
+        ).fetchone()
+    logged = int(row["units"] or 0)
+    if logged != official:
+        log.warning(
+            "расход ключа %s не совпал с router.cheap: журнал %s, used_quota %s",
+            key_id,
+            logged,
+            official,
+        )
 
 
 def _log_time(value: object) -> datetime:

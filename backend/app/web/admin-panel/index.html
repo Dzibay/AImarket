@@ -363,8 +363,9 @@
         const kind = document.createElement("td");
         kind.textContent = (kinds[item.kind] || item.kind) + (item.note ? " · " + item.note : "");
         const sum = document.createElement("td");
-        const sign = item.kind === "spend" ? "−" : "+";
-        let text = sign + "$" + Number(item.amount_usd).toFixed(2);
+        const value = Number(item.amount_usd);
+        const sign = item.kind === "spend" || value < 0 ? "−" : "+";
+        let text = sign + "$" + Math.abs(value).toFixed(2);
         if (item.kind === "topup" && item.amount_rub) text += " · " + Number(item.amount_rub).toFixed(2) + " ₽";
         sum.textContent = text;
         const remove = document.createElement("td");
