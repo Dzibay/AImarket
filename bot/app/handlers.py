@@ -472,7 +472,13 @@ async def guide_pick(query: CallbackQuery, state: FSMContext) -> None:
             origin = _site(profile)
         except BackendError:
             origin = ""
-        screen = steps_screen(parts[2], parts[3], origin)
+        token = ""
+        try:
+            key = await read_key(query.from_user.id)
+            token = str(key.get("secret") or "")
+        except BackendError:
+            token = ""
+        screen = steps_screen(parts[2], parts[3], origin, token)
         if screen is None:
             await query.answer("Такой инструкции нет.", show_alert=True)
             return

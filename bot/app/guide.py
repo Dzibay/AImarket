@@ -77,7 +77,7 @@ def os_screen(app_id: str) -> tuple[str, list[list[tuple]]] | None:
     return text, rows
 
 
-def steps_screen(app_id: str, os_id: str, origin: str) -> tuple[str, list[list[tuple]]] | None:
+def steps_screen(app_id: str, os_id: str, origin: str, token: str = "") -> tuple[str, list[list[tuple]]] | None:
     app = _APPS.get(app_id)
     system = _OS.get(os_id)
     if app is None or system is None or app_id == "other":
@@ -93,6 +93,10 @@ def steps_screen(app_id: str, os_id: str, origin: str) -> tuple[str, list[list[t
     site = origin.rstrip("/")
     if site:
         rows.append([("url", "Скачать программу", f"{site}/downloads/setup/{filename}", True)])
+    if token:
+        rows.append([("copy", "Скопировать мой токен", token, True)])
+    else:
+        rows.append([("cb", "Открыть мой токен", "token", True)])
     rows.append([("cb", "← Назад", f"guide:a:{app_id}")])
     return text, rows
 
