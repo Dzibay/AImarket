@@ -3,6 +3,7 @@ from decimal import Decimal
 
 from app.billing import BillingError, add_usd
 from app.db import pool
+from app.telegram_link import notify_payment
 from app.yookassa import YooKassaError, get_payment
 
 log = logging.getLogger("app.payments")
@@ -33,9 +34,11 @@ def settle_payment(payment_id: str) -> str:
     with pool.connection() as conn:
         row = conn.execute(
             """
-            SELECT id, user_id, amount_kopecks, amount_usd, status, payment_id
-            FROM topups
-            WHERE id = %s
+            SELECT t.id, t.user_id, t.amount_kopecks, t.amount_usd, t.status, t.payment_id,
+                   u.telegram_id
+            FROM topups t
+            JOIN users u ON u.id = t.user_id
+            WHERE t.id = %s
             """,
             (topup_id,),
         ).fetchone()
@@ -46,8 +49,10 @@ def settle_payment(payment_id: str) -> str:
         return "ignored"
     if row["status"] == "rejected":
         return "ignored"
+    if row["status"] == "paid":
+        return "already"
     try:
-        add_usd(
+        balance = add_usd(
             int(row["user_id"]),
             Decimal(row["amount_usd"]),
             "topup",
@@ -57,12 +62,16 @@ def settle_payment(payment_id: str) -> str:
     except BillingError:
         raise
     with pool.connection() as conn:
-        conn.execute(
+        credited = conn.execute(
             """
             UPDATE topups
             SET status = 'paid', decided_at = COALESCE(decided_at, NOW())
             WHERE id = %s AND status = 'pending'
+            RETURNING id
             """,
             (topup_id,),
-        )
+        ).fetchone()
+    if credited is None:
+        return "already"
+    notify_payment(int(row["telegram_id"]), Decimal(row["amount_usd"]), balance)
     return "credited"

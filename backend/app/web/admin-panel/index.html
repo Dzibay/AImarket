@@ -29,6 +29,10 @@
     th, td { text-align: left; padding: 8px 6px; border-bottom: 1px solid #eee6dc; vertical-align: top; }
     td.num, th.num { text-align: right; white-space: nowrap; }
     td input { width: 90px; }
+    .ledger-form select, .ledger-form input { width: auto; }
+    .ledger-form input { width: 140px; }
+    .ledger-form select { max-width: 280px; }
+    .card.bad { outline: 1px solid #e3b4b4; }
     button.danger { background: #8d2b2b; }
     .hidden { display: none; }
     .panel-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
@@ -69,6 +73,7 @@
         <button type="button" data-tab="analytics" class="on">Аналитика</button>
         <button type="button" data-tab="settings">Настройки</button>
         <button type="button" data-tab="payments">Платежи</button>
+        <button type="button" data-tab="ledger">Транзакции</button>
         <button type="button" data-tab="users">Пользователи</button>
       </nav>
 
@@ -146,6 +151,33 @@
         </table>
       </section>
 
+      <section id="tab-ledger" class="hidden">
+        <h2>Транзакции</h2>
+        <p class="lead">Сверка считает весь журнал. В таблице — последние 200 записей. Новая запись и удаление меняют только журнал, баланс клиента остаётся прежним.</p>
+        <div class="cards" id="ledger-check"></div>
+        <h2 style="margin-top: 22px">Новая запись</h2>
+        <div class="row ledger-form">
+          <select id="ledger-user"></select>
+          <select id="ledger-kind">
+            <option value="credit">Админка</option>
+            <option value="spend">Расход</option>
+            <option value="adjust">Сверка</option>
+            <option value="topup">ЮKassa</option>
+          </select>
+          <input id="ledger-usd" inputmode="decimal" placeholder="Сумма $">
+          <input id="ledger-rub" inputmode="decimal" placeholder="₽, если есть">
+          <input id="ledger-note" placeholder="Пометка" style="width: 220px">
+          <button id="ledger-add" type="button">Добавить</button>
+        </div>
+        <p id="ledger-error" class="error"></p>
+        <div class="table-wrap">
+        <table>
+          <thead><tr><th>Когда</th><th>Кто</th><th>Операция</th><th>Сумма</th><th></th></tr></thead>
+          <tbody id="ledger"></tbody>
+        </table>
+        </div>
+      </section>
+
       <section id="tab-users" class="hidden">
         <h2>Пользователи</h2>
         <div class="table-wrap">
@@ -187,6 +219,27 @@
       const name = row.first_name || "";
       const user = row.username ? "@" + row.username : String(row.telegram_id);
       return (name + " " + user).trim();
+    }
+
+    function renderLedgerCheck(check) {
+      const box = $("ledger-check");
+      box.innerHTML = "";
+      const balanceDiff = Number(check.balance_diff_usd || 0);
+      const payDiff = Number(check.payments_diff_usd || 0);
+      const payDiffRub = Number(check.payments_diff_rub || 0);
+      const cards = [
+        ["Балансы клиентов", usd4(check.balances_usd || 0), true],
+        ["Журнал, приход − расход", usd4(check.ledger_net_usd || 0), true],
+        ["Расхождение балансов", check.balance_ok ? "Сходится" : usd4(balanceDiff), !!check.balance_ok],
+        ["Оплаченные платежи", usd(check.payments_usd || 0) + " · " + rub(check.payments_rub || 0), true],
+        ["ЮKassa в журнале", usd(check.ledger_topup_usd || 0) + " · " + rub(check.ledger_topup_rub || 0), true],
+        ["Расхождение платежей", check.payments_ok ? "Сходится" : usd4(payDiff) + " · " + rub(payDiffRub), !!check.payments_ok]
+      ];
+      for (const item of cards) {
+        const node = card(item[0], item[1]);
+        if (!item[2]) node.classList.add("bad");
+        box.append(node);
+      }
     }
 
     function rub(value) { return Number(value).toFixed(2) + " ₽"; }
@@ -297,6 +350,41 @@
         ? "Баланс поставщика не прочитан" + (settings.supplier_error ? ": " + settings.supplier_error : "")
         : "Баланс поставщика: $" + Number(settings.supplier_balance_usd).toFixed(2);
 
+      const ledger = await api("/api/admin/ledger");
+      const kinds = { topup: "ЮKassa", credit: "Админка", spend: "Расход", adjust: "Сверка" };
+      renderLedgerCheck(ledger.check || {});
+      $("ledger").innerHTML = "";
+      for (const item of ledger.items) {
+        const tr = document.createElement("tr");
+        const when = document.createElement("td");
+        when.textContent = item.created_at.replace("T", " ").slice(0, 16);
+        const who = document.createElement("td");
+        who.textContent = person(item);
+        const kind = document.createElement("td");
+        kind.textContent = (kinds[item.kind] || item.kind) + (item.note ? " · " + item.note : "");
+        const sum = document.createElement("td");
+        const sign = item.kind === "spend" ? "−" : "+";
+        let text = sign + "$" + Number(item.amount_usd).toFixed(2);
+        if (item.kind === "topup" && item.amount_rub) text += " · " + Number(item.amount_rub).toFixed(2) + " ₽";
+        sum.textContent = text;
+        const remove = document.createElement("td");
+        const removeButton = document.createElement("button");
+        removeButton.className = "danger";
+        removeButton.textContent = "Удалить";
+        removeButton.onclick = async () => {
+          if (!confirm("Удалить эту запись из журнала? Баланс клиента не изменится.")) return;
+          try {
+            await api("/api/admin/ledger/" + item.id, { method: "DELETE" });
+            await load();
+          } catch (error) {
+            alert(error.message);
+          }
+        };
+        remove.append(removeButton);
+        tr.append(when, who, kind, sum, remove);
+        $("ledger").append(tr);
+      }
+
       const topups = await api("/api/admin/topups");
       $("topups").innerHTML = "";
       for (const item of topups.items) {
@@ -310,6 +398,20 @@
       }
 
       const users = await api("/api/admin/users");
+      const userSelect = $("ledger-user");
+      const selectedUser = userSelect.value;
+      userSelect.innerHTML = "";
+      const emptyUser = document.createElement("option");
+      emptyUser.value = "";
+      emptyUser.textContent = "Клиент";
+      userSelect.append(emptyUser);
+      for (const item of users.items) {
+        const option = document.createElement("option");
+        option.value = String(item.id);
+        option.textContent = person(item);
+        userSelect.append(option);
+      }
+      if (selectedUser) userSelect.value = selectedUser;
       $("users").innerHTML = "";
       for (const item of users.items) {
         const tr = document.createElement("tr");
@@ -365,7 +467,7 @@
       button.onclick = () => {
         document.querySelectorAll("nav button").forEach((item) => item.classList.remove("on"));
         button.classList.add("on");
-        for (const name of ["analytics", "settings", "payments", "users"]) {
+        for (const name of ["analytics", "settings", "payments", "ledger", "users"]) {
           $("tab-" + name).classList.toggle("hidden", name !== button.dataset.tab);
         }
       };
@@ -379,6 +481,36 @@
         await loadAnalytics();
       };
     });
+
+    $("ledger-add").onclick = async () => {
+      $("ledger-error").textContent = "";
+      const amount = Number(String($("ledger-usd").value).replace(",", "."));
+      const rubles = Number(String($("ledger-rub").value || "0").replace(",", ".")) || 0;
+      if (!$("ledger-user").value || !amount) {
+        $("ledger-error").textContent = "Выберите клиента и укажите сумму в долларах.";
+        return;
+      }
+      try {
+        await api("/api/admin/ledger", {
+          method: "POST",
+          body: JSON.stringify({
+            user_id: Number($("ledger-user").value),
+            kind: $("ledger-kind").value,
+            amount_usd: amount,
+            amount_rub: rubles,
+            note: $("ledger-note").value
+          })
+        });
+        $("ledger-usd").value = "";
+        $("ledger-rub").value = "";
+        $("ledger-note").value = "";
+        await load();
+      } catch (error) {
+        $("ledger-error").textContent = error.message === "duplicate"
+          ? "Такая пометка пополнения ЮKassa уже есть."
+          : error.message;
+      }
+    };
 
     $("enter").onclick = async () => {
       $("login-error").textContent = "";

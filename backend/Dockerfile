@@ -13,6 +13,7 @@ COPY backend/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 COPY backend/app ./app
+COPY bot/app/images/pay.png ./app/images/pay.png
 COPY database/init.sql ./database/init.sql
 
 ENV PYTHONUNBUFFERED=1 \

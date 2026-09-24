@@ -113,7 +113,7 @@ def reissue_key(user_id: int, telegram_id: int) -> dict:
             _reraise(exc)
         if token is not None:
             amount = units_to_usd(int(token.get("remain_quota") or 0))
-            _set_balance(user_id, amount, "", "", 0, Decimal(0), write_ledger=False)
+            _record_balance(user_id, amount)
         else:
             amount = _balance(user_id)
         if amount <= 0:
@@ -200,7 +200,7 @@ def _sync_key(user_id: int, upstream_id: int) -> None:
         units = usd_to_units(previous - amount)
         if units > 0:
             _insert_usage(user_id, key_id, None, "", 0, 0, units, datetime.now(timezone.utc))
-    _set_balance(user_id, amount, "", "", 0, Decimal(0), write_ledger=False)
+    _record_balance(user_id, amount)
     with pool.connection() as conn:
         conn.execute(
             """
@@ -260,6 +260,17 @@ def _balance(user_id: int) -> Decimal:
     if row is None:
         raise BillingError("balance")
     return Decimal(row["balance_usd"])
+
+
+def _record_balance(user_id: int, amount: Decimal) -> None:
+    """Записывает изменение баланса, увиденное при сверке с поставщиком."""
+    delta = (_balance(user_id) - amount).quantize(Decimal("0.0001"))
+    if delta >= Decimal("0.0001"):
+        _set_balance(user_id, amount, "spend", "расход", 0, delta)
+    elif delta <= Decimal("-0.0001"):
+        _set_balance(user_id, amount, "adjust", "сверка с поставщиком", 0, -delta)
+    else:
+        _set_balance(user_id, amount, "", "", 0, Decimal(0), write_ledger=False)
 
 
 def _set_balance(

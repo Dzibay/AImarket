@@ -4,6 +4,7 @@ from decimal import Decimal
 from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from psycopg.errors import UniqueViolation
 from pydantic import BaseModel, Field
 
 from app.auth import check_password, make_token, require_admin
@@ -43,6 +44,17 @@ class SettingsIn(BaseModel):
 
 class CreditIn(BaseModel):
     amount_usd: float = Field(gt=0, le=100000)
+
+
+class LedgerIn(BaseModel):
+    user_id: int = Field(gt=0)
+    kind: str = Field(min_length=1, max_length=32)
+    amount_usd: float = Field(gt=0, le=1_000_000)
+    amount_rub: float = Field(default=0, ge=0, le=100_000_000)
+    note: str = Field(default="", max_length=300)
+
+
+_LEDGER_KINDS = {"topup", "credit", "spend", "adjust"}
 
 
 def _settings_payload() -> dict:
@@ -139,8 +151,9 @@ def list_users() -> dict:
 @router.post("/users/{user_id}/credit", dependencies=[Depends(require_admin)])
 def credit_user(user_id: int, body: CreditIn) -> dict:
     amount = Decimal(str(body.amount_usd)).quantize(Decimal("0.01"))
+    stamp = datetime.now(_MSK).strftime("%Y-%m-%d %H:%M:%S")
     try:
-        balance = add_usd(user_id, amount, "credit", "начисление из админки")
+        balance = add_usd(user_id, amount, "credit", f"начисление из админки {stamp}")
     except BillingError as exc:
         status = 409 if exc.code == "supplier" else 502
         raise HTTPException(status_code=status, detail=exc.code) from exc
@@ -431,6 +444,118 @@ def analytics(days: int = Query(default=30, ge=7, le=90)) -> dict:
             for row in status_rows
         ],
     }
+
+
+def _ledger_check(conn) -> dict:
+    book = conn.execute(
+        """
+        SELECT
+            COALESCE(SUM(amount_usd) FILTER (WHERE kind <> 'spend'), 0)
+                - COALESCE(SUM(amount_usd) FILTER (WHERE kind = 'spend'), 0) AS net_usd,
+            COALESCE(SUM(amount_usd) FILTER (WHERE kind = 'topup'), 0) AS topup_usd,
+            COALESCE(SUM(amount_kopecks) FILTER (WHERE kind = 'topup'), 0) AS topup_kop
+        FROM ledger
+        """
+    ).fetchone()
+    balances = conn.execute("SELECT COALESCE(SUM(balance_usd), 0) AS total FROM users").fetchone()
+    paid = conn.execute(
+        """
+        SELECT COALESCE(SUM(amount_usd), 0) AS usd, COALESCE(SUM(amount_kopecks), 0) AS kop
+        FROM topups
+        WHERE status = 'paid'
+        """
+    ).fetchone()
+    net = Decimal(book["net_usd"])
+    customer = Decimal(balances["total"])
+    topup_usd = Decimal(book["topup_usd"])
+    paid_usd = Decimal(paid["usd"])
+    topup_rub = Decimal(int(book["topup_kop"] or 0)) / Decimal(100)
+    paid_rub = Decimal(int(paid["kop"] or 0)) / Decimal(100)
+    balance_diff = (customer - net).quantize(Decimal("0.0001"))
+    payment_diff_usd = (paid_usd - topup_usd).quantize(Decimal("0.0001"))
+    payment_diff_rub = (paid_rub - topup_rub).quantize(Decimal("0.01"))
+    return {
+        "balances_usd": float(customer),
+        "ledger_net_usd": float(net),
+        "balance_diff_usd": float(balance_diff),
+        "balance_ok": balance_diff == 0,
+        "payments_usd": float(paid_usd),
+        "ledger_topup_usd": float(topup_usd),
+        "payments_diff_usd": float(payment_diff_usd),
+        "payments_rub": float(paid_rub),
+        "ledger_topup_rub": float(topup_rub),
+        "payments_diff_rub": float(payment_diff_rub),
+        "payments_ok": payment_diff_usd == 0 and payment_diff_rub == 0,
+    }
+
+
+@router.get("/ledger", dependencies=[Depends(require_admin)])
+def list_ledger() -> dict:
+    with pool.connection() as conn:
+        rows = conn.execute(
+            """
+            SELECT l.id, l.user_id, l.kind, l.note, l.amount_usd, l.amount_kopecks, l.created_at,
+                   u.telegram_id, u.username, u.first_name
+            FROM ledger l
+            JOIN users u ON u.id = l.user_id
+            ORDER BY l.id DESC
+            LIMIT 200
+            """
+        ).fetchall()
+        check = _ledger_check(conn)
+    return {
+        "check": check,
+        "items": [
+            {
+                "id": row["id"],
+                "user_id": row["user_id"],
+                "kind": row["kind"],
+                "note": row["note"],
+                "amount_usd": float(row["amount_usd"]),
+                "amount_rub": int(row["amount_kopecks"] or 0) / 100,
+                "telegram_id": row["telegram_id"],
+                "username": row["username"],
+                "first_name": row["first_name"],
+                "created_at": row["created_at"].isoformat(),
+            }
+            for row in rows
+        ],
+    }
+
+
+@router.post("/ledger", dependencies=[Depends(require_admin)])
+def create_ledger(body: LedgerIn) -> dict:
+    kind = body.kind.strip()
+    if kind not in _LEDGER_KINDS:
+        raise HTTPException(status_code=400, detail="kind")
+    amount = Decimal(str(body.amount_usd)).quantize(Decimal("0.0001"))
+    kopecks = int((Decimal(str(body.amount_rub)) * 100).quantize(Decimal("1")))
+    note = body.note.strip()
+    with pool.connection() as conn:
+        user = conn.execute("SELECT id FROM users WHERE id = %s", (body.user_id,)).fetchone()
+        if user is None:
+            raise HTTPException(status_code=404, detail="user")
+        try:
+            row = conn.execute(
+                """
+                INSERT INTO ledger (user_id, amount_kopecks, kind, note, amount_usd)
+                VALUES (%s, %s, %s, %s, %s)
+                RETURNING id
+                """,
+                (body.user_id, kopecks, kind, note, amount),
+            ).fetchone()
+        except UniqueViolation as exc:
+            raise HTTPException(status_code=409, detail="duplicate") from exc
+    return {"id": row["id"]}
+
+
+@router.delete("/ledger/{entry_id}", dependencies=[Depends(require_admin)])
+def delete_ledger(entry_id: int) -> dict:
+    with pool.connection() as conn:
+        row = conn.execute("DELETE FROM ledger WHERE id = %s RETURNING id", (entry_id,)).fetchone()
+    if row is None:
+        raise HTTPException(status_code=404, detail="ledger")
+    return {"ok": True}
 
 
 @router.get("/topups", dependencies=[Depends(require_admin)])
