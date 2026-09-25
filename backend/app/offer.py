@@ -1,4 +1,5 @@
 import html
+from datetime import date
 
 from app.settings_store import get_setting, offer_url
 
@@ -6,7 +7,7 @@ _DEFAULT = """
 Публичная оферта на использование сервиса Aimarket
 
 Исполнитель: Администрация сервиса Aimarket (далее — Исполнитель).
-Дата публикации: [Дата].
+Дата редакции: [Дата].
 Страница размещения: market-aii.ru/offer.
 
 1. Общие положения
@@ -88,18 +89,33 @@ _DEFAULT = """
 """.strip()
 
 
+def _offer_email() -> str:
+    return (get_setting("offer_email") or get_setting("seller_email")).strip()
+
+
+def _offer_date_display() -> str:
+    raw = get_setting("offer_date").strip()
+    if not raw:
+        return "не указана"
+    try:
+        return date.fromisoformat(raw).strftime("%d.%m.%Y")
+    except ValueError:
+        return raw
+
+
 def render_offer() -> str:
-    custom = get_setting("offer_text").strip()
-    body = custom or _DEFAULT
-    seller = get_setting("seller_name").strip() or "Aimarket"
-    inn = get_setting("seller_inn").strip() or "не указан"
-    email = get_setting("seller_email").strip() or "не указан"
+    email = _offer_email() or "не указана"
+    revised = _offer_date_display()
+    body = _DEFAULT.replace("[Дата]", revised).replace("[E-MAIL]", email)
     paragraphs = "".join(
         f"<p>{html.escape(part.strip()).replace(chr(10), '<br>')}</p>"
         for part in body.split("\n\n")
         if part.strip()
     )
     link = offer_url() or "/offer"
+    meta_bits = [f"Редакция от {html.escape(revised)}"]
+    if _offer_email():
+        meta_bits.append(html.escape(email))
     return f"""<!DOCTYPE html>
 <html lang="ru">
 <head>
@@ -119,7 +135,7 @@ def render_offer() -> str:
 <body>
   <main>
     <h1>Публичная оферта</h1>
-    <p class="meta">{html.escape(seller)} · ИНН {html.escape(inn)} · {html.escape(email)}</p>
+    <p class="meta">{" · ".join(meta_bits)}</p>
     {paragraphs}
     <p class="meta">Согласие даётся в Telegram-боте Aimarket. Эта страница: {html.escape(link)}</p>
   </main>

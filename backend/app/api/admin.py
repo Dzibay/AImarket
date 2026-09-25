@@ -21,10 +21,8 @@ _MSK = ZoneInfo("Europe/Moscow")
 _TEXT_KEYS = (
     "public_base_url",
     "usd_price_rub",
-    "seller_name",
-    "seller_inn",
-    "seller_email",
-    "offer_text",
+    "offer_email",
+    "offer_date",
 )
 
 
@@ -35,10 +33,8 @@ class LoginIn(BaseModel):
 class SettingsIn(BaseModel):
     public_base_url: str = Field(default="", max_length=300)
     usd_price_rub: str = Field(default="", max_length=32)
-    seller_name: str = Field(default="", max_length=200)
-    seller_inn: str = Field(default="", max_length=32)
-    seller_email: str = Field(default="", max_length=200)
-    offer_text: str = Field(default="", max_length=20000)
+    offer_email: str = Field(default="", max_length=200)
+    offer_date: str = Field(default="", max_length=32)
     router_root_key: str = Field(default="", max_length=300)
 
 
@@ -70,10 +66,8 @@ def _settings_payload() -> dict:
         "public_base_url": public_base_url(),
         "offer_url": offer_url(),
         "usd_price_rub": str(usd_price_rub()) if usd_price_rub() > 0 else get_setting("usd_price_rub"),
-        "seller_name": get_setting("seller_name"),
-        "seller_inn": get_setting("seller_inn"),
-        "seller_email": get_setting("seller_email"),
-        "offer_text": get_setting("offer_text"),
+        "offer_email": get_setting("offer_email") or get_setting("seller_email"),
+        "offer_date": get_setting("offer_date"),
         "router_root_key_set": bool(root),
         "router_root_key_hint": root[-4:] if len(root) >= 8 else "",
         "supplier_balance_usd": supplier,
@@ -102,13 +96,17 @@ def write_settings(body: SettingsIn) -> dict:
                 raise HTTPException(status_code=422, detail="price")
         except Exception as exc:
             raise HTTPException(status_code=422, detail="price") from exc
+    offer_date = body.offer_date.strip()
+    if offer_date:
+        try:
+            date.fromisoformat(offer_date)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail="offer_date") from exc
     values = {
         "public_base_url": body.public_base_url.strip().rstrip("/"),
         "usd_price_rub": price,
-        "seller_name": body.seller_name.strip(),
-        "seller_inn": body.seller_inn.strip(),
-        "seller_email": body.seller_email.strip(),
-        "offer_text": body.offer_text.strip(),
+        "offer_email": body.offer_email.strip(),
+        "offer_date": offer_date,
     }
     for key in _TEXT_KEYS:
         set_setting(key, values[key])

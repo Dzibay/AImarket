@@ -131,14 +131,12 @@
         <input id="base" placeholder="https://example.com">
         <label for="price">Цена, ₽ за $1 лимита</label>
         <input id="price" inputmode="decimal" placeholder="100">
-        <label for="seller">Продавец</label>
-        <input id="seller" placeholder="ИП или название">
-        <label for="inn">ИНН</label>
-        <input id="inn">
-        <label for="email">Почта</label>
-        <input id="email" type="email">
-        <label for="offer">Текст оферты</label>
-        <textarea id="offer" style="min-height: 180px" placeholder="Пусто — на сайте стандартный текст"></textarea>
+        <h2 style="margin-top: 28px">Оферта</h2>
+        <p class="lead">Текст оферты задан в коде. Здесь — дата редакции и контактная почта.</p>
+        <label for="offer-date">Дата редакции</label>
+        <input id="offer-date" type="date">
+        <label for="offer-email">Почта</label>
+        <input id="offer-email" type="email" placeholder="support@example.com">
         <div class="row"><button id="save" type="button">Сохранить</button><span id="save-status"></span></div>
       </section>
 
@@ -338,10 +336,8 @@
       const settings = await api("/api/admin/settings");
       $("base").value = settings.public_base_url || "";
       $("price").value = settings.usd_price_rub || "";
-      $("seller").value = settings.seller_name || "";
-      $("inn").value = settings.seller_inn || "";
-      $("email").value = settings.seller_email || "";
-      $("offer").value = settings.offer_text || "";
+      $("offer-date").value = settings.offer_date || "";
+      $("offer-email").value = settings.offer_email || "";
       $("root").value = "";
       $("root-hint").textContent = settings.router_root_key_set
         ? "Ключ задан, окончание " + settings.router_root_key_hint
@@ -538,10 +534,8 @@
           body: JSON.stringify({
             public_base_url: $("base").value,
             usd_price_rub: $("price").value,
-            seller_name: $("seller").value,
-            seller_inn: $("inn").value,
-            seller_email: $("email").value,
-            offer_text: $("offer").value,
+            offer_date: $("offer-date").value,
+            offer_email: $("offer-email").value,
             router_root_key: $("root").value
           })
         });
