@@ -20,11 +20,30 @@ from app.settings_store import bootstrap_settings
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger("app.main")
 _stop = threading.Event()
-_ADMIN_PAGE = Path(__file__).resolve().parent / "web" / "admin-panel" / "index.html"
-_SETUP_DIR = Path(__file__).resolve().parent / "web" / "downloads" / "setup"
+_WEB = Path(__file__).resolve().parent / "web"
+_ADMIN_PAGE = _WEB / "admin-panel" / "index.html"
+_STATIC_DIR = _WEB / "static"
+_SETUP_DIR = _WEB / "downloads" / "setup"
 _SETUP_NAME = re.compile(
     r"aimarket-[a-z0-9-]+-(windows|macos)-(ru|en)\.zip|setup-aimarket-[a-z0-9-]+-(ru|en)\.sh"
 )
+_STATIC_FILES = frozenset(
+    p.name for p in _STATIC_DIR.iterdir() if p.is_file()
+) if _STATIC_DIR.is_dir() else frozenset()
+_FAVICON_LINKS = """
+<link rel="icon" type="image/png" href="/favicon-96x96.png" sizes="96x96">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="shortcut icon" href="/favicon.ico">
+<link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
+<link rel="manifest" href="/site.webmanifest">
+<meta name="theme-color" content="#1c1915">
+""".strip()
+_MEDIA = {
+    ".ico": "image/x-icon",
+    ".png": "image/png",
+    ".svg": "image/svg+xml",
+    ".webmanifest": "application/manifest+json",
+}
 
 
 def _sync_loop() -> None:
@@ -64,15 +83,28 @@ def health() -> dict:
 
 @app.get("/")
 def home() -> HTMLResponse:
-    page = """<!DOCTYPE html>
-<html lang="ru"><head><meta charset="utf-8"><meta name="robots" content="noindex">
-<title>Aimarket</title>
-<style>
-  body { margin: 0; background: #f4f1ea; color: #1c1915; font: 16px/1.45 "Segoe UI", sans-serif; }
-  main { max-width: 520px; margin: 15vh auto; padding: 24px; }
-  a { color: inherit; }
-</style></head>
-<body><main><h1>Aimarket</h1><p><a href="/offer">Оферта</a></p><p><a href="/admin-panel">Админка</a></p></main></body></html>"""
+    page = f"""<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex">
+  <title>Aimarket</title>
+  {_FAVICON_LINKS}
+  <style>
+    body {{ margin: 0; background: #f4f1ea; color: #1c1915; font: 16px/1.45 "Segoe UI", sans-serif; }}
+    main {{ max-width: 520px; margin: 15vh auto; padding: 24px; }}
+    a {{ color: inherit; }}
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Aimarket</h1>
+    <p><a href="/offer">Оферта</a></p>
+    <p><a href="/admin-panel">Админка</a></p>
+  </main>
+</body>
+</html>"""
     return HTMLResponse(page)
 
 
@@ -106,3 +138,11 @@ app.include_router(products_router, prefix="/api")
 app.include_router(users_router, prefix="/api")
 app.include_router(admin_router, prefix="/api/admin")
 app.include_router(yookassa_router, prefix="/api/yookassa")
+
+
+@app.get("/{filename}")
+def root_static(filename: str) -> FileResponse:
+    if filename not in _STATIC_FILES:
+        raise HTTPException(status_code=404, detail="not found")
+    path = _STATIC_DIR / filename
+    return FileResponse(path, media_type=_MEDIA.get(path.suffix.lower()))

@@ -8,7 +8,7 @@ _DEFAULT = """
 
 Исполнитель: Администрация сервиса Aimarket (далее — Исполнитель).
 Дата редакции: [Дата].
-Страница размещения: market-aii.ru/offer.
+Страница размещения: [URL].
 
 1. Общие положения
 
@@ -106,13 +106,17 @@ def _offer_date_display() -> str:
 def render_offer() -> str:
     email = _offer_email() or "не указана"
     revised = _offer_date_display()
-    body = _DEFAULT.replace("[Дата]", revised).replace("[E-MAIL]", email)
+    link = offer_url() or "/offer"
+    body = (
+        _DEFAULT.replace("[Дата]", revised)
+        .replace("[E-MAIL]", email)
+        .replace("[URL]", link.removeprefix("https://").removeprefix("http://"))
+    )
     paragraphs = "".join(
         f"<p>{html.escape(part.strip()).replace(chr(10), '<br>')}</p>"
         for part in body.split("\n\n")
         if part.strip()
     )
-    link = offer_url() or "/offer"
     meta_bits = [f"Редакция от {html.escape(revised)}"]
     if _offer_email():
         meta_bits.append(html.escape(email))
@@ -123,6 +127,12 @@ def render_offer() -> str:
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="robots" content="noindex">
   <title>Оферта — Aimarket</title>
+  <link rel="icon" type="image/png" href="/favicon-96x96.png" sizes="96x96">
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+  <link rel="shortcut icon" href="/favicon.ico">
+  <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
+  <link rel="manifest" href="/site.webmanifest">
+  <meta name="theme-color" content="#1c1915">
   <style>
     body {{ margin: 0; background: #f4f1ea; color: #1c1915; font: 17px/1.55 Georgia, "Times New Roman", serif; }}
     main {{ max-width: 720px; margin: 0 auto; padding: 48px 20px 72px; }}
