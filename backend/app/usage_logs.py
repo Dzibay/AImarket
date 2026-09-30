@@ -90,8 +90,10 @@ def parse_usage_log(item: dict) -> dict | None:
     units = _log_quota_units(item)
     if units <= 0 and not model_name:
         return None
+    request_id = str(_log_field(item, "request_id", "RequestId") or "").strip()
     return {
         "upstream_log_id": log_id,
+        "request_id": request_id[:64],
         "model_name": model_name[:200],
         "prompt_tokens": max(prompt_tokens, 0),
         "completion_tokens": max(completion_tokens, 0),

@@ -85,8 +85,12 @@ CREATE TABLE IF NOT EXISTS usage (
     created_at        TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+ALTER TABLE usage ADD COLUMN IF NOT EXISTS request_id TEXT NOT NULL DEFAULT '';
+
 CREATE UNIQUE INDEX IF NOT EXISTS idx_usage_upstream_log
     ON usage (upstream_log_id) WHERE upstream_log_id IS NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_usage_user_request
+    ON usage (user_id, request_id) WHERE request_id <> '';
 CREATE INDEX IF NOT EXISTS idx_usage_user_time ON usage (user_id, created_at DESC);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_ledger_topup_note
     ON ledger (note) WHERE kind = 'topup' AND note <> '';

@@ -17,6 +17,7 @@ log = logging.getLogger("app.billing")
 billing_lock = threading.RLock()
 _user_sync_at: dict[int, float] = {}
 _USER_SYNC_MIN_SEC = 45
+_NOTIFY_MAX_AGE_SEC = 1200
 
 
 class BillingError(Exception):
@@ -287,6 +288,7 @@ def _sync_key(user_id: int, upstream_id: int, *, force: bool = False) -> None:
         token_secret=token_secret,
         force=force,
     )
+    _dedupe_usage_logs(user_id)
     if key_id is not None:
         with pool.connection() as conn:
             _attach_usage_to_key(user_id, key_id, conn)
@@ -593,6 +595,7 @@ def _import_usage(
     inserted_units = 0
     new_usages: list[dict] = []
     page = 1
+    fetched_rows = 0
     try:
         while page <= 20:
             items, complete = upstream.spend_logs(
@@ -603,6 +606,7 @@ def _import_usage(
                 force=force,
             )
             if items:
+                fetched_rows += len(items)
                 page_units, page_done, page_usages = _save_usage_page(user_id, key_id, items)
                 inserted_units += page_units
                 new_usages.extend(page_usages)
@@ -613,20 +617,27 @@ def _import_usage(
             page += 1
         if inserted_units:
             log.info(
-                "импортировано %s записей расходов для ключа %s (user=%s)",
-                len(new_usages),
+                "импортировано новых расходов на %s units для ключа %s (user=%s)",
+                inserted_units,
                 token_name or key_id,
                 user_id,
             )
-        elif page == 1:
-            log.warning(
-                "новых расходов не импортировано для user=%s (ключ %s)",
+        elif page == 1 and fetched_rows:
+            log.info(
+                "расходы уже синхронизированы для user=%s (ключ %s, %s строк в журнале)",
                 user_id,
                 token_name or key_id,
+                fetched_rows,
             )
     except UpstreamError as exc:
         log.warning("журнал расходов router.cheap не прочитан: %s", exc.message)
     return units_to_usd(inserted_units), new_usages
+
+
+def _should_notify_spend(created_at: datetime) -> bool:
+    moment = created_at if created_at.tzinfo is not None else created_at.replace(tzinfo=timezone.utc)
+    age = (datetime.now(timezone.utc) - moment.astimezone(timezone.utc)).total_seconds()
+    return age <= _NOTIFY_MAX_AGE_SEC
 
 
 def _usage_notice(
@@ -641,6 +652,60 @@ def _usage_notice(
         "completion_tokens": completion_tokens,
         "amount_usd": float(units_to_usd(units)),
     }
+
+
+def _track_new_usage(
+    new_usages: list[dict],
+    *,
+    model_name: str,
+    prompt_tokens: int,
+    completion_tokens: int,
+    units: int,
+    created_at: datetime,
+) -> None:
+    if units <= 0:
+        return
+    if _should_notify_spend(created_at):
+        new_usages.append(
+            _usage_notice(model_name, prompt_tokens, completion_tokens, units)
+        )
+
+
+def _dedupe_usage_logs(user_id: int) -> None:
+    """Убирает дубли после смены схемы id (display id vs request_id)."""
+    with pool.connection() as conn:
+        by_request = conn.execute(
+            """
+            DELETE FROM usage a
+            USING usage b
+            WHERE a.user_id = %s AND b.user_id = %s
+              AND a.request_id = ''
+              AND b.request_id <> ''
+              AND date_trunc('second', a.created_at) = date_trunc('second', b.created_at)
+              AND a.quota_units = b.quota_units
+              AND a.model_name = b.model_name
+              AND a.prompt_tokens = b.prompt_tokens
+              AND a.completion_tokens = b.completion_tokens
+            """,
+            (user_id, user_id),
+        ).rowcount
+        by_fingerprint = conn.execute(
+            """
+            DELETE FROM usage a
+            USING usage b
+            WHERE a.user_id = %s AND b.user_id = %s
+              AND a.id < b.id
+              AND date_trunc('second', a.created_at) = date_trunc('second', b.created_at)
+              AND a.quota_units = b.quota_units
+              AND a.model_name = b.model_name
+              AND a.prompt_tokens = b.prompt_tokens
+              AND a.completion_tokens = b.completion_tokens
+            """,
+            (user_id, user_id),
+        ).rowcount
+    removed = int(by_request or 0) + int(by_fingerprint or 0)
+    if removed:
+        log.info("удалено %s дублей расходов user=%s", removed, user_id)
 
 
 def _patch_usage_row(
@@ -702,20 +767,32 @@ def _save_usage_page(user_id: int, key_id: int, items: list[dict]) -> tuple[int,
     with pool.connection() as conn:
         for row in parsed:
             log_id = int(row["upstream_log_id"])
+            request_id = str(row.get("request_id") or "").strip()
             units = int(row["quota_units"])
             model_name = str(row["model_name"])
             prompt_tokens = int(row["prompt_tokens"])
             completion_tokens = int(row["completion_tokens"])
             created_at = row["created_at"]
 
-            prev = conn.execute(
-                """
-                SELECT id, quota_units
-                FROM usage
-                WHERE user_id = %s AND upstream_log_id = %s
-                """,
-                (user_id, log_id),
-            ).fetchone()
+            prev = None
+            if request_id:
+                prev = conn.execute(
+                    """
+                    SELECT id, quota_units
+                    FROM usage
+                    WHERE user_id = %s AND request_id = %s
+                    """,
+                    (user_id, request_id),
+                ).fetchone()
+            if prev is None:
+                prev = conn.execute(
+                    """
+                    SELECT id, quota_units
+                    FROM usage
+                    WHERE user_id = %s AND upstream_log_id = %s
+                    """,
+                    (user_id, log_id),
+                ).fetchone()
 
             if prev is not None:
                 prev_units = int(prev["quota_units"] or 0)
@@ -729,10 +806,20 @@ def _save_usage_page(user_id: int, key_id: int, items: list[dict]) -> tuple[int,
                     completion_tokens=completion_tokens,
                     created_at=created_at,
                 )
+                if request_id:
+                    conn.execute(
+                        "UPDATE usage SET request_id = %s, upstream_log_id = %s WHERE id = %s",
+                        (request_id, log_id, int(prev["id"])),
+                    )
                 if prev_units == 0 and effective > 0:
                     inserted_units += effective
-                    new_usages.append(
-                        _usage_notice(model_name, prompt_tokens, completion_tokens, effective)
+                    _track_new_usage(
+                        new_usages,
+                        model_name=model_name,
+                        prompt_tokens=prompt_tokens,
+                        completion_tokens=completion_tokens,
+                        units=effective,
+                        created_at=created_at,
                     )
                 continue
 
@@ -746,6 +833,7 @@ def _save_usage_page(user_id: int, key_id: int, items: list[dict]) -> tuple[int,
                 units,
                 created_at,
                 conn,
+                request_id=request_id,
             ):
                 owner = conn.execute(
                     "SELECT user_id FROM usage WHERE upstream_log_id = %s",
@@ -787,15 +875,25 @@ def _save_usage_page(user_id: int, key_id: int, items: list[dict]) -> tuple[int,
                 )
                 if prev_units == 0 and effective > 0:
                     inserted_units += effective
-                    new_usages.append(
-                        _usage_notice(model_name, prompt_tokens, completion_tokens, effective)
+                    _track_new_usage(
+                        new_usages,
+                        model_name=model_name,
+                        prompt_tokens=prompt_tokens,
+                        completion_tokens=completion_tokens,
+                        units=effective,
+                        created_at=created_at,
                     )
                 continue
 
             if units > 0:
                 inserted_units += units
-                new_usages.append(
-                    _usage_notice(model_name, prompt_tokens, completion_tokens, units)
+                _track_new_usage(
+                    new_usages,
+                    model_name=model_name,
+                    prompt_tokens=prompt_tokens,
+                    completion_tokens=completion_tokens,
+                    units=units,
+                    created_at=created_at,
                 )
 
     page_done = len(parsed) > 0 and inserted_units == 0 and not new_usages
@@ -835,15 +933,22 @@ def _insert_usage(
     quota_units: int,
     created_at: datetime,
     conn=None,
+    *,
+    request_id: str = "",
 ) -> bool:
     sql = """
         INSERT INTO usage (
-            user_id, api_key_id, upstream_log_id, model_name,
+            user_id, api_key_id, upstream_log_id, request_id, model_name,
             prompt_tokens, completion_tokens, quota_units, created_at
         )
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
     """
-    if upstream_log_id is not None:
+    if request_id:
+        sql += (
+            " ON CONFLICT (user_id, request_id) WHERE (request_id <> '')"
+            " DO NOTHING RETURNING id"
+        )
+    elif upstream_log_id is not None:
         sql += " ON CONFLICT (upstream_log_id) WHERE upstream_log_id IS NOT NULL DO NOTHING RETURNING id"
     else:
         sql += " RETURNING id"
@@ -851,6 +956,7 @@ def _insert_usage(
         user_id,
         key_id,
         upstream_log_id,
+        request_id[:64],
         model_name[:200],
         max(prompt_tokens, 0),
         max(completion_tokens, 0),

@@ -2,6 +2,7 @@ import html
 import json
 import logging
 import threading
+import time
 import urllib.error
 import urllib.request
 from decimal import Decimal
@@ -283,10 +284,23 @@ def _telegram(
         },
         method="POST",
     )
-    with urllib.request.urlopen(req, timeout=20) as resp:
-        payload = json.loads(resp.read().decode())
-    if not isinstance(payload, dict) or not payload.get("ok"):
-        raise urllib.error.URLError(str(payload)[:300])
+    last_error: Exception | None = None
+    for attempt in range(3):
+        try:
+            with urllib.request.urlopen(req, timeout=20) as resp:
+                payload = json.loads(resp.read().decode())
+        except urllib.error.HTTPError as exc:
+            last_error = exc
+            if exc.code == 429 and attempt < 2:
+                time.sleep(0.5 * (attempt + 1))
+                continue
+            raise
+        else:
+            if not isinstance(payload, dict) or not payload.get("ok"):
+                raise urllib.error.URLError(str(payload)[:300])
+            return
+    if last_error is not None:
+        raise last_error
 
 
 def bot_start_url(payload: str = "") -> str:

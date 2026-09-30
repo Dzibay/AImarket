@@ -1,4 +1,5 @@
 import logging
+import time
 from decimal import Decimal
 
 from app.db import pool
@@ -127,6 +128,7 @@ def process_new_usages(
             log.exception("уведомление о трате user=%s", user_id)
         else:
             running_balance = max(Decimal(0), running_balance - amount_usd).quantize(Decimal("0.0001"))
+            time.sleep(0.05)
 
 
 def process_balance_alerts(
