@@ -23,6 +23,10 @@ ALTER TABLE users ADD COLUMN IF NOT EXISTS notify_low_balance BOOLEAN NOT NULL D
 ALTER TABLE users ADD COLUMN IF NOT EXISTS notify_limit_exhausted BOOLEAN NOT NULL DEFAULT TRUE;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS notify_topup BOOLEAN NOT NULL DEFAULT TRUE;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS low_balance_notified_at TIMESTAMPTZ;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS referral_token TEXT NOT NULL DEFAULT '';
+
+CREATE INDEX IF NOT EXISTS idx_users_referral_token
+    ON users (referral_token) WHERE referral_token <> '';
 
 CREATE TABLE IF NOT EXISTS products (
     id                     BIGSERIAL PRIMARY KEY,
@@ -113,6 +117,13 @@ ALTER TABLE topups ADD COLUMN IF NOT EXISTS payment_id TEXT;
 CREATE INDEX IF NOT EXISTS idx_topups_status ON topups (status, created_at DESC);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_topups_payment
     ON topups (payment_id) WHERE payment_id IS NOT NULL;
+
+-- Реферальные ссылки: токен в deep link бота (?start=token).
+CREATE TABLE IF NOT EXISTS referral_links (
+    id         BIGSERIAL PRIMARY KEY,
+    token      TEXT NOT NULL UNIQUE,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
 
 -- Настройки админки: корневой ключ, цена, продавец, текст оферты.
 CREATE TABLE IF NOT EXISTS app_settings (

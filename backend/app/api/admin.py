@@ -11,7 +11,9 @@ from app.auth import check_password, make_token, require_admin
 from app.billing import BillingError, add_usd, block_user, unblock_user
 from app.db import pool
 from app.money import units_to_usd, usd_price_rub
+from app.referrals import ReferralError, create_link, list_links
 from app.settings_store import get_setting, offer_url, public_base_url, set_setting
+from app.telegram_link import bot_username
 from app.upstream import UpstreamError, upstream
 
 router = APIRouter()
@@ -53,6 +55,10 @@ class LedgerIn(BaseModel):
     amount_usd: float = Field(gt=0, le=1_000_000)
     amount_rub: float = Field(default=0, ge=0, le=100_000_000)
     note: str = Field(default="", max_length=300)
+
+
+class ReferralIn(BaseModel):
+    token: str = Field(min_length=1, max_length=64)
 
 
 _LEDGER_KINDS = {"topup", "credit", "spend", "adjust"}
@@ -616,3 +622,37 @@ def list_topups() -> dict:
             for row in rows
         ]
     }
+
+
+@router.get("/referrals", dependencies=[Depends(require_admin)])
+def list_referrals_admin() -> dict:
+    return {
+        "bot_username": bot_username(),
+        "items": list_links(),
+    }
+
+
+@router.post("/referrals", dependencies=[Depends(require_admin)])
+def create_referral_admin(body: ReferralIn) -> dict:
+    try:
+        return create_link(body.token)
+    except ReferralError as exc:
+        status = 409 if exc.code == "exists" else 422
+        raise HTTPException(status_code=status, detail=exc.code) from exc
+
+
+@router.get("/referrals", dependencies=[Depends(require_admin)])
+def list_referrals_admin() -> dict:
+    return {
+        "bot_username": bot_username(),
+        "items": list_links(),
+    }
+
+
+@router.post("/referrals", dependencies=[Depends(require_admin)])
+def create_referral_admin(body: ReferralIn) -> dict:
+    try:
+        return create_link(body.token)
+    except ReferralError as exc:
+        status = 409 if exc.code == "exists" else 422
+        raise HTTPException(status_code=status, detail=exc.code) from exc

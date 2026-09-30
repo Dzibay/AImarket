@@ -50,6 +50,10 @@ async def upsert_user(telegram_id: int, username: str, first_name: str) -> dict:
     )
 
 
+async def record_referral(telegram_id: int, token: str) -> dict:
+    return await _request("POST", f"/api/users/{telegram_id}/referral", {"token": token})
+
+
 async def get_user(telegram_id: int) -> dict:
     return await _request("GET", f"/api/users/{telegram_id}")
 

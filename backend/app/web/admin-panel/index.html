@@ -60,6 +60,13 @@
     .split { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; margin-top: 8px; }
     @media (max-width: 800px) { .split { grid-template-columns: 1fr; } }
     .periods { display: flex; gap: 8px; flex-wrap: wrap; }
+    .modal { position: fixed; inset: 0; z-index: 20; display: grid; place-items: center; padding: 18px; }
+    .modal.hidden { display: none; }
+    .modal-backdrop { position: absolute; inset: 0; background: rgba(28, 25, 21, 0.42); }
+    .modal-box { position: relative; width: min(420px, 100%); background: #fff; border: 1px solid #e4ddd2; border-radius: 12px; padding: 18px; box-shadow: 0 18px 48px rgba(28, 25, 21, 0.18); }
+    .modal-box h2 { margin: 0 0 12px; font-size: 18px; }
+    .link-cell { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+    .link-cell code { font: 13px/1.4 ui-monospace, monospace; word-break: break-all; }
   </style>
 </head>
 <body>
@@ -81,6 +88,7 @@
         <button type="button" data-tab="payments">Платежи</button>
         <button type="button" data-tab="ledger">Транзакции</button>
         <button type="button" data-tab="users">Пользователи</button>
+        <button type="button" data-tab="referrals">Рефералы</button>
       </nav>
 
       <section id="tab-analytics">
@@ -193,12 +201,150 @@
         </table>
         </div>
       </section>
+
+      <section id="tab-referrals" class="hidden">
+        <div class="panel-head">
+          <h2>Реферальные ссылки</h2>
+          <button id="referral-open" type="button">Создать ссылку</button>
+        </div>
+        <p class="lead" id="referral-bot-hint">Ссылки ведут в Telegram-бот: https://t.me/бот?start=токен</p>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Токен</th>
+                <th class="num">Переходы</th>
+                <th class="num">Пополнения</th>
+                <th>Ссылка</th>
+              </tr>
+            </thead>
+            <tbody id="referrals"></tbody>
+          </table>
+        </div>
+      </section>
+    </div>
+
+    <div id="referral-modal" class="modal hidden" aria-hidden="true">
+      <div class="modal-backdrop" id="referral-backdrop"></div>
+      <div class="modal-box">
+        <h2>Новая реферальная ссылка</h2>
+        <label for="referral-token">Токен</label>
+        <input id="referral-token" placeholder="partner_moscow" autocomplete="off" maxlength="64">
+        <p class="lead">Латиница, цифры и _. Нельзя начинать с paid_.</p>
+        <div class="row">
+          <button id="referral-create" type="button">Создать</button>
+          <button id="referral-cancel" type="button" class="quiet">Отмена</button>
+        </div>
+        <p id="referral-error" class="error"></p>
+      </div>
     </div>
   </main>
   <script>
     const tokenKey = "aimarket-admin";
     const $ = (id) => document.getElementById(id);
     let period = 30;
+    let referralBot = "";
+
+    function referralUrl(token) {
+      if (!referralBot) return "";
+      return "https://t.me/" + referralBot + "?start=" + encodeURIComponent(token);
+    }
+
+    function referralErrorText(code) {
+      const messages = {
+        exists: "Такой токен уже есть.",
+        format: "Токен может содержать только латиницу, цифры и _.",
+        reserved: "Токен не может начинаться с paid_.",
+        empty: "Введите токен.",
+        long: "Токен не длиннее 64 символов."
+      };
+      return messages[code] || code || "error";
+    }
+
+    async function copyText(text) {
+      if (!text) return false;
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        await navigator.clipboard.writeText(text);
+        return true;
+      }
+      const area = document.createElement("textarea");
+      area.value = text;
+      area.style.position = "fixed";
+      area.style.left = "-9999px";
+      document.body.append(area);
+      area.select();
+      const ok = document.execCommand("copy");
+      area.remove();
+      return ok;
+    }
+
+    function openReferralModal() {
+      $("referral-error").textContent = "";
+      $("referral-token").value = "";
+      $("referral-modal").classList.remove("hidden");
+      $("referral-modal").setAttribute("aria-hidden", "false");
+      $("referral-token").focus();
+    }
+
+    function closeReferralModal() {
+      $("referral-modal").classList.add("hidden");
+      $("referral-modal").setAttribute("aria-hidden", "true");
+      $("referral-error").textContent = "";
+    }
+
+    async function loadReferrals() {
+      const data = await api("/api/admin/referrals");
+      referralBot = data.bot_username || "";
+      $("referral-bot-hint").textContent = referralBot
+        ? "Ссылки ведут в Telegram-бот: https://t.me/" + referralBot + "?start=токен"
+        : "Имя бота не задано — укажите TELEGRAM_BOT_USERNAME или проверьте токен бота.";
+      const body = $("referrals");
+      body.innerHTML = "";
+      if (!data.items.length) {
+        const tr = document.createElement("tr");
+        const td = document.createElement("td");
+        td.colSpan = 4;
+        td.textContent = "Пока нет реферальных ссылок";
+        tr.append(td);
+        body.append(tr);
+        return;
+      }
+      for (const item of data.items) {
+        const tr = document.createElement("tr");
+        const tokenCell = document.createElement("td");
+        tokenCell.textContent = item.token;
+        const visitsCell = document.createElement("td");
+        visitsCell.className = "num";
+        visitsCell.textContent = String(item.visits || 0);
+        const topupsCell = document.createElement("td");
+        topupsCell.className = "num";
+        topupsCell.textContent = rub(item.topup_rub || 0) + " → " + usd(item.topup_usd || 0);
+        const linkCell = document.createElement("td");
+        const linkWrap = document.createElement("div");
+        linkWrap.className = "link-cell";
+        const code = document.createElement("code");
+        const url = referralUrl(item.token);
+        code.textContent = url || "—";
+        const copyButton = document.createElement("button");
+        copyButton.className = "quiet";
+        copyButton.type = "button";
+        copyButton.textContent = "Копировать";
+        copyButton.disabled = !url;
+        copyButton.onclick = async () => {
+          try {
+            await copyText(url);
+            copyButton.textContent = "Скопировано";
+            setTimeout(() => { copyButton.textContent = "Копировать"; }, 1200);
+          } catch (error) {
+            alert("Не удалось скопировать ссылку");
+          }
+        };
+        linkWrap.append(code, copyButton);
+        linkCell.append(linkWrap);
+        tr.append(tokenCell, visitsCell, topupsCell, linkCell);
+        body.append(tr);
+      }
+    }
 
     function authHeaders() {
       return { Authorization: "Bearer " + sessionStorage.getItem(tokenKey), "Content-Type": "application/json" };
@@ -501,6 +647,7 @@
         tr.append(who, balance, key, credit, access, remove);
         $("users").append(tr);
       }
+      await loadReferrals();
       await loadAnalytics();
       $("login").classList.add("hidden");
       $("app").classList.remove("hidden");
@@ -510,7 +657,7 @@
       button.onclick = () => {
         document.querySelectorAll("nav button").forEach((item) => item.classList.remove("on"));
         button.classList.add("on");
-        for (const name of ["analytics", "settings", "payments", "ledger", "users"]) {
+        for (const name of ["analytics", "settings", "payments", "ledger", "users", "referrals"]) {
           $("tab-" + name).classList.toggle("hidden", name !== button.dataset.tab);
         }
       };
@@ -590,6 +737,28 @@
         await load();
       } catch (error) {
         $("save-status").textContent = error.message;
+      }
+    };
+
+    $("referral-open").onclick = openReferralModal;
+    $("referral-cancel").onclick = closeReferralModal;
+    $("referral-backdrop").onclick = closeReferralModal;
+    $("referral-create").onclick = async () => {
+      $("referral-error").textContent = "";
+      const token = $("referral-token").value.trim();
+      if (!token) {
+        $("referral-error").textContent = referralErrorText("empty");
+        return;
+      }
+      try {
+        await api("/api/admin/referrals", {
+          method: "POST",
+          body: JSON.stringify({ token })
+        });
+        closeReferralModal();
+        await loadReferrals();
+      } catch (error) {
+        $("referral-error").textContent = referralErrorText(error.message);
       }
     };
 

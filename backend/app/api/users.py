@@ -8,6 +8,7 @@ from app.datetime_util import iso_utc
 from app.usage_stats import usage_period_stats
 from app.notifications import get_preferences, preferences_row, toggle_preference
 from app.payments import settle_payment
+from app.referrals import ReferralError, attribute_user
 from app.db import pool
 from app.money import MIN_TOPUP_USD, min_topup_rub, rub_to_usd, units_to_usd, usd_price_rub
 from app.security import require_bot
@@ -31,6 +32,10 @@ class NotificationToggleIn(BaseModel):
 
 class TopupIn(BaseModel):
     amount_rub: float = Field(gt=0, le=1_000_000)
+
+
+class ReferralIn(BaseModel):
+    token: str = Field(min_length=1, max_length=64)
 
 
 def raise_billing(exc: BillingError) -> None:
@@ -122,6 +127,18 @@ def upsert_user(body: UserIn) -> dict:
             (body.telegram_id, body.username.strip(), body.first_name.strip()),
         )
         return _public(conn, _user_or_404(conn, body.telegram_id))
+
+
+@router.post("/users/{telegram_id}/referral")
+def attach_referral(telegram_id: int, body: ReferralIn) -> dict:
+    with pool.connection() as conn:
+        row = _user_or_404(conn, telegram_id)
+        user_id = int(row["id"])
+    try:
+        attributed = attribute_user(user_id, body.token)
+    except ReferralError:
+        raise HTTPException(status_code=400, detail="token")
+    return {"attributed": attributed}
 
 
 @router.get("/users/{telegram_id}")

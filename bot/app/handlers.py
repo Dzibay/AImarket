@@ -36,6 +36,7 @@ from app.backend import (
     issue_key,
     list_products,
     read_key,
+    record_referral,
     reissue_key,
     upsert_user,
 )
@@ -1140,6 +1141,11 @@ async def start(message: Message, state: FSMContext, command: CommandObject) -> 
             if paid.get("notice"):
                 await _say(message, paid["notice"])
                 return
+    elif payload:
+        try:
+            await record_referral(user.id, payload)
+        except BackendError:
+            pass
     if profile.get("blocked"):
         text, markup = _blocked_screen(profile)
         await _open(message, "welcome", text, markup)
