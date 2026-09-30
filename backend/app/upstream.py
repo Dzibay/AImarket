@@ -384,6 +384,40 @@ def _secret_from(payload: dict) -> str:
     return raw if raw.startswith("sk-") else f"sk-{raw}"
 
 
+def _log_quota_units(item: dict) -> int:
+    for field in ("quota", "quota_used", "amount"):
+        raw = item.get(field)
+        if raw in (None, ""):
+            continue
+        try:
+            value = abs(int(float(raw)))
+        except (TypeError, ValueError):
+            continue
+        if value > 0:
+            return value
+    return 0
+
+
+def _log_created_sort_key(value: object) -> int:
+    if value in (None, ""):
+        return 0
+    if isinstance(value, (int, float)):
+        stamp = int(value)
+    elif isinstance(value, str):
+        text = value.strip()
+        if not text:
+            return 0
+        if text.isdigit():
+            stamp = int(text)
+        else:
+            return 0
+    else:
+        return 0
+    if stamp > 10_000_000_000:
+        stamp //= 1000
+    return max(stamp, 0)
+
+
 def _token_key_variants(token_secret: str) -> list[str]:
     secret = token_secret.strip()
     if not secret:
@@ -406,11 +440,11 @@ def _consumption_logs(items: list[dict]) -> list[dict]:
                     continue
             except (TypeError, ValueError):
                 pass
-        units = int(item.get("quota") or 0)
+        units = _log_quota_units(item)
         if units <= 0 and not str(item.get("model_name") or "").strip():
             continue
         result.append(item)
-    result.sort(key=lambda row: int(row.get("created_at") or 0), reverse=True)
+    result.sort(key=lambda row: _log_created_sort_key(row.get("created_at")), reverse=True)
     return result
 
 

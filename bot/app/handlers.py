@@ -918,14 +918,14 @@ def _token_screen(key: dict) -> tuple[str, InlineKeyboardMarkup]:
 
 
 def _key_stats_screen(profile: dict, key: dict) -> tuple[str, InlineKeyboardMarkup]:
-    week = profile.get("spent_week_usd") or []
+    week = key.get("spent_week_usd") or profile.get("spent_week_usd") or []
     text = (
         "<b>📊 Статистика ключа</b>\n\n"
         f"💸 Потрачено: <b>{_usd(float(key.get('spent_usd') or 0))}</b> / "
         f"<b>{_usd(float(key.get('limit_usd') or 0))}</b>\n"
         f"💰 Остаток: <b>{_usd(float(key.get('quota_usd') or 0))}</b>\n"
-        f"Сегодня: {_spent(float(profile.get('spent_today_usd') or 0))}\n"
-        f"За месяц: {_spent(float(profile.get('spent_month_usd') or 0))}\n\n"
+        f"Сегодня: {_spent(float(key.get('spent_today_usd') or profile.get('spent_today_usd') or 0))}\n"
+        f"За месяц: {_spent(float(key.get('spent_month_usd') or profile.get('spent_month_usd') or 0))}\n\n"
         f"{_week_chart(week if isinstance(week, list) else [])}"
     )
     rows = [[_button("⬅️ Назад", callback="keys")]]

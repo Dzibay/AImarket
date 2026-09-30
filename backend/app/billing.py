@@ -2,12 +2,12 @@ import hashlib
 import logging
 import secrets
 import threading
-from datetime import datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 
 from app.db import pool
 from app.money import usd_to_units, units_to_usd
-from app.upstream import UpstreamError, upstream
+from app.upstream import UpstreamError, _log_quota_units, upstream
 
 log = logging.getLogger("app.billing")
 billing_lock = threading.RLock()
@@ -512,8 +512,38 @@ def _key_stats(key_id: int, upstream_id: int | None, quota_usd: Decimal) -> dict
             """,
             (key_id,),
         ).fetchone()
+        period = conn.execute(
+            """
+            SELECT
+                COALESCE(SUM(quota_units) FILTER (
+                    WHERE created_at >= date_trunc('day', NOW() AT TIME ZONE 'Europe/Moscow')
+                        AT TIME ZONE 'Europe/Moscow'
+                ), 0) AS today_units,
+                COALESCE(SUM(quota_units) FILTER (
+                    WHERE created_at >= date_trunc('month', NOW() AT TIME ZONE 'Europe/Moscow')
+                        AT TIME ZONE 'Europe/Moscow'
+                ), 0) AS month_units
+            FROM usage
+            WHERE api_key_id = %s
+              AND created_at >= date_trunc('month', NOW() AT TIME ZONE 'Europe/Moscow')
+                  AT TIME ZONE 'Europe/Moscow'
+            """,
+            (key_id,),
+        ).fetchone()
+        week_rows = conn.execute(
+            """
+            SELECT (created_at AT TIME ZONE 'Europe/Moscow')::date AS day,
+                   COALESCE(SUM(quota_units), 0) AS units
+            FROM usage
+            WHERE api_key_id = %s
+              AND (created_at AT TIME ZONE 'Europe/Moscow')::date >= %s
+            GROUP BY day
+            ORDER BY day
+            """,
+            (key_id, _week_start_msk()),
+        ).fetchall()
     spent_logs = units_to_usd(int(row["spent_units"] or 0))
-    if used <= 0 and spent_logs > 0:
+    if spent_logs > used:
         used = spent_logs
     limit = (remain + used).quantize(Decimal("0.01"))
     last = row["last_request_at"]
@@ -524,6 +554,9 @@ def _key_stats(key_id: int, upstream_id: int | None, quota_usd: Decimal) -> dict
         "prompt_tokens": int(row["prompt_tokens"] or 0),
         "completion_tokens": int(row["completion_tokens"] or 0),
         "last_request_at": last.isoformat() if last is not None else "",
+        "spent_today_usd": float(units_to_usd(int(period["today_units"] or 0))),
+        "spent_month_usd": float(units_to_usd(int(period["month_units"] or 0))),
+        "spent_week_usd": _week_chart_rows(week_rows),
     }
 
 
@@ -579,6 +612,32 @@ def _import_usage(
     return units_to_usd(inserted_units), new_usages
 
 
+_WEEKDAY_LABELS = ("Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс")
+
+
+def _week_start_msk() -> date:
+    from zoneinfo import ZoneInfo
+
+    today = datetime.now(ZoneInfo("Europe/Moscow")).date()
+    return today - timedelta(days=6)
+
+
+def _week_chart_rows(rows: list[dict]) -> list[dict]:
+    from zoneinfo import ZoneInfo
+
+    today = datetime.now(ZoneInfo("Europe/Moscow")).date()
+    start = today - timedelta(days=6)
+    by_day = {row["day"]: float(units_to_usd(int(row["units"] or 0))) for row in rows}
+    return [
+        {
+            "date": day.isoformat(),
+            "label": _WEEKDAY_LABELS[day.weekday()],
+            "usd": by_day.get(day, 0.0),
+        }
+        for day in (start + timedelta(days=offset) for offset in range(7))
+    ]
+
+
 def _upstream_log_id(item: dict) -> int | None:
     raw = item.get("id")
     if raw not in (None, ""):
@@ -588,10 +647,7 @@ def _upstream_log_id(item: dict) -> int | None:
             pass
     created = item.get("created_at")
     model = str(item.get("model_name") or "")
-    try:
-        quota = int(item.get("quota") or 0)
-    except (TypeError, ValueError):
-        quota = 0
+    quota = _log_quota_units(item)
     try:
         prompt = int(item.get("prompt_tokens") or 0)
     except (TypeError, ValueError):
@@ -628,14 +684,7 @@ def _save_usage_page(user_id: int, key_id: int, items: list[dict]) -> tuple[int,
         inserted_units = 0
         new_usages: list[dict] = []
         for log_id, item in parsed:
-            if log_id in known:
-                continue
-            try:
-                units = int(item.get("quota") or 0)
-            except (TypeError, ValueError):
-                units = 0
-            if units < 0:
-                units = 0
+            units = _log_quota_units(item)
             model_name = str(item.get("model_name") or "")
             try:
                 prompt_tokens = int(item.get("prompt_tokens") or 0)
@@ -645,6 +694,30 @@ def _save_usage_page(user_id: int, key_id: int, items: list[dict]) -> tuple[int,
                 completion_tokens = int(item.get("completion_tokens") or 0)
             except (TypeError, ValueError):
                 completion_tokens = 0
+            created_at = _log_time(item.get("created_at"))
+            if log_id in known:
+                if units > 0:
+                    patched = conn.execute(
+                        """
+                        UPDATE usage
+                        SET quota_units = %s,
+                            model_name = CASE WHEN model_name = '' THEN %s ELSE model_name END,
+                            prompt_tokens = CASE WHEN prompt_tokens = 0 THEN %s ELSE prompt_tokens END,
+                            completion_tokens = CASE WHEN completion_tokens = 0 THEN %s ELSE completion_tokens END
+                        WHERE upstream_log_id = %s AND quota_units = 0
+                        RETURNING id
+                        """,
+                        (
+                            units,
+                            model_name[:200],
+                            max(prompt_tokens, 0),
+                            max(completion_tokens, 0),
+                            log_id,
+                        ),
+                    ).fetchone()
+                    if patched is not None:
+                        inserted_units += units
+                continue
             if not _insert_usage(
                 user_id,
                 key_id,
@@ -653,7 +726,7 @@ def _save_usage_page(user_id: int, key_id: int, items: list[dict]) -> tuple[int,
                 prompt_tokens,
                 completion_tokens,
                 units,
-                _log_time(item.get("created_at")),
+                created_at,
                 conn,
             ):
                 continue
@@ -694,6 +767,20 @@ def _warn_if_usage_differs(key_id: int | None, token: dict) -> None:
 
 
 def _log_time(value: object) -> datetime:
+    if isinstance(value, datetime):
+        return value if value.tzinfo is not None else value.replace(tzinfo=timezone.utc)
+    if isinstance(value, str):
+        text = value.strip()
+        if text:
+            if text.isdigit():
+                value = int(text)
+            else:
+                try:
+                    moment = datetime.fromisoformat(text.replace("Z", "+00:00"))
+                except ValueError:
+                    moment = None
+                if moment is not None:
+                    return moment if moment.tzinfo is not None else moment.replace(tzinfo=timezone.utc)
     try:
         stamp = int(value or 0)
     except (TypeError, ValueError):
