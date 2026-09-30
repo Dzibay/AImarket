@@ -18,6 +18,7 @@ from app.yookassa import YooKassaError, create_payment, enabled as yookassa_enab
 router = APIRouter(dependencies=[Depends(require_bot)])
 _MSK = ZoneInfo("Europe/Moscow")
 _WEEKDAY_LABELS = ("Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс")
+_HISTORY_PAGE = 5
 
 
 class UserIn(BaseModel):
@@ -395,7 +396,6 @@ _HISTORY_KINDS = {
     "spend": "Расход",
     "adjust": "Сверка",
 }
-_HISTORY_PAGE = 5
 
 
 def _history_filter(raw: str) -> str:
