@@ -279,7 +279,7 @@ def key_history(
         row = _user_or_404(conn, telegram_id)
         _require_active(row)
         user_id = int(row["id"])
-    sync_user(user_id, force=True)
+    sync_user(user_id)
     with pool.connection() as conn:
         row = _user_or_404(conn, telegram_id)
         key = conn.execute(
@@ -292,24 +292,25 @@ def key_history(
         ).fetchone()
         if key is None:
             raise HTTPException(status_code=404, detail="no-key")
+        key_id = int(key["id"])
         totals = conn.execute(
             """
             SELECT COUNT(*) AS requests,
                    COALESCE(SUM(quota_units), 0) AS units
             FROM usage
-            WHERE user_id = %s
+            WHERE api_key_id = %s
             """,
-            (user_id,),
+            (key_id,),
         ).fetchone()
         items = conn.execute(
             """
             SELECT model_name, prompt_tokens, completion_tokens, quota_units, created_at
             FROM usage
-            WHERE user_id = %s
+            WHERE api_key_id = %s
             ORDER BY created_at DESC
             LIMIT %s OFFSET %s
             """,
-            (user_id, limit + 1, offset),
+            (key_id, limit + 1, offset),
         ).fetchall()
     has_more = len(items) > limit
     key_label = _mask_key_label(str(key["secret"] or ""), str(key["prefix"] or key["name"] or ""))
@@ -423,7 +424,7 @@ def user_history(
     with pool.connection() as conn:
         row = _user_or_404(conn, telegram_id)
         user_id = int(row["id"])
-    sync_user(user_id, force=True)
+    sync_user(user_id)
     with pool.connection() as conn:
         row = _user_or_404(conn, telegram_id)
         user_id = int(row["id"])

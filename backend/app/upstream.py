@@ -12,8 +12,8 @@ from app.money import usd_to_units, units_to_usd
 
 log = logging.getLogger("app.upstream")
 
-# /api/log/token жёстко лимитируется — после 429 не дергаем несколько минут.
-_token_log_blocked_until = 0.0
+# /api/log/token жёстко лимитируется — cooldown отдельно на каждый ключ.
+_token_log_blocked_until: dict[str, float] = {}
 _TOKEN_LOG_COOLDOWN_SEC = 300
 
 
@@ -147,15 +147,12 @@ class RouterCheap:
         page_size: int = 100,
         force: bool = False,
     ) -> tuple[list[dict], bool]:
-        """Журнал расходов: Bearer /api/log/token → /api/log/ → /api/log/self.
+        """Журнал расходов дочернего ключа.
 
-        Второе значение — True, если следующих страниц нет.
+        С root-ключом: /api/log/ (admin) → /api/log/self — полная пагинация, реальные id.
+        Без root: Bearer /api/log/token — только траты этого ключа.
         """
         page = max(1, page)
-        if page == 1 and token_secret.strip():
-            items = self._spend_logs_by_secret(token_secret, force=force)
-            if items:
-                return items, True
         if token_name and self._has_root_key():
             raw_items = self._spend_logs_by_admin(token_name, page=page, page_size=page_size)
             if not raw_items:
@@ -169,26 +166,31 @@ class RouterCheap:
                     len(raw_items),
                     token_name,
                 )
+            return [], True
+        if token_secret.strip():
+            items = self._spend_logs_by_secret(token_secret, force=force)
+            if items:
+                return items, True
         return [], True
 
     def _has_root_key(self) -> bool:
         return bool(self._root_key())
 
     def _spend_logs_by_secret(self, token_secret: str, *, force: bool = False) -> list[dict]:
-        if not force and _token_log_cooled_down():
-            log.warning(
-                "журнал /api/log/token пропущен (rate limit), повтор через %s с",
-                max(1, int(_token_log_blocked_until - time.monotonic())),
-            )
-            return []
         key = _token_log_canonical(token_secret)
         if not key:
+            return []
+        if not force and _token_log_cooled_down(key):
+            log.warning(
+                "журнал /api/log/token пропущен (rate limit), повтор через %s с",
+                max(1, int(_token_log_blocked_until.get(key, 0) - time.monotonic())),
+            )
             return []
         try:
             payload = self._bearer("GET", "/api/log/token", key)
         except UpstreamError as exc:
             if "429" in exc.message:
-                _mark_token_log_rate_limited()
+                _mark_token_log_rate_limited(key)
                 log.warning(
                     "журнал /api/log/token: rate limit, повтор не раньше чем через %s с",
                     _TOKEN_LOG_COOLDOWN_SEC,
@@ -468,13 +470,12 @@ def _log_created_sort_key(value: object) -> int:
     return max(stamp, 0)
 
 
-def _token_log_cooled_down() -> bool:
-    return time.monotonic() < _token_log_blocked_until
+def _token_log_cooled_down(key: str) -> bool:
+    return time.monotonic() < _token_log_blocked_until.get(key, 0.0)
 
 
-def _mark_token_log_rate_limited() -> None:
-    global _token_log_blocked_until
-    _token_log_blocked_until = time.monotonic() + _TOKEN_LOG_COOLDOWN_SEC
+def _mark_token_log_rate_limited(key: str) -> None:
+    _token_log_blocked_until[key] = time.monotonic() + _TOKEN_LOG_COOLDOWN_SEC
 
 
 def _token_log_canonical(token_secret: str) -> str:

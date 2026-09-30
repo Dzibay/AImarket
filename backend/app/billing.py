@@ -527,9 +527,9 @@ def _attach_usage_to_key(user_id: int, key_id: int, conn) -> None:
         """
         UPDATE usage
         SET api_key_id = %s
-        WHERE user_id = %s AND (api_key_id IS DISTINCT FROM %s)
+        WHERE user_id = %s AND api_key_id IS NULL
         """,
-        (key_id, user_id, key_id),
+        (key_id, user_id),
     )
 
 
@@ -586,9 +586,9 @@ def _import_usage(
 ) -> tuple[Decimal, list[dict]]:
     if key_id is None:
         return Decimal(0), []
-    if not token_secret.strip():
+    if not token_secret.strip() and not (token_name and upstream._has_root_key()):
         log.warning(
-            "импорт расходов user=%s: секрет ключа не сохранён, задайте root в админке или перевыпустите ключ",
+            "импорт расходов user=%s: нет секрета ключа и root не задан в админке",
             user_id,
         )
         return Decimal(0), []
@@ -609,14 +609,12 @@ def _import_usage(
             )
             if items:
                 fetched_rows += len(items)
-                page_units, page_done, page_usages, page_refreshed = _save_usage_page(
+                page_units, page_usages, page_refreshed = _save_usage_page(
                     user_id, key_id, items
                 )
                 inserted_units += page_units
                 refreshed_rows += page_refreshed
                 new_usages.extend(page_usages)
-                if page_done:
-                    break
             if complete:
                 break
             page += 1
@@ -695,9 +693,19 @@ def _cleanup_legacy_display_usage(user_id: int) -> None:
 
 
 def _dedupe_usage_logs(user_id: int) -> None:
-    """Убирает дубли: строка без request_id, если есть копия с request_id."""
+    """Убирает дубли по request_id и legacy-строки без request_id."""
     with pool.connection() as conn:
-        removed = conn.execute(
+        by_request = conn.execute(
+            """
+            DELETE FROM usage a
+            USING usage b
+            WHERE a.user_id = %s AND b.user_id = %s
+              AND a.request_id <> '' AND a.request_id = b.request_id
+              AND a.id < b.id
+            """,
+            (user_id, user_id),
+        ).rowcount
+        by_legacy = conn.execute(
             """
             DELETE FROM usage a
             USING usage b
@@ -712,6 +720,7 @@ def _dedupe_usage_logs(user_id: int) -> None:
             """,
             (user_id, user_id),
         ).rowcount
+    removed = int(by_request or 0) + int(by_legacy or 0)
     if removed:
         log.info("удалено %s дублей расходов user=%s", removed, user_id)
 
@@ -761,14 +770,14 @@ def _patch_usage_row(
     return units if units > 0 else prev_units
 
 
-def _save_usage_page(user_id: int, key_id: int, items: list[dict]) -> tuple[int, bool, list[dict], int]:
+def _save_usage_page(user_id: int, key_id: int, items: list[dict]) -> tuple[int, list[dict], int]:
     parsed: list[dict] = []
     for item in items:
         row = parse_usage_log(item)
         if row is not None:
             parsed.append(row)
     if not parsed:
-        return 0, True, [], 0
+        return 0, [], 0
 
     inserted_units = 0
     refreshed_rows = 0
@@ -912,8 +921,7 @@ def _save_usage_page(user_id: int, key_id: int, items: list[dict]) -> tuple[int,
                     created_at=created_at,
                 )
 
-    page_done = len(parsed) > 0 and inserted_units == 0 and not new_usages
-    return inserted_units, page_done, new_usages, refreshed_rows
+    return inserted_units, new_usages, refreshed_rows
 
 
 def _warn_if_usage_differs(user_id: int, token: dict) -> None:
@@ -965,7 +973,10 @@ def _insert_usage(
             " DO NOTHING RETURNING id"
         )
     elif upstream_log_id is not None:
-        sql += " ON CONFLICT (upstream_log_id) WHERE upstream_log_id IS NOT NULL DO NOTHING RETURNING id"
+        sql += (
+            " ON CONFLICT (user_id, upstream_log_id) WHERE upstream_log_id IS NOT NULL"
+            " DO NOTHING RETURNING id"
+        )
     else:
         sql += " RETURNING id"
     params = (

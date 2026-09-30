@@ -87,8 +87,9 @@ CREATE TABLE IF NOT EXISTS usage (
 
 ALTER TABLE usage ADD COLUMN IF NOT EXISTS request_id TEXT NOT NULL DEFAULT '';
 
-CREATE UNIQUE INDEX IF NOT EXISTS idx_usage_upstream_log
-    ON usage (upstream_log_id) WHERE upstream_log_id IS NOT NULL;
+DROP INDEX IF EXISTS idx_usage_upstream_log;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_usage_user_upstream_log
+    ON usage (user_id, upstream_log_id) WHERE upstream_log_id IS NOT NULL;
 CREATE UNIQUE INDEX IF NOT EXISTS idx_usage_user_request
     ON usage (user_id, request_id) WHERE request_id <> '';
 CREATE INDEX IF NOT EXISTS idx_usage_user_time ON usage (user_id, created_at DESC);
