@@ -12,77 +12,331 @@
   <link rel="manifest" href="/site.webmanifest">
   <meta name="theme-color" content="#1c1915">
   <style>
-    :root { color-scheme: light; }
-    body { margin: 0; background: #f4f1ea; color: #1c1915; font: 15px/1.45 "Segoe UI", sans-serif; }
-    main { max-width: 1100px; margin: 0 auto; padding: 28px 18px 80px; }
-    h1 { font-size: 28px; letter-spacing: -0.03em; margin: 0 0 6px; }
-    h2 { font-size: 18px; margin: 0 0 8px; }
-    a { color: inherit; }
-    .lead { color: #6b645b; margin: 0 0 18px; }
-    nav { display: flex; gap: 8px; flex-wrap: wrap; margin: 14px 0; }
-    nav button, .periods button { background: #efeae2; color: #1c1915; }
-    nav button.on, .periods button.on { background: #1c1915; color: #fff; }
-    section { background: #fff; border: 1px solid #e4ddd2; border-radius: 12px; padding: 16px 18px 18px; margin-top: 14px; }
-    label { display: block; margin: 12px 0 4px; color: #5c564c; font-size: 13px; }
-    input, textarea { width: 100%; box-sizing: border-box; border: 1px solid #d9d0c3; border-radius: 8px; padding: 8px 10px; font: inherit; background: #fff; }
-    textarea { min-height: 88px; resize: vertical; }
-    button { background: #1c1915; color: #fff; border: 0; border-radius: 8px; padding: 8px 12px; font: inherit; cursor: pointer; }
-    button.quiet { background: #efeae2; color: #1c1915; }
-    .row { display: flex; gap: 8px; align-items: center; margin-top: 12px; flex-wrap: wrap; }
-    .error { color: #8d2b2b; }
-    .table-wrap { overflow-x: auto; margin-top: 8px; }
-    table { width: 100%; border-collapse: collapse; }
-    th, td { text-align: left; padding: 8px 6px; border-bottom: 1px solid #eee6dc; vertical-align: top; }
-    td.num, th.num { text-align: right; white-space: nowrap; }
-    td input { width: 90px; }
-    .ledger-form select, .ledger-form input { width: auto; }
-    .ledger-form input { width: 140px; }
-    .ledger-form select { max-width: 280px; }
-    .card.bad { outline: 1px solid #e3b4b4; }
-    button.danger { background: #8d2b2b; }
-    .hidden { display: none; }
-    .panel-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
+    :root {
+      color-scheme: light;
+      --bg: #f4f1ea;
+      --surface: #fff;
+      --surface-soft: #faf7f2;
+      --border: #e4ddd2;
+      --border-strong: #d9d0c3;
+      --text: #1c1915;
+      --muted: #6b645b;
+      --accent: #1c1915;
+      --danger: #8d2b2b;
+      --danger-soft: #f8ecec;
+      --ok: #2d6a4f;
+      --ok-soft: #e8f3ed;
+      --warn: #9a6700;
+      --warn-soft: #faf3dd;
+      --shadow: 0 10px 30px rgba(28, 25, 21, 0.06);
+      --radius: 14px;
+      --radius-sm: 10px;
+    }
+    *, *::before, *::after { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background: var(--bg);
+      color: var(--text);
+      font: 15px/1.5 "Segoe UI", system-ui, sans-serif;
+    }
+    a { color: inherit; text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    main { max-width: 1240px; margin: 0 auto; padding: 24px 20px 64px; }
+    h1, h2, h3 { margin: 0; letter-spacing: -0.03em; }
+    h1 { font-size: 28px; }
+    h2 { font-size: 20px; }
+    h3 { font-size: 15px; font-weight: 600; }
+    .hidden { display: none !important; }
+    .error { color: var(--danger); font-size: 13px; }
+    .muted { color: var(--muted); font-size: 13px; }
+    .ok-text { color: var(--ok); font-size: 13px; }
+    code { font: 13px/1.45 ui-monospace, SFMono-Regular, Consolas, monospace; }
+
+    .site-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 16px;
+      margin-bottom: 20px;
+      flex-wrap: wrap;
+    }
+    .site-head .links { display: flex; gap: 14px; flex-wrap: wrap; color: var(--muted); font-size: 13px; }
+
+    .panel {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      padding: 22px 24px 24px;
+    }
+    .panel + .panel, .panel-head + .panel-body { margin-top: 16px; }
+    .panel-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 12px;
+      flex-wrap: wrap;
+      margin-bottom: 18px;
+    }
     .panel-head h2 { margin: 0; }
-    .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px; margin-top: 14px; }
-    .card { background: #faf7f2; border-radius: 10px; padding: 12px 14px; min-width: 0; }
-    .card b { display: block; font-size: 20px; letter-spacing: -0.03em; margin-top: 4px; overflow-wrap: anywhere; }
-    .card span { color: #6b645b; font-size: 13px; }
-    .block { margin-top: 22px; }
-    .block h2 { margin: 0 0 4px; }
-    .chart-scroll { overflow-x: auto; margin-top: 8px; padding-bottom: 4px; }
-    .chart, .axis { display: flex; align-items: flex-end; gap: 4px; min-width: 100%; }
-    .chart { height: 148px; }
-    .chart i { flex: 1 0 10px; background: #1c1915; border-radius: 4px 4px 0 0; min-height: 0; display: block; }
-    .chart i.empty { background: #e7e0d6; min-height: 4px; }
-    .chart.alt i:not(.empty) { background: #5c564c; }
-    .axis { margin-top: 6px; }
-    .axis b { flex: 1 0 10px; font-weight: 400; font-size: 11px; color: #6b645b; text-align: center; }
-    .split { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; margin-top: 8px; }
-    @media (max-width: 800px) { .split { grid-template-columns: 1fr; } }
+
+    #login.panel { max-width: 420px; margin: 12vh auto 0; }
+
+    label {
+      display: block;
+      margin: 14px 0 6px;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 600;
+      letter-spacing: 0.02em;
+      text-transform: uppercase;
+    }
+    label:first-child { margin-top: 0; }
+    input, select, textarea {
+      width: 100%;
+      border: 1px solid var(--border-strong);
+      border-radius: var(--radius-sm);
+      padding: 10px 12px;
+      font: inherit;
+      background: #fff;
+      color: var(--text);
+      transition: border-color 0.15s ease, box-shadow 0.15s ease;
+    }
+    input:focus, select:focus, textarea:focus {
+      outline: none;
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px rgba(28, 25, 21, 0.08);
+    }
+    textarea { min-height: 88px; resize: vertical; }
+
+    button {
+      appearance: none;
+      border: 0;
+      border-radius: var(--radius-sm);
+      padding: 9px 14px;
+      font: inherit;
+      font-weight: 600;
+      cursor: pointer;
+      background: var(--accent);
+      color: #fff;
+      transition: transform 0.12s ease, opacity 0.12s ease, background 0.12s ease;
+    }
+    button:hover { transform: translateY(-1px); }
+    button:active { transform: translateY(0); }
+    button:disabled { opacity: 0.45; cursor: not-allowed; transform: none; }
+    button.quiet { background: var(--surface-soft); color: var(--text); border: 1px solid var(--border); }
+    button.danger { background: var(--danger); }
+    button.sm { padding: 6px 10px; font-size: 13px; border-radius: 8px; }
+
+    .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-top: 16px; }
+
+    .tabs {
+      display: flex;
+      gap: 8px;
+      flex-wrap: nowrap;
+      overflow-x: auto;
+      padding-bottom: 4px;
+      margin-bottom: 18px;
+      scrollbar-width: thin;
+    }
+    .tabs button {
+      background: var(--surface);
+      color: var(--text);
+      border: 1px solid var(--border);
+      white-space: nowrap;
+      flex: 0 0 auto;
+    }
+    .tabs button.on {
+      background: var(--accent);
+      color: #fff;
+      border-color: var(--accent);
+    }
+
     .periods { display: flex; gap: 8px; flex-wrap: wrap; }
-    .modal { position: fixed; inset: 0; z-index: 20; display: grid; place-items: center; padding: 18px; }
-    .modal.hidden { display: none; }
-    .modal-backdrop { position: absolute; inset: 0; background: rgba(28, 25, 21, 0.42); }
-    .modal-box { position: relative; width: min(420px, 100%); background: #fff; border: 1px solid #e4ddd2; border-radius: 12px; padding: 18px; box-shadow: 0 18px 48px rgba(28, 25, 21, 0.18); }
-    .modal-box h2 { margin: 0 0 12px; font-size: 18px; }
-    .link-cell { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
-    .link-cell code { font: 13px/1.4 ui-monospace, monospace; word-break: break-all; }
+    .periods button {
+      background: var(--surface-soft);
+      color: var(--text);
+      border: 1px solid var(--border);
+    }
+    .periods button.on { background: var(--accent); color: #fff; border-color: var(--accent); }
+
+    .cards {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+      gap: 12px;
+    }
+    .card {
+      background: var(--surface-soft);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      padding: 14px 16px;
+      min-width: 0;
+    }
+    .card span { display: block; color: var(--muted); font-size: 12px; margin-bottom: 6px; }
+    .card b { display: block; font-size: 22px; letter-spacing: -0.03em; overflow-wrap: anywhere; }
+    .card.bad { border-color: #e3b4b4; background: var(--danger-soft); }
+
+    .block { margin-top: 24px; }
+    .block:first-child { margin-top: 0; }
+    .block > h2, .block > h3 { margin-bottom: 12px; }
+
+    .table-wrap {
+      overflow: auto;
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      background: #fff;
+    }
+    table { width: 100%; border-collapse: collapse; min-width: 520px; }
+    th, td {
+      text-align: left;
+      padding: 11px 14px;
+      border-bottom: 1px solid #eee6dc;
+      vertical-align: middle;
+    }
+    th {
+      background: var(--surface-soft);
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.03em;
+    }
+    tbody tr:last-child td { border-bottom: 0; }
+    tbody tr:hover td { background: rgba(250, 247, 242, 0.65); }
+    td.num, th.num { text-align: right; white-space: nowrap; }
+    td.actions, th.actions { width: 1%; white-space: nowrap; }
+    td.compact input { width: 72px; margin-right: 8px; }
+    td .badge { margin-left: 8px; }
+    .empty td { text-align: center; color: var(--muted); padding: 28px 14px; }
+
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      padding: 3px 8px;
+      border-radius: 999px;
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: lowercase;
+      border: 1px solid transparent;
+    }
+    .badge.ok { background: var(--ok-soft); color: var(--ok); border-color: #c7e3d4; }
+    .badge.warn { background: var(--warn-soft); color: var(--warn); border-color: #ecdca8; }
+    .badge.neutral { background: var(--surface-soft); color: var(--muted); border-color: var(--border); }
+    .badge.bad { background: var(--danger-soft); color: var(--danger); border-color: #e3b4b4; }
+
+    .settings-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 18px;
+    }
+    .settings-block {
+      background: var(--surface-soft);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      padding: 16px 18px 18px;
+    }
+    .settings-block.wide { grid-column: 1 / -1; }
+    .stat-line {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 12px;
+      border-radius: 999px;
+      background: var(--surface-soft);
+      border: 1px solid var(--border);
+      font-size: 13px;
+      color: var(--muted);
+    }
+    .stat-line strong { color: var(--text); }
+
+    .ledger-form {
+      display: grid;
+      grid-template-columns: minmax(180px, 1.4fr) repeat(4, minmax(110px, 1fr)) auto;
+      gap: 10px;
+      align-items: end;
+    }
+    .ledger-form label { margin: 0 0 6px; }
+    .ledger-form .field { min-width: 0; }
+    .ledger-form button { height: 42px; }
+
+    .chart-scroll { overflow-x: auto; margin-top: 4px; padding-bottom: 4px; }
+    .chart, .axis { display: flex; align-items: flex-end; gap: 4px; min-width: 100%; }
+    .chart { height: 160px; padding-top: 8px; }
+    .chart i {
+      flex: 1 0 10px;
+      background: linear-gradient(180deg, #3a342c 0%, var(--accent) 100%);
+      border-radius: 6px 6px 0 0;
+      min-height: 0;
+      display: block;
+    }
+    .chart i.empty { background: #e7e0d6; min-height: 4px; }
+    .chart.alt i:not(.empty) { background: linear-gradient(180deg, #7a7267 0%, #5c564c 100%); }
+    .axis { margin-top: 8px; }
+    .axis b { flex: 1 0 10px; font-weight: 400; font-size: 11px; color: var(--muted); text-align: center; }
+
+    .split { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+
+    .modal {
+      position: fixed;
+      inset: 0;
+      z-index: 30;
+      display: grid;
+      place-items: center;
+      padding: 18px;
+    }
+    .modal-backdrop {
+      position: absolute;
+      inset: 0;
+      background: rgba(28, 25, 21, 0.45);
+      backdrop-filter: blur(2px);
+    }
+    .modal-box {
+      position: relative;
+      width: min(420px, 100%);
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 22px 22px 20px;
+      box-shadow: 0 24px 60px rgba(28, 25, 21, 0.18);
+    }
+    .modal-box h2 { margin-bottom: 16px; }
+
+    @media (max-width: 960px) {
+      .settings-grid, .split { grid-template-columns: 1fr; }
+      .ledger-form { grid-template-columns: 1fr 1fr; }
+      .ledger-form button { grid-column: 1 / -1; width: 100%; }
+    }
+    @media (max-width: 640px) {
+      main { padding: 16px 14px 48px; }
+      .panel { padding: 18px 16px; }
+      .ledger-form { grid-template-columns: 1fr; }
+    }
   </style>
 </head>
 <body>
   <main>
-    <h1>Aimarket</h1>
-    <p class="lead">Админка. <a href="/privacy">Политика</a> · <a href="/consent">Согласие</a> · <a href="/offer">Оферта</a></p>
+    <div class="site-head">
+      <h1>Aimarket</h1>
+      <div class="links">
+        <a href="/privacy">Политика</a>
+        <a href="/consent">Согласие</a>
+        <a href="/offer">Оферта</a>
+      </div>
+    </div>
 
-    <section id="login">
+    <section id="login" class="panel">
       <h2>Вход</h2>
       <label for="password">Пароль</label>
       <input id="password" type="password" autocomplete="current-password">
-      <div class="row"><button id="enter" type="button">Войти</button><span id="login-error" class="error"></span></div>
+      <div class="row">
+        <button id="enter" type="button">Войти</button>
+        <span id="login-error" class="error"></span>
+      </div>
     </section>
 
     <div id="app" class="hidden">
-      <nav>
+      <nav class="tabs">
         <button type="button" data-tab="analytics" class="on">Аналитика</button>
         <button type="button" data-tab="settings">Настройки</button>
         <button type="button" data-tab="payments">Платежи</button>
@@ -91,7 +345,7 @@
         <button type="button" data-tab="referrals">Рефералы</button>
       </nav>
 
-      <section id="tab-analytics">
+      <section id="tab-analytics" class="panel">
         <div class="panel-head">
           <h2>Аналитика</h2>
           <div class="periods">
@@ -102,112 +356,150 @@
         </div>
         <div class="cards" id="kpis"></div>
         <div class="block">
-          <h2>Выручка по дням</h2>
+          <h3>Выручка по дням</h3>
           <div class="chart-scroll"><div class="chart" id="revenue-chart"></div><div class="axis" id="revenue-axis"></div></div>
         </div>
         <div class="block">
-          <h2>Расход клиентов по дням</h2>
+          <h3>Расход клиентов по дням</h3>
           <div class="chart-scroll"><div class="chart alt" id="spend-chart"></div><div class="axis" id="spend-axis"></div></div>
         </div>
-        <div class="split">
-          <div class="block">
-            <h2>Модели</h2>
+        <div class="split block">
+          <div>
+            <h3>Модели</h3>
             <div class="table-wrap"><table><thead><tr><th>Модель</th><th class="num">Расход</th><th class="num">Запросы</th></tr></thead><tbody id="models"></tbody></table></div>
           </div>
-          <div class="block">
-            <h2>Кто сколько потратил</h2>
+          <div>
+            <h3>Кто сколько потратил</h3>
             <div class="table-wrap"><table><thead><tr><th>Клиент</th><th class="num">Расход</th><th class="num">Запросы</th></tr></thead><tbody id="spenders"></tbody></table></div>
           </div>
         </div>
-        <div class="split">
-          <div class="block">
-            <h2>Кто сколько оплатил</h2>
+        <div class="split block">
+          <div>
+            <h3>Кто сколько оплатил</h3>
             <div class="table-wrap"><table><thead><tr><th>Клиент</th><th class="num">Оплата</th><th class="num">Платежи</th></tr></thead><tbody id="payers"></tbody></table></div>
           </div>
-          <div class="block">
-            <h2>Статусы платежей</h2>
+          <div>
+            <h3>Статусы платежей</h3>
             <div class="table-wrap"><table><thead><tr><th>Статус</th><th class="num">Штук</th><th class="num">Сумма</th></tr></thead><tbody id="statuses"></tbody></table></div>
           </div>
         </div>
         <div class="block">
-          <h2>Последние запросы</h2>
+          <h3>Последние запросы</h3>
           <div class="table-wrap"><table><thead><tr><th>Когда</th><th>Клиент</th><th>Модель</th><th class="num">Токены</th><th class="num">Расход</th></tr></thead><tbody id="recent"></tbody></table></div>
         </div>
       </section>
 
-      <section id="tab-settings" class="hidden">
-        <h2>Кабинет router.cheap</h2>
-        <p class="lead" id="supplier">Баланс поставщика: —</p>
-        <label for="root">Корневой API-ключ</label>
-        <input id="root" type="password" placeholder="Оставьте пустым, чтобы не менять" autocomplete="off">
-        <p class="lead" id="root-hint"></p>
-        <label for="base">Публичный адрес сайта</label>
-        <input id="base" placeholder="https://example.com">
-        <label for="price">Цена, ₽ за $1 лимита</label>
-        <input id="price" inputmode="decimal" placeholder="100">
-        <h2 style="margin-top: 28px">Юридические документы</h2>
-        <p class="lead">Тексты политики, согласия и оферты заданы в коде. Здесь — дата редакции и контактная почта для всех документов.</p>
-        <label for="offer-date">Дата редакции</label>
-        <input id="offer-date" type="date">
-        <label for="offer-email">Почта</label>
-        <input id="offer-email" type="email" placeholder="support@example.com">
-        <label for="support-username">Telegram поддержки</label>
-        <input id="support-username" placeholder="support_username">
-        <div class="row"><button id="save" type="button">Сохранить</button><span id="save-status"></span></div>
-      </section>
-
-      <section id="tab-payments" class="hidden">
-        <h2>Платежи ЮKassa</h2>
-        <p class="lead">Баланс зачисляется автоматически после оплаты.</p>
-        <table>
-          <thead><tr><th>Кто</th><th>Сумма</th></tr></thead>
-          <tbody id="topups"></tbody>
-        </table>
-      </section>
-
-      <section id="tab-ledger" class="hidden">
-        <h2>Транзакции</h2>
-        <p class="lead">Сверка считает весь журнал. В таблице — последние 200 записей. Новая запись и удаление меняют только журнал, баланс клиента остаётся прежним.</p>
-        <div class="cards" id="ledger-check"></div>
-        <h2 style="margin-top: 22px">Новая запись</h2>
-        <div class="row ledger-form">
-          <select id="ledger-user"></select>
-          <select id="ledger-kind">
-            <option value="credit">Админка</option>
-            <option value="spend">Расход</option>
-            <option value="adjust">Сверка</option>
-            <option value="topup">ЮKassa</option>
-          </select>
-          <input id="ledger-usd" inputmode="decimal" placeholder="Сумма $">
-          <input id="ledger-rub" inputmode="decimal" placeholder="₽, если есть">
-          <input id="ledger-note" placeholder="Пометка" style="width: 220px">
-          <button id="ledger-add" type="button">Добавить</button>
-        </div>
-        <p id="ledger-error" class="error"></p>
-        <div class="table-wrap">
-        <table>
-          <thead><tr><th>Когда</th><th>Кто</th><th>Операция</th><th>Сумма</th><th></th></tr></thead>
-          <tbody id="ledger"></tbody>
-        </table>
-        </div>
-      </section>
-
-      <section id="tab-users" class="hidden">
-        <h2>Пользователи</h2>
-        <div class="table-wrap">
-        <table>
-          <thead><tr><th>Кто</th><th>Баланс</th><th>Ключ</th><th>Начислить $</th><th>Доступ</th><th></th></tr></thead>
-          <tbody id="users"></tbody>
-        </table>
-        </div>
-      </section>
-
-      <section id="tab-referrals" class="hidden">
+      <section id="tab-settings" class="panel hidden">
         <div class="panel-head">
-          <h2>Реферальные ссылки</h2>
-          <button id="referral-open" type="button">Создать ссылку</button>
+          <h2>Настройки</h2>
+          <div class="stat-line" id="supplier">Поставщик: —</div>
         </div>
-        <p class="lead" id="referral-bot-hint">Ссылки ведут в Telegram-бот: https://t.me/бот?start=токен</p>
+        <div class="settings-grid">
+          <div class="settings-block wide">
+            <h3>Router.cheap</h3>
+            <label for="root">Корневой API-ключ</label>
+            <input id="root" type="password" placeholder="Не менять — оставить пустым" autocomplete="off">
+            <p class="muted" id="root-hint"></p>
+          </div>
+          <div class="settings-block">
+            <h3>Сайт</h3>
+            <label for="base">Публичный адрес</label>
+            <input id="base" placeholder="https://example.com">
+          </div>
+          <div class="settings-block">
+            <h3>Цена</h3>
+            <label for="price">₽ за $1 лимита</label>
+            <input id="price" inputmode="decimal" placeholder="100">
+          </div>
+          <div class="settings-block">
+            <h3>Документы</h3>
+            <label for="offer-date">Дата редакции</label>
+            <input id="offer-date" type="date">
+            <label for="offer-email">Почта</label>
+            <input id="offer-email" type="email" placeholder="support@example.com">
+          </div>
+          <div class="settings-block">
+            <h3>Поддержка</h3>
+            <label for="support-username">Telegram</label>
+            <input id="support-username" placeholder="support_username">
+          </div>
+        </div>
+        <div class="row">
+          <button id="save" type="button">Сохранить</button>
+          <span id="save-status" class="ok-text"></span>
+        </div>
+      </section>
+
+      <section id="tab-payments" class="panel hidden">
+        <div class="panel-head"><h2>Платежи</h2></div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Клиент</th><th class="num">Сумма</th><th>Статус</th></tr></thead>
+            <tbody id="topups"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section id="tab-ledger" class="panel hidden">
+        <div class="panel-head"><h2>Транзакции</h2></div>
+        <div class="cards" id="ledger-check"></div>
+        <div class="block">
+          <h3>Новая запись</h3>
+          <div class="ledger-form">
+            <div class="field">
+              <label for="ledger-user">Клиент</label>
+              <select id="ledger-user"></select>
+            </div>
+            <div class="field">
+              <label for="ledger-kind">Тип</label>
+              <select id="ledger-kind">
+                <option value="credit">Админка</option>
+                <option value="spend">Расход</option>
+                <option value="adjust">Сверка</option>
+                <option value="topup">ЮKassa</option>
+              </select>
+            </div>
+            <div class="field">
+              <label for="ledger-usd">Сумма $</label>
+              <input id="ledger-usd" inputmode="decimal" placeholder="10">
+            </div>
+            <div class="field">
+              <label for="ledger-rub">Сумма ₽</label>
+              <input id="ledger-rub" inputmode="decimal" placeholder="0">
+            </div>
+            <div class="field">
+              <label for="ledger-note">Пометка</label>
+              <input id="ledger-note" placeholder="Необязательно">
+            </div>
+            <button id="ledger-add" type="button">Добавить</button>
+          </div>
+          <p id="ledger-error" class="error"></p>
+        </div>
+        <div class="block">
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Когда</th><th>Клиент</th><th>Операция</th><th class="num">Сумма</th><th class="actions"></th></tr></thead>
+              <tbody id="ledger"></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <section id="tab-users" class="panel hidden">
+        <div class="panel-head"><h2>Пользователи</h2></div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Клиент</th><th class="num">Баланс</th><th>Ключ</th><th>Начислить</th><th>Доступ</th><th class="actions"></th></tr></thead>
+            <tbody id="users"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section id="tab-referrals" class="panel hidden">
+        <div class="panel-head">
+          <h2>Рефералы</h2>
+          <button id="referral-open" type="button">Создать</button>
+        </div>
         <div class="table-wrap">
           <table>
             <thead>
@@ -215,7 +507,7 @@
                 <th>Токен</th>
                 <th class="num">Переходы</th>
                 <th class="num">Пополнения</th>
-                <th>Ссылка</th>
+                <th class="actions"></th>
               </tr>
             </thead>
             <tbody id="referrals"></tbody>
@@ -227,10 +519,9 @@
     <div id="referral-modal" class="modal hidden" aria-hidden="true">
       <div class="modal-backdrop" id="referral-backdrop"></div>
       <div class="modal-box">
-        <h2>Новая реферальная ссылка</h2>
+        <h2>Новая ссылка</h2>
         <label for="referral-token">Токен</label>
         <input id="referral-token" placeholder="partner_moscow" autocomplete="off" maxlength="64">
-        <p class="lead">Латиница, цифры и _. Нельзя начинать с paid_.</p>
         <div class="row">
           <button id="referral-create" type="button">Создать</button>
           <button id="referral-cancel" type="button" class="quiet">Отмена</button>
@@ -253,12 +544,24 @@
     function referralErrorText(code) {
       const messages = {
         exists: "Такой токен уже есть.",
-        format: "Токен может содержать только латиницу, цифры и _.",
-        reserved: "Токен не может начинаться с paid_.",
+        format: "Только латиница, цифры и _.",
+        reserved: "Нельзя начинать с paid_.",
         empty: "Введите токен.",
-        long: "Токен не длиннее 64 символов."
+        long: "Не длиннее 64 символов."
       };
       return messages[code] || code || "error";
+    }
+
+    function statusBadge(status) {
+      const value = String(status || "").toLowerCase();
+      const node = document.createElement("span");
+      node.className = "badge ";
+      if (value === "paid") node.className += "ok";
+      else if (value === "pending" || value === "оферта") node.className += "warn";
+      else if (value === "failed" || value === "rejected" || value === "blocked") node.className += "bad";
+      else node.className += "neutral";
+      node.textContent = value || "—";
+      return node;
     }
 
     async function copyText(text) {
@@ -295,16 +598,14 @@
     async function loadReferrals() {
       const data = await api("/api/admin/referrals");
       referralBot = data.bot_username || "";
-      $("referral-bot-hint").textContent = referralBot
-        ? "Ссылки ведут в Telegram-бот: https://t.me/" + referralBot + "?start=токен"
-        : "Имя бота не задано — укажите TELEGRAM_BOT_USERNAME или проверьте токен бота.";
       const body = $("referrals");
       body.innerHTML = "";
       if (!data.items.length) {
         const tr = document.createElement("tr");
+        tr.className = "empty";
         const td = document.createElement("td");
         td.colSpan = 4;
-        td.textContent = "Пока нет реферальных ссылок";
+        td.textContent = "Пока нет ссылок";
         tr.append(td);
         body.append(tr);
         return;
@@ -312,21 +613,20 @@
       for (const item of data.items) {
         const tr = document.createElement("tr");
         const tokenCell = document.createElement("td");
-        tokenCell.textContent = item.token;
+        const code = document.createElement("code");
+        code.textContent = item.token;
+        tokenCell.append(code);
         const visitsCell = document.createElement("td");
         visitsCell.className = "num";
         visitsCell.textContent = String(item.visits || 0);
         const topupsCell = document.createElement("td");
         topupsCell.className = "num";
-        topupsCell.textContent = rub(item.topup_rub || 0) + " → " + usd(item.topup_usd || 0);
-        const linkCell = document.createElement("td");
-        const linkWrap = document.createElement("div");
-        linkWrap.className = "link-cell";
-        const code = document.createElement("code");
+        topupsCell.textContent = rub(item.topup_rub || 0) + " · " + usd(item.topup_usd || 0);
+        const actionCell = document.createElement("td");
+        actionCell.className = "actions";
         const url = referralUrl(item.token);
-        code.textContent = url || "—";
         const copyButton = document.createElement("button");
-        copyButton.className = "quiet";
+        copyButton.className = "quiet sm";
         copyButton.type = "button";
         copyButton.textContent = "Копировать";
         copyButton.disabled = !url;
@@ -336,12 +636,11 @@
             copyButton.textContent = "Скопировано";
             setTimeout(() => { copyButton.textContent = "Копировать"; }, 1200);
           } catch (error) {
-            alert("Не удалось скопировать ссылку");
+            alert("Не удалось скопировать");
           }
         };
-        linkWrap.append(code, copyButton);
-        linkCell.append(linkWrap);
-        tr.append(tokenCell, visitsCell, topupsCell, linkCell);
+        actionCell.append(copyButton);
+        tr.append(tokenCell, visitsCell, topupsCell, actionCell);
         body.append(tr);
       }
     }
@@ -381,11 +680,11 @@
       const payDiffRub = Number(check.payments_diff_rub || 0);
       const cards = [
         ["Балансы клиентов", usd4(check.balances_usd || 0), true],
-        ["Журнал, приход − расход", usd4(check.ledger_net_usd || 0), true],
-        ["Расхождение балансов", check.balance_ok ? "Сходится" : usd4(balanceDiff), !!check.balance_ok],
-        ["Оплаченные платежи", usd(check.payments_usd || 0) + " · " + rub(check.payments_rub || 0), true],
+        ["Журнал", usd4(check.ledger_net_usd || 0), true],
+        ["Сверка балансов", check.balance_ok ? "OK" : usd4(balanceDiff), !!check.balance_ok],
+        ["Оплачено", usd(check.payments_usd || 0) + " · " + rub(check.payments_rub || 0), true],
         ["ЮKassa в журнале", usd(check.ledger_topup_usd || 0) + " · " + rub(check.ledger_topup_rub || 0), true],
-        ["Расхождение платежей", check.payments_ok ? "Сходится" : usd4(payDiff) + " · " + rub(payDiffRub), !!check.payments_ok]
+        ["Сверка платежей", check.payments_ok ? "OK" : usd4(payDiff) + " · " + rub(payDiffRub), !!check.payments_ok]
       ];
       for (const item of cards) {
         const node = card(item[0], item[1]);
@@ -434,6 +733,7 @@
       body.innerHTML = "";
       if (!rows.length) {
         const tr = document.createElement("tr");
+        tr.className = "empty";
         const td = document.createElement("td");
         td.colSpan = 5;
         td.textContent = "Пока пусто";
@@ -463,25 +763,25 @@
         ["Выручка за период", rub(data.revenue_rub)],
         ["Зачислено лимита", usd(data.revenue_usd)],
         ["Средний чек", rub(data.average_check_rub)],
-        ["Оплат", String(data.payments_paid) + " из " + data.payments],
+        ["Оплат", String(data.payments_paid) + " / " + data.payments],
         ["Платящих", String(data.paying_users)],
         ["Расход сегодня", usd4(data.spend_today_usd)],
         ["Запросов сегодня", String(data.requests_today)],
         ["Пользователи", String(data.users)],
         ["Новые", String(data.users_new)],
-        ["Приняли оферту", String(data.users_accepted)],
-        ["Активные ключи", String(data.keys_active)],
-        ["Балансы клиентов", usd(data.customer_balance_usd)],
-        ["Баланс поставщика", supplier],
+        ["Оферта", String(data.users_accepted)],
+        ["Ключи", String(data.keys_active)],
+        ["Балансы", usd(data.customer_balance_usd)],
+        ["Поставщик", supplier],
         ["Расход за период", usd4(data.spend_by_day.reduce((sum, row) => sum + row.usd, 0))],
         ["Запросов за период", String(data.spend_by_day.reduce((sum, row) => sum + row.requests, 0))]
       ];
       for (const pair of cards) box.append(card(pair[0], pair[1]));
       chart("revenue-chart", data.revenue_by_day, "rub");
       chart("spend-chart", data.spend_by_day, "usd");
-      fillTable("models", data.models, (row) => [row.model, usd4(row.usd), String(row.requests) + " · " + row.tokens + " ток."]);
+      fillTable("models", data.models, (row) => [row.model, usd4(row.usd), String(row.requests) + " · " + row.tokens]);
       fillTable("spenders", data.spenders, (row) => [row.name, usd4(row.usd), String(row.requests)]);
-      fillTable("payers", data.payers, (row) => [row.name, rub(row.rub) + " → " + usd(row.usd), String(row.payments)]);
+      fillTable("payers", data.payers, (row) => [row.name, rub(row.rub) + " · " + usd(row.usd), String(row.payments)]);
       fillTable("statuses", data.statuses, (row) => [row.status, String(row.count), rub(row.rub)]);
       fillTable("recent", data.recent, (row) => [row.at.replace("T", " ").slice(0, 16), row.name, row.model, String(row.tokens), usd4(row.usd)]);
     }
@@ -495,11 +795,11 @@
       $("support-username").value = settings.support_username || "";
       $("root").value = "";
       $("root-hint").textContent = settings.router_root_key_set
-        ? "Ключ задан, окончание " + settings.router_root_key_hint
-        : "Ключ ещё не задан";
-      $("supplier").textContent = settings.supplier_balance_usd == null
-        ? "Баланс поставщика не прочитан" + (settings.supplier_error ? ": " + settings.supplier_error : "")
-        : "Баланс поставщика: $" + Number(settings.supplier_balance_usd).toFixed(2);
+        ? "Задан · …" + settings.router_root_key_hint
+        : "Ключ не задан";
+      $("supplier").innerHTML = settings.supplier_balance_usd == null
+        ? "Поставщик: <strong>—</strong>"
+        : 'Поставщик: <strong>$' + Number(settings.supplier_balance_usd).toFixed(2) + "</strong>";
 
       const ledger = await api("/api/admin/ledger");
       const kinds = { topup: "ЮKassa", credit: "Админка", spend: "Расход", adjust: "Сверка" };
@@ -514,17 +814,19 @@
         const kind = document.createElement("td");
         kind.textContent = (kinds[item.kind] || item.kind) + (item.note ? " · " + item.note : "");
         const sum = document.createElement("td");
+        sum.className = "num";
         const value = Number(item.amount_usd);
         const sign = item.kind === "spend" || value < 0 ? "−" : "+";
         let text = sign + "$" + Math.abs(value).toFixed(2);
         if (item.kind === "topup" && item.amount_rub) text += " · " + Number(item.amount_rub).toFixed(2) + " ₽";
         sum.textContent = text;
         const remove = document.createElement("td");
+        remove.className = "actions";
         const removeButton = document.createElement("button");
-        removeButton.className = "danger";
+        removeButton.className = "danger sm";
         removeButton.textContent = "Удалить";
         removeButton.onclick = async () => {
-          if (!confirm("Удалить эту запись из журнала? Баланс клиента не изменится.")) return;
+          if (!confirm("Удалить запись из журнала?")) return;
           try {
             await api("/api/admin/ledger/" + item.id, { method: "DELETE" });
             await load();
@@ -539,13 +841,25 @@
 
       const topups = await api("/api/admin/topups");
       $("topups").innerHTML = "";
+      if (!topups.items.length) {
+        const tr = document.createElement("tr");
+        tr.className = "empty";
+        const td = document.createElement("td");
+        td.colSpan = 3;
+        td.textContent = "Пока пусто";
+        tr.append(td);
+        $("topups").append(tr);
+      }
       for (const item of topups.items) {
         const tr = document.createElement("tr");
         const who = document.createElement("td");
         who.textContent = person(item);
         const sum = document.createElement("td");
-        sum.textContent = item.amount_rub.toFixed(2) + " ₽ → $" + Number(item.amount_usd).toFixed(2) + " · " + item.status;
-        tr.append(who, sum);
+        sum.className = "num";
+        sum.textContent = rub(item.amount_rub) + " · " + usd(item.amount_usd);
+        const statusCell = document.createElement("td");
+        statusCell.append(statusBadge(item.status));
+        tr.append(who, sum, statusCell);
         $("topups").append(tr);
       }
 
@@ -555,7 +869,7 @@
       userSelect.innerHTML = "";
       const emptyUser = document.createElement("option");
       emptyUser.value = "";
-      emptyUser.textContent = "Клиент";
+      emptyUser.textContent = "Выберите клиента";
       userSelect.append(emptyUser);
       for (const item of users.items) {
         const option = document.createElement("option");
@@ -565,22 +879,36 @@
       }
       if (selectedUser) userSelect.value = selectedUser;
       $("users").innerHTML = "";
+      if (!users.items.length) {
+        const tr = document.createElement("tr");
+        tr.className = "empty";
+        const td = document.createElement("td");
+        td.colSpan = 6;
+        td.textContent = "Пока пусто";
+        tr.append(td);
+        $("users").append(tr);
+      }
       for (const item of users.items) {
         const tr = document.createElement("tr");
         const who = document.createElement("td");
-        let whoText = person(item);
-        if (!item.offer_accepted) whoText += " · оферта не принята";
-        if (item.blocked) whoText += " · заблокирован";
-        who.textContent = whoText;
+        const whoWrap = document.createElement("span");
+        whoWrap.textContent = person(item);
+        who.append(whoWrap);
+        if (!item.offer_accepted) who.append(statusBadge("оферта"));
+        if (item.blocked) who.append(statusBadge("blocked"));
         const balance = document.createElement("td");
-        balance.textContent = "$" + Number(item.balance_usd).toFixed(2);
+        balance.className = "num";
+        balance.textContent = usd(item.balance_usd);
         const key = document.createElement("td");
-        key.textContent = item.key_prefix ? item.key_prefix + "…" : "нет";
+        key.textContent = item.key_prefix ? item.key_prefix + "…" : "—";
         const credit = document.createElement("td");
+        credit.className = "compact";
         const input = document.createElement("input");
-        input.placeholder = "5";
+        input.placeholder = "$";
         const button = document.createElement("button");
-        button.textContent = "Начислить";
+        button.className = "sm";
+        button.textContent = "+";
+        button.title = "Начислить";
         button.onclick = async () => {
           const amount = Number(String(input.value).replace(",", "."));
           if (!amount) return;
@@ -588,35 +916,30 @@
             await api("/api/admin/users/" + item.id + "/credit", { method: "POST", body: JSON.stringify({ amount_usd: amount }) });
             await load();
           } catch (error) {
-            const text = error.message === "supplier"
-              ? "На счёте поставщика не хватает лимита для этого начисления."
-              : error.message;
-            alert(text);
+            alert(error.message === "supplier" ? "Не хватает лимита у поставщика." : error.message);
           }
         };
         credit.append(input, button);
         const access = document.createElement("td");
         const accessButton = document.createElement("button");
+        accessButton.className = item.blocked ? "sm" : "danger sm";
         if (item.blocked) {
-          accessButton.textContent = "Разблокировать";
+          accessButton.textContent = "Разблок.";
           accessButton.onclick = async () => {
-            const name = person(item);
-            if (!confirm("Разблокировать " + name + "? API-ключ снова заработает.")) return;
+            if (!confirm("Разблокировать " + person(item) + "?")) return;
             try {
               await api("/api/admin/users/" + item.id + "/unblock", { method: "POST" });
               await load();
             } catch (error) {
-              alert(error.message === "upstream" ? "Не удалось включить ключ у поставщика." : error.message);
+              alert(error.message);
             }
           };
         } else {
-          accessButton.className = "danger";
-          accessButton.textContent = "Заблокировать";
+          accessButton.textContent = "Блок";
           accessButton.onclick = async () => {
-            const name = person(item);
-            const reason = prompt("Причина блокировки (необязательно):", "") ?? "";
+            const reason = prompt("Причина:", "") ?? "";
             if (reason === null) return;
-            if (!confirm("Заблокировать " + name + "? API-ключ будет поставлен на паузу.")) return;
+            if (!confirm("Заблокировать " + person(item) + "?")) return;
             try {
               await api("/api/admin/users/" + item.id + "/block", {
                 method: "POST",
@@ -624,23 +947,23 @@
               });
               await load();
             } catch (error) {
-              alert(error.message === "upstream" ? "Не удалось отключить ключ у поставщика." : error.message);
+              alert(error.message);
             }
           };
         }
         access.append(accessButton);
         const remove = document.createElement("td");
+        remove.className = "actions";
         const removeButton = document.createElement("button");
-        removeButton.className = "danger";
+        removeButton.className = "danger sm";
         removeButton.textContent = "Удалить";
         removeButton.onclick = async () => {
-          const name = person(item);
-          if (!confirm("Удалить " + name + "? Ключ у поставщика тоже будет удалён, история платежей пропадёт.")) return;
+          if (!confirm("Удалить " + person(item) + "?")) return;
           try {
             await api("/api/admin/users/" + item.id, { method: "DELETE" });
             await load();
           } catch (error) {
-            alert(error.message === "upstream" ? "Ключ у поставщика не удалился. Пользователь оставлен." : error.message);
+            alert(error.message);
           }
         };
         remove.append(removeButton);
@@ -653,9 +976,9 @@
       $("app").classList.remove("hidden");
     }
 
-    document.querySelectorAll("nav button").forEach((button) => {
+    document.querySelectorAll(".tabs button").forEach((button) => {
       button.onclick = () => {
-        document.querySelectorAll("nav button").forEach((item) => item.classList.remove("on"));
+        document.querySelectorAll(".tabs button").forEach((item) => item.classList.remove("on"));
         button.classList.add("on");
         for (const name of ["analytics", "settings", "payments", "ledger", "users", "referrals"]) {
           $("tab-" + name).classList.toggle("hidden", name !== button.dataset.tab);
@@ -677,7 +1000,7 @@
       const amount = Number(String($("ledger-usd").value).replace(",", "."));
       const rubles = Number(String($("ledger-rub").value || "0").replace(",", ".")) || 0;
       if (!$("ledger-user").value || !amount) {
-        $("ledger-error").textContent = "Выберите клиента и укажите сумму в долларах.";
+        $("ledger-error").textContent = "Выберите клиента и сумму.";
         return;
       }
       try {
@@ -697,7 +1020,7 @@
         await load();
       } catch (error) {
         $("ledger-error").textContent = error.message === "duplicate"
-          ? "Такая пометка пополнения ЮKassa уже есть."
+          ? "Такая пометка уже есть."
           : error.message;
       }
     };
@@ -719,6 +1042,10 @@
       await load();
     };
 
+    $("password").addEventListener("keydown", (event) => {
+      if (event.key === "Enter") $("enter").click();
+    });
+
     $("save").onclick = async () => {
       $("save-status").textContent = "";
       try {
@@ -733,16 +1060,21 @@
             router_root_key: $("root").value
           })
         });
+        $("save-status").className = "ok-text";
         $("save-status").textContent = "Сохранено";
         await load();
       } catch (error) {
         $("save-status").textContent = error.message;
+        $("save-status").className = "error";
       }
     };
 
     $("referral-open").onclick = openReferralModal;
     $("referral-cancel").onclick = closeReferralModal;
     $("referral-backdrop").onclick = closeReferralModal;
+    $("referral-token").addEventListener("keydown", (event) => {
+      if (event.key === "Enter") $("referral-create").click();
+    });
     $("referral-create").onclick = async () => {
       $("referral-error").textContent = "";
       const token = $("referral-token").value.trim();
