@@ -620,7 +620,7 @@ def _import_usage(
             )
         elif page == 1:
             log.warning(
-                "журнал расходов пуст для user=%s (ключ %s): проверьте секрет в БД и /api/log/token",
+                "новых расходов не импортировано для user=%s (ключ %s)",
                 user_id,
                 token_name or key_id,
             )

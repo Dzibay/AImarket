@@ -147,7 +147,7 @@ class RouterCheap:
         page_size: int = 100,
         force: bool = False,
     ) -> tuple[list[dict], bool]:
-        """Журнал расходов: /api/log/token (без root) → /api/log/self (если root задан).
+        """Журнал расходов: Bearer /api/log/token → /api/log/ → /api/log/self.
 
         Второе значение — True, если следующих страниц нет.
         """
@@ -157,17 +157,18 @@ class RouterCheap:
             if items:
                 return items, True
         if token_name and self._has_root_key():
-            raw_items = self._spend_logs_by_self(token_name, page=page, page_size=page_size)
+            raw_items = self._spend_logs_by_admin(token_name, page=page, page_size=page_size)
+            if not raw_items:
+                raw_items = self._spend_logs_by_self(token_name, page=page, page_size=page_size)
             if raw_items:
-                if upstream_id is not None:
-                    raw_items = [
-                        item
-                        for item in raw_items
-                        if _log_belongs_to_token(item, token_name, upstream_id)
-                    ]
                 items = _consumption_logs(raw_items)
                 if items:
                     return items, len(raw_items) < page_size
+                log.warning(
+                    "журнал router.cheap: %s строк для %s, но нет расходов type=2 с quota/model",
+                    len(raw_items),
+                    token_name,
+                )
         return [], True
 
     def _has_root_key(self) -> bool:
@@ -183,9 +184,8 @@ class RouterCheap:
         key = _token_log_canonical(token_secret)
         if not key:
             return []
-        query = urllib.parse.urlencode({"key": key})
         try:
-            payload = self._public("GET", f"/api/log/token?{query}")
+            payload = self._bearer("GET", "/api/log/token", key)
         except UpstreamError as exc:
             if "429" in exc.message:
                 _mark_token_log_rate_limited()
@@ -205,6 +205,32 @@ class RouterCheap:
         items = _consumption_logs(_token_items(payload))
         if items:
             log.info("журнал /api/log/token: %s записей расхода", len(items))
+        return items
+
+    def _spend_logs_by_admin(self, token_name: str, *, page: int, page_size: int) -> list[dict]:
+        if not self._has_root_key():
+            return []
+        query = urllib.parse.urlencode(
+            {
+                "p": str(page),
+                "page_size": str(page_size),
+                "type": "2",
+                "token_name": token_name,
+            }
+        )
+        with self._lock:
+            self._ensure_login()
+            try:
+                payload = self._authed("GET", f"/api/log/?{query}")
+            except UpstreamError as exc:
+                text = exc.message.lower()
+                if "401" in text or "403" in text or "privilege" in text or "unauthorized" in text:
+                    return []
+                log.warning("журнал /api/log/ не прочитан: %s", exc.message)
+                return []
+        items = _token_items(payload)
+        if items:
+            log.info("журнал /api/log/: %s строк для %s", len(items), token_name)
         return items
 
     def _spend_logs_by_self(self, token_name: str, *, page: int, page_size: int) -> list[dict]:
@@ -343,6 +369,15 @@ class RouterCheap:
     def _public(self, method: str, path: str) -> dict:
         return self._request(method, path, None, None, send_cookies=False)
 
+    def _bearer(self, method: str, path: str, token: str) -> dict:
+        return self._request(
+            method,
+            path,
+            None,
+            {"Authorization": f"Bearer {token}"},
+            send_cookies=False,
+        )
+
     def _request(
         self,
         method: str,
@@ -465,17 +500,6 @@ def _consumption_logs(items: list[dict]) -> list[dict]:
         result.append(item)
     result.sort(key=lambda row: _log_created_sort_key(row.get("created_at")), reverse=True)
     return result
-
-
-def _log_belongs_to_token(item: dict, token_name: str, upstream_id: int) -> bool:
-    raw_id = item.get("token_id")
-    if raw_id not in (None, ""):
-        try:
-            if int(raw_id) == upstream_id:
-                return True
-        except (TypeError, ValueError):
-            pass
-    return str(item.get("token_name") or "") == token_name
 
 
 def _token_items(payload: dict) -> list[dict]:

@@ -1,5 +1,6 @@
 """Разбор строк журнала router.cheap / New API."""
 
+import hashlib
 from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 
@@ -8,7 +9,22 @@ from app.upstream import _log_field, _log_quota_units
 MSK = ZoneInfo("Europe/Moscow")
 
 
+def _log_id_from_request_id(item: dict) -> int | None:
+    raw = _log_field(item, "request_id", "RequestId")
+    if raw in (None, ""):
+        return None
+    text = str(raw).strip()
+    if not text:
+        return None
+    digest = hashlib.blake2b(text.encode(), digest_size=8).digest()
+    value = int.from_bytes(digest, "big") & 0x7FFFFFFFFFFFFFFF
+    return value if value > 0 else None
+
+
 def upstream_log_id(item: dict) -> int | None:
+    from_request = _log_id_from_request_id(item)
+    if from_request is not None:
+        return from_request
     raw = _log_field(item, "id", "Id")
     if raw in (None, ""):
         return None
