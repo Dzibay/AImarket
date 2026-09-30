@@ -506,7 +506,9 @@
               <tr>
                 <th>Токен</th>
                 <th class="num">Переходы</th>
-                <th class="num">Пополнения</th>
+                <th class="num">Оферта</th>
+                <th class="num">Оплат</th>
+                <th class="num">Сумма</th>
                 <th class="actions"></th>
               </tr>
             </thead>
@@ -604,7 +606,7 @@
         const tr = document.createElement("tr");
         tr.className = "empty";
         const td = document.createElement("td");
-        td.colSpan = 4;
+        td.colSpan = 6;
         td.textContent = "Пока нет ссылок";
         tr.append(td);
         body.append(tr);
@@ -619,6 +621,12 @@
         const visitsCell = document.createElement("td");
         visitsCell.className = "num";
         visitsCell.textContent = String(item.visits || 0);
+        const offersCell = document.createElement("td");
+        offersCell.className = "num";
+        offersCell.textContent = String(item.offers_accepted || 0);
+        const paymentsCell = document.createElement("td");
+        paymentsCell.className = "num";
+        paymentsCell.textContent = String(item.payments || 0);
         const topupsCell = document.createElement("td");
         topupsCell.className = "num";
         topupsCell.textContent = rub(item.topup_rub || 0) + " · " + usd(item.topup_usd || 0);
@@ -640,7 +648,7 @@
           }
         };
         actionCell.append(copyButton);
-        tr.append(tokenCell, visitsCell, topupsCell, actionCell);
+        tr.append(tokenCell, visitsCell, offersCell, paymentsCell, topupsCell, actionCell);
         body.append(tr);
       }
     }

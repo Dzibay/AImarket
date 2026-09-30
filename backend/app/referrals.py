@@ -53,6 +53,8 @@ def list_links() -> list[dict]:
             """
             SELECT r.id, r.token, r.created_at,
                    COUNT(DISTINCT u.id) AS visits,
+                   COUNT(DISTINCT u.id) FILTER (WHERE u.offer_accepted_at IS NOT NULL) AS offers_accepted,
+                   COUNT(t.id) FILTER (WHERE t.status = 'paid') AS payments,
                    COALESCE(SUM(t.amount_kopecks) FILTER (WHERE t.status = 'paid'), 0) AS topup_kopecks,
                    COALESCE(SUM(t.amount_usd) FILTER (WHERE t.status = 'paid'), 0) AS topup_usd
             FROM referral_links r
@@ -94,6 +96,8 @@ def _link_row(row: dict) -> dict:
         "token": str(row["token"]),
         "created_at": row["created_at"].isoformat(),
         "visits": 0,
+        "offers_accepted": 0,
+        "payments": 0,
         "topup_rub": 0.0,
         "topup_usd": 0.0,
     }
@@ -105,6 +109,8 @@ def _stats_row(row: dict) -> dict:
         "token": str(row["token"]),
         "created_at": row["created_at"].isoformat(),
         "visits": int(row["visits"] or 0),
+        "offers_accepted": int(row["offers_accepted"] or 0),
+        "payments": int(row["payments"] or 0),
         "topup_rub": int(row["topup_kopecks"] or 0) / 100,
         "topup_usd": float(row["topup_usd"] or 0),
     }
