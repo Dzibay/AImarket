@@ -119,11 +119,20 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_topups_payment
     ON topups (payment_id) WHERE payment_id IS NOT NULL;
 
 -- Реферальные ссылки: токен в deep link бота (?start=token).
+CREATE TABLE IF NOT EXISTS referral_groups (
+    id         BIGSERIAL PRIMARY KEY,
+    name       TEXT NOT NULL UNIQUE,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
 CREATE TABLE IF NOT EXISTS referral_links (
     id         BIGSERIAL PRIMARY KEY,
     token      TEXT NOT NULL UNIQUE,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+ALTER TABLE referral_links ADD COLUMN IF NOT EXISTS group_id BIGINT REFERENCES referral_groups (id) ON DELETE SET NULL;
+CREATE INDEX IF NOT EXISTS idx_referral_links_group ON referral_links (group_id);
 
 -- Настройки админки: корневой ключ, цена, продавец, текст оферты.
 CREATE TABLE IF NOT EXISTS app_settings (

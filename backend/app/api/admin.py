@@ -11,7 +11,16 @@ from app.auth import check_password, make_token, require_admin
 from app.billing import BillingError, add_usd, block_user, unblock_user
 from app.db import pool
 from app.money import units_to_usd, usd_price_rub
-from app.referrals import ReferralError, create_link, list_links
+from app.referrals import (
+    ReferralError,
+    create_group,
+    create_link,
+    delete_group,
+    delete_link,
+    list_groups,
+    list_links,
+    set_link_group,
+)
 from app.settings_store import get_setting, offer_url, public_base_url, set_setting
 from app.telegram_link import bot_username
 from app.upstream import UpstreamError, upstream
@@ -59,6 +68,15 @@ class LedgerIn(BaseModel):
 
 class ReferralIn(BaseModel):
     token: str = Field(min_length=1, max_length=64)
+    group_id: int | None = Field(default=None, gt=0)
+
+
+class ReferralGroupIn(BaseModel):
+    name: str = Field(min_length=1, max_length=64)
+
+
+class ReferralGroupAssignIn(BaseModel):
+    group_id: int | None = Field(default=None, gt=0)
 
 
 _LEDGER_KINDS = {"topup", "credit", "spend", "adjust"}
@@ -628,6 +646,7 @@ def list_topups() -> dict:
 def list_referrals_admin() -> dict:
     return {
         "bot_username": bot_username(),
+        "groups": list_groups(),
         "items": list_links(),
     }
 
@@ -635,24 +654,44 @@ def list_referrals_admin() -> dict:
 @router.post("/referrals", dependencies=[Depends(require_admin)])
 def create_referral_admin(body: ReferralIn) -> dict:
     try:
-        return create_link(body.token)
+        return create_link(body.token, body.group_id)
     except ReferralError as exc:
         status = 409 if exc.code == "exists" else 422
         raise HTTPException(status_code=status, detail=exc.code) from exc
 
 
-@router.get("/referrals", dependencies=[Depends(require_admin)])
-def list_referrals_admin() -> dict:
-    return {
-        "bot_username": bot_username(),
-        "items": list_links(),
-    }
-
-
-@router.post("/referrals", dependencies=[Depends(require_admin)])
-def create_referral_admin(body: ReferralIn) -> dict:
+@router.put("/referrals/{link_id}/group", dependencies=[Depends(require_admin)])
+def assign_referral_group(link_id: int, body: ReferralGroupAssignIn) -> dict:
     try:
-        return create_link(body.token)
+        return set_link_group(link_id, body.group_id)
+    except ReferralError as exc:
+        status = 404 if exc.code in {"link", "group"} else 422
+        raise HTTPException(status_code=status, detail=exc.code) from exc
+
+
+@router.delete("/referrals/{link_id}", dependencies=[Depends(require_admin)])
+def delete_referral_admin(link_id: int) -> dict:
+    if not delete_link(link_id):
+        raise HTTPException(status_code=404, detail="referral")
+    return {"ok": True}
+
+
+@router.get("/referral-groups", dependencies=[Depends(require_admin)])
+def list_referral_groups_admin() -> dict:
+    return {"items": list_groups()}
+
+
+@router.post("/referral-groups", dependencies=[Depends(require_admin)])
+def create_referral_group_admin(body: ReferralGroupIn) -> dict:
+    try:
+        return create_group(body.name)
     except ReferralError as exc:
         status = 409 if exc.code == "exists" else 422
         raise HTTPException(status_code=status, detail=exc.code) from exc
+
+
+@router.delete("/referral-groups/{group_id}", dependencies=[Depends(require_admin)])
+def delete_referral_group_admin(group_id: int) -> dict:
+    if not delete_group(group_id):
+        raise HTTPException(status_code=404, detail="group")
+    return {"ok": True}
