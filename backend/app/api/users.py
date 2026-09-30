@@ -327,6 +327,9 @@ def key_history(
         row = _user_or_404(conn, telegram_id)
         _require_active(row)
         user_id = int(row["id"])
+    sync_user(user_id)
+    with pool.connection() as conn:
+        row = _user_or_404(conn, telegram_id)
         key = conn.execute(
             """
             SELECT id, name, prefix, secret
@@ -420,6 +423,18 @@ def _history_item(row: dict) -> dict:
             "amount_rub": float(int(row["amount_kopecks"] or 0)) / 100,
             "created_at": row["created_at"].isoformat() if row["created_at"] is not None else "",
         }
+    if entry_type == "ledger_spend":
+        note = str(row["note"] or "").strip()
+        return {
+            "entry_type": "spend",
+            "kind": kind,
+            "label": _HISTORY_KINDS.get(kind, kind),
+            "model": note or "Расход API",
+            "prompt_tokens": 0,
+            "completion_tokens": 0,
+            "amount_usd": float(row["amount_usd"]),
+            "created_at": row["created_at"].isoformat() if row["created_at"] is not None else "",
+        }
     return {
         "entry_type": "spend",
         "kind": "spend",
@@ -430,6 +445,17 @@ def _history_item(row: dict) -> dict:
         "amount_usd": float(units_to_usd(int(row["quota_units"] or 0))),
         "created_at": row["created_at"].isoformat() if row["created_at"] is not None else "",
     }
+
+
+def _user_has_spend_history(conn, user_id: int) -> bool:
+    usage = conn.execute("SELECT 1 FROM usage WHERE user_id = %s LIMIT 1", (user_id,)).fetchone()
+    if usage is not None:
+        return True
+    ledger = conn.execute(
+        "SELECT 1 FROM ledger WHERE user_id = %s AND kind IN ('spend', 'adjust') LIMIT 1",
+        (user_id,),
+    ).fetchone()
+    return ledger is not None
 
 
 @router.get("/users/{telegram_id}/history")
@@ -445,6 +471,13 @@ def user_history(
     with pool.connection() as conn:
         row = _user_or_404(conn, telegram_id)
         user_id = int(row["id"])
+    sync_user(user_id)
+    with pool.connection() as conn:
+        row = _user_or_404(conn, telegram_id)
+        user_id = int(row["id"])
+        usage_count = int(
+            conn.execute("SELECT COUNT(*) AS c FROM usage WHERE user_id = %s", (user_id,)).fetchone()["c"]
+        )
         parts: list[str] = []
         params: list[object] = []
         if kind in {"all", "income"}:
@@ -459,13 +492,36 @@ def user_history(
             )
             params.append(user_id)
         if kind in {"all", "spend"}:
+            if usage_count > 0:
+                parts.append(
+                    """
+                    SELECT 'spend' AS entry_type, 'spend' AS kind, '' AS note,
+                           0::numeric AS amount_usd, 0 AS amount_kopecks,
+                           model_name, prompt_tokens, completion_tokens, quota_units, created_at
+                    FROM usage
+                    WHERE user_id = %s
+                    """
+                )
+                params.append(user_id)
+            else:
+                parts.append(
+                    """
+                    SELECT 'ledger_spend' AS entry_type, kind, note, amount_usd, amount_kopecks,
+                           NULL::text AS model_name, NULL::int AS prompt_tokens,
+                           NULL::int AS completion_tokens, NULL::bigint AS quota_units, created_at
+                    FROM ledger
+                    WHERE user_id = %s AND kind = 'spend'
+                    """
+                )
+                params.append(user_id)
+        if kind == "all" and usage_count == 0:
             parts.append(
                 """
-                SELECT 'spend' AS entry_type, 'spend' AS kind, '' AS note,
-                       0::numeric AS amount_usd, 0 AS amount_kopecks,
-                       model_name, prompt_tokens, completion_tokens, quota_units, created_at
-                FROM usage
-                WHERE user_id = %s
+                SELECT 'ledger_spend' AS entry_type, kind, note, amount_usd, amount_kopecks,
+                       NULL::text AS model_name, NULL::int AS prompt_tokens,
+                       NULL::int AS completion_tokens, NULL::bigint AS quota_units, created_at
+                FROM ledger
+                WHERE user_id = %s AND kind = 'adjust'
                 """
             )
             params.append(user_id)
@@ -490,11 +546,7 @@ def user_history(
                 """,
                 (user_id,),
             ).fetchone()
-            usage = conn.execute(
-                "SELECT 1 FROM usage WHERE user_id = %s LIMIT 1",
-                (user_id,),
-            ).fetchone()
-            has_any = income is not None or usage is not None
+            has_any = income is not None or _user_has_spend_history(conn, user_id)
     has_more = len(rows) > limit
     items = [_history_item(row) for row in rows[:limit]]
     return {

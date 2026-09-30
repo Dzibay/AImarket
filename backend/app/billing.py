@@ -245,7 +245,7 @@ def _sync_key(user_id: int, upstream_id: int) -> None:
     with pool.connection() as conn:
         row = conn.execute(
             """
-            SELECT u.balance_usd, k.id, k.name
+            SELECT u.balance_usd, k.id, k.name, k.secret
             FROM users u
             JOIN api_keys k ON k.user_id = u.id AND k.revoked_at IS NULL
             WHERE u.id = %s AND k.upstream_id = %s
@@ -254,7 +254,17 @@ def _sync_key(user_id: int, upstream_id: int) -> None:
         ).fetchone()
     key_id = int(row["id"]) if row else None
     token_name = str((row or {}).get("name") or token.get("name") or "")
-    spent, new_usages = _import_usage(user_id, key_id, upstream_id, token_name)
+    token_secret = str((row or {}).get("secret") or "")
+    if not token_secret and key_id is not None:
+        try:
+            token_secret = upstream.reveal_key(upstream_id)
+            with pool.connection() as conn:
+                conn.execute("UPDATE api_keys SET secret = %s WHERE id = %s", (token_secret, key_id))
+        except UpstreamError as exc:
+            log.warning("не удалось получить секрет ключа %s: %s", upstream_id, exc.message)
+    spent, new_usages = _import_usage(
+        user_id, key_id, upstream_id, token_name, token_secret=token_secret
+    )
     # Падение лимита без записи в журнале router.cheap — это правка квоты, не запрос.
     with pool.connection() as conn:
         conn.execute(
@@ -532,38 +542,27 @@ def _import_usage(
     key_id: int | None,
     upstream_id: int,
     token_name: str,
+    *,
+    token_secret: str = "",
 ) -> tuple[Decimal, list[dict]]:
-    if not token_name or key_id is None:
+    if key_id is None or (not token_secret and not token_name):
         return Decimal(0), []
     inserted_units = 0
     new_usages: list[dict] = []
     try:
-        for page in range(10):
-            items = upstream.spend_logs(token_name, page)
-            if not items:
-                break
-            matched = [item for item in items if _log_matches(item, token_name, upstream_id)]
-            if not matched:
-                break
-            page_units, seen_old, page_usages = _save_usage_page(user_id, key_id, matched)
+        items = upstream.spend_logs(
+            token_secret,
+            token_name=token_name,
+            upstream_id=upstream_id,
+            page=0,
+        )
+        if items:
+            page_units, _, page_usages = _save_usage_page(user_id, key_id, items)
             inserted_units += page_units
             new_usages.extend(page_usages)
-            if seen_old or len(items) < 100:
-                break
     except UpstreamError as exc:
         log.warning("журнал расходов router.cheap не прочитан: %s", exc.message)
     return units_to_usd(inserted_units), new_usages
-
-
-def _log_matches(item: dict, token_name: str, upstream_id: int) -> bool:
-    raw_id = item.get("token_id")
-    if raw_id not in (None, ""):
-        try:
-            if int(raw_id) == upstream_id:
-                return True
-        except (TypeError, ValueError):
-            pass
-    return str(item.get("token_name") or "") == token_name
 
 
 def _save_usage_page(user_id: int, key_id: int, items: list[dict]) -> tuple[int, bool, list[dict]]:

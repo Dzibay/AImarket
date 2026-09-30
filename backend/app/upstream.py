@@ -133,14 +133,50 @@ class RouterCheap:
             raise UpstreamError("router.cheap не вернул ключ")
         return secret
 
-    def spend_logs(self, token_name: str, page: int, page_size: int = 100) -> list[dict]:
+    def spend_logs(
+        self,
+        token_secret: str,
+        *,
+        token_name: str = "",
+        upstream_id: int | None = None,
+        page: int = 0,
+        page_size: int = 100,
+    ) -> list[dict]:
+        """Журнал расходов. Сначала /api/log/token по секрету ключа (без прав админа)."""
+        if page > 0:
+            return []
+        secret = token_secret.strip()
+        if secret:
+            items = self._spend_logs_by_secret(secret)
+            if items:
+                return items
+        if not token_name:
+            return []
         query = urllib.parse.urlencode(
-            {"p": str(page), "page_size": str(page_size), "type": "2", "token_name": token_name}
+            {"p": "1", "page_size": str(page_size), "type": "2", "token_name": token_name}
         )
         with self._lock:
             self._ensure_login()
-            payload = self._authed("GET", f"/api/log/?{query}")
-        return _token_items(payload)
+            try:
+                payload = self._authed("GET", f"/api/log/?{query}")
+            except UpstreamError:
+                return []
+        items = _token_items(payload)
+        if upstream_id is not None:
+            items = [item for item in items if _log_belongs_to_token(item, token_name, upstream_id)]
+        return _consumption_logs(items)
+
+    def _spend_logs_by_secret(self, token_secret: str) -> list[dict]:
+        query = urllib.parse.urlencode({"key": token_secret.strip()})
+        try:
+            payload = self._public("GET", f"/api/log/token?{query}")
+        except UpstreamError as exc:
+            log.warning("журнал router.cheap по ключу не прочитан: %s", exc.message)
+            return []
+        if isinstance(payload, dict) and payload.get("success") is False:
+            log.warning("журнал router.cheap по ключу: %s", payload.get("message") or "ошибка")
+            return []
+        return _consumption_logs(_token_items(payload))
 
     def delete_key(self, token_id: int) -> None:
         with self._lock:
@@ -302,6 +338,35 @@ def _secret_from(payload: dict) -> str:
     if not isinstance(raw, str) or not raw:
         return ""
     return raw if raw.startswith("sk-") else f"sk-{raw}"
+
+
+def _consumption_logs(items: list[dict]) -> list[dict]:
+    result: list[dict] = []
+    for item in items:
+        raw_type = item.get("type")
+        if raw_type not in (None, ""):
+            try:
+                if int(raw_type) not in (2,):
+                    continue
+            except (TypeError, ValueError):
+                pass
+        units = int(item.get("quota") or 0)
+        if units <= 0 and not str(item.get("model_name") or "").strip():
+            continue
+        result.append(item)
+    result.sort(key=lambda row: int(row.get("created_at") or 0), reverse=True)
+    return result
+
+
+def _log_belongs_to_token(item: dict, token_name: str, upstream_id: int) -> bool:
+    raw_id = item.get("token_id")
+    if raw_id not in (None, ""):
+        try:
+            if int(raw_id) == upstream_id:
+                return True
+        except (TypeError, ValueError):
+            pass
+    return str(item.get("token_name") or "") == token_name
 
 
 def _token_items(payload: dict) -> list[dict]:
