@@ -65,7 +65,7 @@
 <body>
   <main>
     <h1>Aimarket</h1>
-    <p class="lead">Админка. <a href="/offer">Оферта</a></p>
+    <p class="lead">Админка. <a href="/privacy">Политика</a> · <a href="/consent">Согласие</a> · <a href="/offer">Оферта</a></p>
 
     <section id="login">
       <h2>Вход</h2>
@@ -137,8 +137,8 @@
         <input id="base" placeholder="https://example.com">
         <label for="price">Цена, ₽ за $1 лимита</label>
         <input id="price" inputmode="decimal" placeholder="100">
-        <h2 style="margin-top: 28px">Оферта</h2>
-        <p class="lead">Текст оферты задан в коде. Здесь — дата редакции и контактная почта.</p>
+        <h2 style="margin-top: 28px">Юридические документы</h2>
+        <p class="lead">Тексты политики, согласия и оферты заданы в коде. Здесь — дата редакции и контактная почта для всех документов.</p>
         <label for="offer-date">Дата редакции</label>
         <input id="offer-date" type="date">
         <label for="offer-email">Почта</label>
@@ -186,7 +186,7 @@
         <h2>Пользователи</h2>
         <div class="table-wrap">
         <table>
-          <thead><tr><th>Кто</th><th>Баланс</th><th>Ключ</th><th>Начислить $</th><th></th></tr></thead>
+          <thead><tr><th>Кто</th><th>Баланс</th><th>Ключ</th><th>Начислить $</th><th>Доступ</th><th></th></tr></thead>
           <tbody id="users"></tbody>
         </table>
         </div>
@@ -419,7 +419,10 @@
       for (const item of users.items) {
         const tr = document.createElement("tr");
         const who = document.createElement("td");
-        who.textContent = person(item) + (item.offer_accepted ? "" : " · оферта не принята");
+        let whoText = person(item);
+        if (!item.offer_accepted) whoText += " · оферта не принята";
+        if (item.blocked) whoText += " · заблокирован";
+        who.textContent = whoText;
         const balance = document.createElement("td");
         balance.textContent = "$" + Number(item.balance_usd).toFixed(2);
         const key = document.createElement("td");
@@ -443,6 +446,40 @@
           }
         };
         credit.append(input, button);
+        const access = document.createElement("td");
+        const accessButton = document.createElement("button");
+        if (item.blocked) {
+          accessButton.textContent = "Разблокировать";
+          accessButton.onclick = async () => {
+            const name = person(item);
+            if (!confirm("Разблокировать " + name + "? API-ключ снова заработает.")) return;
+            try {
+              await api("/api/admin/users/" + item.id + "/unblock", { method: "POST" });
+              await load();
+            } catch (error) {
+              alert(error.message === "upstream" ? "Не удалось включить ключ у поставщика." : error.message);
+            }
+          };
+        } else {
+          accessButton.className = "danger";
+          accessButton.textContent = "Заблокировать";
+          accessButton.onclick = async () => {
+            const name = person(item);
+            const reason = prompt("Причина блокировки (необязательно):", "") ?? "";
+            if (reason === null) return;
+            if (!confirm("Заблокировать " + name + "? API-ключ будет поставлен на паузу.")) return;
+            try {
+              await api("/api/admin/users/" + item.id + "/block", {
+                method: "POST",
+                body: JSON.stringify({ reason: reason.trim() }),
+              });
+              await load();
+            } catch (error) {
+              alert(error.message === "upstream" ? "Не удалось отключить ключ у поставщика." : error.message);
+            }
+          };
+        }
+        access.append(accessButton);
         const remove = document.createElement("td");
         const removeButton = document.createElement("button");
         removeButton.className = "danger";
@@ -458,7 +495,7 @@
           }
         };
         remove.append(removeButton);
-        tr.append(who, balance, key, credit, remove);
+        tr.append(who, balance, key, credit, access, remove);
         $("users").append(tr);
       }
       await loadAnalytics();

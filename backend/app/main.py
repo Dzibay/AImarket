@@ -14,6 +14,7 @@ from app.api.yookassa import router as yookassa_router
 from app.billing import sync_all
 from app.config import settings
 from app.db import ensure_schema, pool
+from app.legal import render_consent, render_privacy
 from app.offer import render_offer
 from app.settings_store import bootstrap_settings
 
@@ -100,12 +101,24 @@ def home() -> HTMLResponse:
 <body>
   <main>
     <h1>Aimarket</h1>
-    <p><a href="/offer">Оферта</a></p>
+    <p><a href="/privacy">Политика конфиденциальности</a></p>
+    <p><a href="/consent">Согласие на обработку персональных данных</a></p>
+    <p><a href="/offer">Публичная оферта</a></p>
     <p><a href="/admin-panel">Админка</a></p>
   </main>
 </body>
 </html>"""
     return HTMLResponse(page)
+
+
+@app.get("/privacy")
+def privacy() -> HTMLResponse:
+    return HTMLResponse(render_privacy())
+
+
+@app.get("/consent")
+def consent() -> HTMLResponse:
+    return HTMLResponse(render_consent())
 
 
 @app.get("/offer")

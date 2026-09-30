@@ -36,6 +36,16 @@ def offer_url() -> str:
     return f"{base}/offer" if base else ""
 
 
+def privacy_url() -> str:
+    base = public_base_url()
+    return f"{base}/privacy" if base else ""
+
+
+def consent_url() -> str:
+    base = public_base_url()
+    return f"{base}/consent" if base else ""
+
+
 def bootstrap_settings() -> None:
     if not get_setting("router_root_key") and settings.router_root_key:
         set_setting("router_root_key", settings.router_root_key)

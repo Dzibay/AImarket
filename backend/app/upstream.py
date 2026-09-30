@@ -147,6 +147,18 @@ class RouterCheap:
             self._ensure_login()
             self._authed("DELETE", f"/api/token/{token_id}")
 
+    def set_token_enabled(self, token_id: int, enabled: bool) -> None:
+        status = 1 if enabled else 2
+        with self._lock:
+            self._ensure_login()
+            self._authed("PUT", "/api/token/?status_only=true", {"id": token_id, "status": status})
+
+    def disable_key(self, token_id: int) -> None:
+        self.set_token_enabled(token_id, False)
+
+    def enable_key(self, token_id: int) -> None:
+        self.set_token_enabled(token_id, True)
+
     def _delete_quiet(self, token_id: int) -> None:
         try:
             self._authed("DELETE", f"/api/token/{token_id}")

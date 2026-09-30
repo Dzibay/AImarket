@@ -77,11 +77,13 @@ def _when(value: str) -> str:
 
 def _explain(exc: BackendError) -> str:
     reasons = {
-        "offer": "Сначала примите оферту.",
-        "no-offer-url": "Ссылка на оферту ещё не настроена.",
+        "offer": "Сначала примите все условия.",
+        "blocked": "Доступ заблокирован. Обратитесь в поддержку.",
+        "no-offer-url": "Ссылки на документы ещё не настроены.",
         "balance": "Сначала пополните баланс.",
         "empty": "Лимит нулевой. Сначала пополните баланс.",
         "sales-closed": "Пополнение закрыто: в админке не указана цена доллара.",
+        "min-topup": "Минимальная сумма пополнения — 10 $.",
         "no-yookassa": "Оплата не настроена.",
         "no-bot": "Не удалось открыть возврат в бота. Проверьте токен бота в настройках.",
         "yookassa": "Платёж сейчас не создаётся. Попробуйте позже.",
@@ -140,17 +142,34 @@ def _site(profile: dict) -> str:
 
 
 def _offer_screen(profile: dict) -> tuple[str, InlineKeyboardMarkup]:
-    url = str(profile.get("offer_url") or "")
+    privacy = str(profile.get("privacy_url") or "")
+    consent = str(profile.get("consent_url") or "")
+    offer = str(profile.get("offer_url") or "")
     text = (
-        "<b>Aimarket</b>\n\n"
-        "Перед началом прочитайте оферту и примите её.\n"
-        "После этого откроется личный кабинет: баланс, пополнение и токен."
+        "🤖 <b>Добро пожаловать в AI-Market!</b>\n\n"
+        "━━━━━━━━━━━━━━━━━━━━\n"
+        "Здесь вы получаете доступ к API лучших ИИ-моделей через единый ключ.\n\n"
+        "✅ Без абонентской платы\n"
+        "✅ Оплата картой в рублях (Без привязки карты)\n"
+        "✅ Списание с баланса по факту использования\n"
+        "✅ Поддержка OpenAI, Anthropic и Google форматов\n"
+        "━━━━━━━━━━━━━━━━━━━━\n\n"
+        "Перед началом работы необходимо ознакомиться и принять следующие документы:\n\n"
+        "📜 Политика конфиденциальности\n"
+        "📋 Согласие на обработку персональных данных\n"
+        "📄 Публичная оферта\n\n"
+        "Жмите «Принять все условия»."
     )
-    if not url:
-        text += "\n\nСсылка на оферту появится, когда в админке будет указан адрес сайта."
-    rows = [[_button("✅ Принимаю", callback="offer:yes", green=True)]]
-    if url:
-        rows.append([_button("Оферта", url=url)])
+    rows: list[list[InlineKeyboardButton]] = []
+    if privacy and consent and offer:
+        rows.append([
+            _button("📜 Политика", url=privacy),
+            _button("📋 Согласие", url=consent),
+            _button("📄 Оферта", url=offer),
+        ])
+    else:
+        text += "\n\nСсылки на документы появятся, когда в админке будет указан адрес сайта."
+    rows.append([_button("✅ Принять все условия", callback="offer:yes", green=True)])
     return text, InlineKeyboardMarkup(inline_keyboard=rows)
 
 
@@ -162,6 +181,13 @@ def _cabinet_screen(profile: dict, notice: str = "") -> tuple[str, InlineKeyboar
         f"Расход сегодня: {_spent(float(profile.get('spent_today_usd') or 0))}\n"
         f"Расход за месяц: {_spent(float(profile.get('spent_month_usd') or 0))}"
     )
+    if profile.get("blocked"):
+        reason = str(profile.get("blocked_reason") or "").strip()
+        text += "\n\n<b>Доступ заблокирован.</b>"
+        if reason:
+            text += f"\n{reason}"
+        rows = [[_button("Инструкция", callback="guide")]]
+        return text, InlineKeyboardMarkup(inline_keyboard=rows)
     action = "token" if profile.get("has_key") else "issue"
     label = "Мой токен" if profile.get("has_key") else "Выпустить токен"
     rows = [
@@ -174,10 +200,12 @@ def _cabinet_screen(profile: dict, notice: str = "") -> tuple[str, InlineKeyboar
 
 def _topup_screen(profile: dict) -> tuple[str, InlineKeyboardMarkup]:
     price = float(profile.get("usd_price_rub") or 0)
+    min_rub = float(profile.get("min_topup_rub") or 0)
+    min_hint = f"минимум {min_rub:.0f} ₽ (10 $)" if min_rub > 0 else "минимум 10 $"
     text = (
         "<b>Пополнение</b>\n\n"
         f"1 $ стоит {price:.2f} ₽.\n"
-        "Напишите сумму в рублях, минимум 1.\n"
+        f"Напишите сумму в рублях, {min_hint}.\n"
         "Например: <b>500</b>"
     )
     return text, InlineKeyboardMarkup(inline_keyboard=[_back_row()])
@@ -421,7 +449,7 @@ async def accept(query: CallbackQuery, state: FSMContext) -> None:
     except BackendError as exc:
         await query.answer(_explain(exc), show_alert=True)
         return
-    text, markup = _cabinet_screen(profile, "Оферта принята.")
+    text, markup = _cabinet_screen(profile, "Условия приняты.")
     await _show_callback(query, "cabinet", text, markup)
 
 
@@ -497,7 +525,10 @@ async def topup_open(query: CallbackQuery, state: FSMContext) -> None:
         await query.answer(UNAVAILABLE, show_alert=True)
         return
     if not profile["offer_accepted"]:
-        await query.answer("Сначала примите оферту.", show_alert=True)
+        await query.answer("Сначала примите все условия.", show_alert=True)
+        return
+    if profile.get("blocked"):
+        await query.answer(_explain(BackendError(403, "blocked")), show_alert=True)
         return
     if float(profile.get("usd_price_rub") or 0) <= 0:
         await query.answer(_explain(BackendError(402, "sales-closed")), show_alert=True)
@@ -519,15 +550,19 @@ async def topup_amount(message: Message, state: FSMContext) -> None:
     except ValueError:
         await _say(message, "Нужно число в рублях, например 500.")
         return
-    if amount < 1:
-        await _say(message, "Минимальная сумма — 1 ₽.")
-        return
     if message.from_user is None:
         return
     try:
         profile = await get_user(message.from_user.id)
     except BackendError as exc:
         await _say(message, _explain(exc))
+        return
+    if profile.get("blocked"):
+        await _say(message, _explain(BackendError(403, "blocked")))
+        return
+    min_rub = float(profile.get("min_topup_rub") or 0)
+    if min_rub > 0 and amount < min_rub:
+        await _say(message, "Минимальная сумма пополнения — 10 $.")
         return
     if not profile.get("yookassa_enabled"):
         price = float(profile.get("usd_price_rub") or 0)
@@ -560,8 +595,9 @@ async def topup_pay(query: CallbackQuery, state: FSMContext) -> None:
     if not profile.get("yookassa_enabled"):
         await query.answer(_explain(BackendError(402, "no-yookassa")), show_alert=True)
         return
-    if not isinstance(amount, (int, float)) or float(amount) < 1:
-        await query.answer("Сначала укажите сумму пополнения.", show_alert=True)
+    min_rub = float(profile.get("min_topup_rub") or 0)
+    if not isinstance(amount, (int, float)) or (min_rub > 0 and float(amount) < min_rub):
+        await query.answer("Минимальная сумма пополнения — 10 $.", show_alert=True)
         return
     await query.answer()
     try:

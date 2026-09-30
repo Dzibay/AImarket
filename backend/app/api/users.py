@@ -6,9 +6,9 @@ from pydantic import BaseModel, Field
 from app.billing import BillingError, describe_key, issue_key, reissue_key, sync_user
 from app.payments import settle_payment
 from app.db import pool
-from app.money import rub_to_usd, units_to_usd, usd_price_rub
+from app.money import MIN_TOPUP_USD, min_topup_rub, rub_to_usd, units_to_usd, usd_price_rub
 from app.security import require_bot
-from app.settings_store import offer_url
+from app.settings_store import consent_url, offer_url, privacy_url
 from app.telegram_link import bot_start_url, bot_username
 from app.yookassa import YooKassaError, create_payment, enabled as yookassa_enabled
 
@@ -28,6 +28,7 @@ class TopupIn(BaseModel):
 def raise_billing(exc: BillingError) -> None:
     status = {
         "offer": 403,
+        "blocked": 403,
         "balance": 402,
         "empty": 402,
         "sales-closed": 402,
@@ -43,7 +44,8 @@ def _profile(conn, telegram_id: int) -> dict | None:
     return conn.execute(
         """
         SELECT u.id, u.telegram_id, u.username, u.first_name, u.balance_usd,
-               u.offer_accepted_at, k.prefix AS key_prefix, k.created_at AS key_created_at
+               u.offer_accepted_at, u.blocked_at, u.blocked_reason,
+               k.prefix AS key_prefix, k.created_at AS key_created_at
         FROM users u
         LEFT JOIN api_keys k ON k.user_id = u.id AND k.revoked_at IS NULL
         WHERE u.telegram_id = %s
@@ -85,11 +87,17 @@ def _public(conn, row: dict) -> dict:
         "spent_today_usd": spent_today,
         "spent_month_usd": spent_month,
         "offer_accepted": row["offer_accepted_at"] is not None,
+        "blocked": row["blocked_at"] is not None,
+        "blocked_reason": row["blocked_reason"] or "",
         "key_prefix": row["key_prefix"] or "",
         "key_created_at": created.isoformat() if created is not None else "",
         "has_key": bool(row["key_prefix"]),
         "offer_url": offer_url(),
+        "privacy_url": privacy_url(),
+        "consent_url": consent_url(),
         "usd_price_rub": float(price),
+        "min_topup_usd": float(MIN_TOPUP_USD),
+        "min_topup_rub": float(min_topup_rub()),
         "yookassa_enabled": yookassa_enabled() and bool(bot_start_url()),
     }
 
@@ -99,6 +107,11 @@ def _user_or_404(conn, telegram_id: int) -> dict:
     if row is None:
         raise HTTPException(status_code=404, detail="user not found")
     return row
+
+
+def _require_active(row: dict) -> None:
+    if row.get("blocked_at") is not None:
+        raise HTTPException(status_code=403, detail="blocked")
 
 
 @router.post("/users")
@@ -154,14 +167,16 @@ def create_topup(telegram_id: int, body: TopupIn) -> dict:
     if not bot_username():
         raise HTTPException(status_code=402, detail="no-bot")
     amount_rub = Decimal(str(body.amount_rub)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
-    if amount_rub < 1:
-        raise HTTPException(status_code=402, detail="empty")
+    min_rub = min_topup_rub()
+    if min_rub <= 0 or amount_rub < min_rub:
+        raise HTTPException(status_code=402, detail="min-topup")
     amount_usd = rub_to_usd(amount_rub)
-    if amount_usd <= 0:
-        raise HTTPException(status_code=402, detail="empty")
+    if amount_usd < MIN_TOPUP_USD:
+        raise HTTPException(status_code=402, detail="min-topup")
     kopecks = int((amount_rub * 100).quantize(Decimal("1"), rounding=ROUND_HALF_UP))
     with pool.connection() as conn:
         row = _user_or_404(conn, telegram_id)
+        _require_active(row)
         if row["offer_accepted_at"] is None:
             raise HTTPException(status_code=403, detail="offer")
         created = conn.execute(
@@ -225,6 +240,7 @@ def check_topup(telegram_id: int, topup_id: int) -> dict:
 def read_key(telegram_id: int) -> dict:
     with pool.connection() as conn:
         row = _user_or_404(conn, telegram_id)
+        _require_active(row)
         user_id = int(row["id"])
     sync_user(user_id)
     try:
@@ -237,6 +253,7 @@ def read_key(telegram_id: int) -> dict:
 def create_key(telegram_id: int) -> dict:
     with pool.connection() as conn:
         row = _user_or_404(conn, telegram_id)
+        _require_active(row)
         user_id = int(row["id"])
     try:
         return issue_key(user_id, telegram_id)
@@ -248,6 +265,7 @@ def create_key(telegram_id: int) -> dict:
 def rotate_key(telegram_id: int) -> dict:
     with pool.connection() as conn:
         row = _user_or_404(conn, telegram_id)
+        _require_active(row)
         user_id = int(row["id"])
     try:
         return reissue_key(user_id, telegram_id)

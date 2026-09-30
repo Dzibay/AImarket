@@ -49,6 +49,45 @@ def sync_user(user_id: int) -> None:
         _sync_key(user_id, int(row["upstream_id"]))
 
 
+def block_user(user_id: int, reason: str = "") -> None:
+    with billing_lock:
+        if not _user_exists(user_id):
+            raise BillingError("user")
+        if _is_blocked(user_id):
+            return
+        sync_user(user_id)
+        key = _active_key(user_id)
+        if key is not None:
+            try:
+                upstream.disable_key(int(key["upstream_id"]))
+            except UpstreamError as exc:
+                _reraise(exc)
+        with pool.connection() as conn:
+            conn.execute(
+                "UPDATE users SET blocked_at = NOW(), blocked_reason = %s WHERE id = %s",
+                (reason.strip()[:500], user_id),
+            )
+
+
+def unblock_user(user_id: int) -> None:
+    with billing_lock:
+        if not _user_exists(user_id):
+            raise BillingError("user")
+        if not _is_blocked(user_id):
+            return
+        key = _active_key(user_id)
+        if key is not None:
+            try:
+                upstream.enable_key(int(key["upstream_id"]))
+            except UpstreamError as exc:
+                _reraise(exc)
+        with pool.connection() as conn:
+            conn.execute(
+                "UPDATE users SET blocked_at = NULL, blocked_reason = '' WHERE id = %s",
+                (user_id,),
+            )
+
+
 def add_usd(user_id: int, amount: Decimal, kind: str, note: str, amount_kopecks: int = 0) -> Decimal:
     if amount <= 0:
         raise BillingError("empty")
@@ -78,6 +117,7 @@ def add_usd(user_id: int, amount: Decimal, kind: str, note: str, amount_kopecks:
 
 def issue_key(user_id: int, telegram_id: int) -> dict:
     with billing_lock:
+        _require_not_blocked(user_id)
         _require_offer(user_id)
         if _active_key(user_id) is not None:
             raise BillingError("key-exists")
@@ -102,6 +142,7 @@ def issue_key(user_id: int, telegram_id: int) -> dict:
 
 def reissue_key(user_id: int, telegram_id: int) -> dict:
     with billing_lock:
+        _require_not_blocked(user_id)
         _require_offer(user_id)
         key = _active_key(user_id)
         if key is None:
@@ -141,6 +182,7 @@ def reissue_key(user_id: int, telegram_id: int) -> dict:
 
 def describe_key(user_id: int) -> dict:
     with billing_lock:
+        _require_not_blocked(user_id)
         key = _active_key(user_id)
         if key is None:
             raise BillingError("no-key")
@@ -206,6 +248,21 @@ def _sync_key(user_id: int, upstream_id: int) -> None:
             """,
             (amount, upstream_id),
         )
+    if _is_blocked(user_id):
+        try:
+            status = int(token.get("status") or 1)
+        except (TypeError, ValueError):
+            status = 1
+        if status != 2:
+            try:
+                upstream.disable_key(upstream_id)
+            except UpstreamError as exc:
+                log.warning(
+                    "не удалось отключить ключ %s у заблокированного пользователя %s: %s",
+                    upstream_id,
+                    user_id,
+                    exc.message,
+                )
 
 
 def _ensure_pool(extra: Decimal) -> None:
@@ -236,6 +293,23 @@ def _require_offer(user_id: int) -> None:
         row = conn.execute("SELECT offer_accepted_at FROM users WHERE id = %s", (user_id,)).fetchone()
     if row is None or row["offer_accepted_at"] is None:
         raise BillingError("offer")
+
+
+def _require_not_blocked(user_id: int) -> None:
+    if _is_blocked(user_id):
+        raise BillingError("blocked")
+
+
+def _is_blocked(user_id: int) -> bool:
+    with pool.connection() as conn:
+        row = conn.execute("SELECT blocked_at FROM users WHERE id = %s", (user_id,)).fetchone()
+    return row is not None and row["blocked_at"] is not None
+
+
+def _user_exists(user_id: int) -> bool:
+    with pool.connection() as conn:
+        row = conn.execute("SELECT id FROM users WHERE id = %s", (user_id,)).fetchone()
+    return row is not None
 
 
 def _active_key(user_id: int) -> dict | None:

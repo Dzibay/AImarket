@@ -8,7 +8,7 @@ from psycopg.errors import UniqueViolation
 from pydantic import BaseModel, Field
 
 from app.auth import check_password, make_token, require_admin
-from app.billing import BillingError, add_usd
+from app.billing import BillingError, add_usd, block_user, unblock_user
 from app.db import pool
 from app.money import units_to_usd, usd_price_rub
 from app.settings_store import get_setting, offer_url, public_base_url, set_setting
@@ -40,6 +40,10 @@ class SettingsIn(BaseModel):
 
 class CreditIn(BaseModel):
     amount_usd: float = Field(gt=0, le=100000)
+
+
+class BlockIn(BaseModel):
+    reason: str = Field(default="", max_length=500)
 
 
 class LedgerIn(BaseModel):
@@ -123,7 +127,7 @@ def list_users() -> dict:
         rows = conn.execute(
             """
             SELECT u.id, u.telegram_id, u.username, u.first_name, u.balance_usd,
-                   u.offer_accepted_at, k.prefix
+                   u.offer_accepted_at, u.blocked_at, u.blocked_reason, k.prefix
             FROM users u
             LEFT JOIN api_keys k ON k.user_id = u.id AND k.revoked_at IS NULL
             ORDER BY u.id DESC
@@ -139,6 +143,9 @@ def list_users() -> dict:
                 "first_name": row["first_name"],
                 "balance_usd": float(row["balance_usd"]),
                 "offer_accepted": row["offer_accepted_at"] is not None,
+                "blocked": row["blocked_at"] is not None,
+                "blocked_at": row["blocked_at"].isoformat() if row["blocked_at"] is not None else "",
+                "blocked_reason": row["blocked_reason"] or "",
                 "key_prefix": row["prefix"] or "",
             }
             for row in rows
@@ -156,6 +163,28 @@ def credit_user(user_id: int, body: CreditIn) -> dict:
         status = 409 if exc.code == "supplier" else 502
         raise HTTPException(status_code=status, detail=exc.code) from exc
     return {"balance_usd": float(balance)}
+
+
+@router.post("/users/{user_id}/block", dependencies=[Depends(require_admin)])
+def block_user_admin(user_id: int, body: BlockIn) -> dict:
+    try:
+        block_user(user_id, body.reason)
+    except BillingError as exc:
+        if exc.code == "user":
+            raise HTTPException(status_code=404, detail="user") from exc
+        raise HTTPException(status_code=502, detail=exc.code) from exc
+    return {"ok": True}
+
+
+@router.post("/users/{user_id}/unblock", dependencies=[Depends(require_admin)])
+def unblock_user_admin(user_id: int) -> dict:
+    try:
+        unblock_user(user_id)
+    except BillingError as exc:
+        if exc.code == "user":
+            raise HTTPException(status_code=404, detail="user") from exc
+        raise HTTPException(status_code=502, detail=exc.code) from exc
+    return {"ok": True}
 
 
 @router.delete("/users/{user_id}", dependencies=[Depends(require_admin)])

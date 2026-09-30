@@ -3,6 +3,8 @@ from decimal import Decimal, ROUND_DOWN, ROUND_HALF_UP
 from app.config import settings
 from app.settings_store import get_setting
 
+MIN_TOPUP_USD = Decimal("10")
+
 
 def usd_price_rub() -> Decimal:
     raw = get_setting("usd_price_rub").strip().replace(",", ".")
@@ -35,3 +37,10 @@ def rub_to_usd(amount_rub: Decimal) -> Decimal:
     if price <= 0:
         return Decimal(0)
     return (amount_rub / price).quantize(Decimal("0.01"), rounding=ROUND_DOWN)
+
+
+def min_topup_rub() -> Decimal:
+    price = usd_price_rub()
+    if price <= 0:
+        return Decimal(0)
+    return (MIN_TOPUP_USD * price).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)

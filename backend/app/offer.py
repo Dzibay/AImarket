@@ -1,7 +1,4 @@
-import html
-from datetime import date
-
-from app.settings_store import get_setting, offer_url
+from app.legal import render_legal_page, _fill_legal
 
 _DEFAULT = """
 Публичная оферта на использование сервиса Aimarket
@@ -14,7 +11,7 @@ _DEFAULT = """
 
 1.1. Настоящий документ является публичной офертой (далее — Оферта) в смысле ст. 435, 437 Гражданского кодекса РФ и определяет условия предоставления Заказчику права использования функционала сервиса Aimarket (далее — Сервис).
 
-1.2. Акцептом Оферты (полным и безоговорочным принятием её условий) признаётся нажатие кнопки согласия в Telegram-боте Aimarket либо фактическая оплата услуг Заказчиком. С момента акцепта между Исполнителем и Заказчиком считается заключённым договор на условиях настоящей Оферты.
+1.2. Акцептом Оферты (полным и безоговорочным принятием её условий) признаётся нажатие кнопки «Принять все условия» в Telegram-боте Aimarket (вместе с Политикой конфиденциальности и Согласием на обработку персональных данных) либо фактическая оплата услуг Заказчиком. С момента акцепта между Исполнителем и Заказчиком считается заключённым договор на условиях настоящей Оферты.
 
 1.3. Принимая Оферту, Заказчик даёт согласие на обработку учётных данных, необходимых для работы Сервиса (включая Telegram ID и имя пользователя), а также на получение сервисных и информационно-рекламных уведомлений в Telegram-боте Aimarket.
 
@@ -35,6 +32,8 @@ _DEFAULT = """
 3.3. Приём и обработка платежей осуществляются через интегрированный платёжный сервис «ЮKassa» (ООО НКО «ЮМани»). Исполнитель не запрашивает, не собирает, не хранит и не обрабатывает реквизиты банковских карт и иные платёжные данные Заказчика. Исполнитель не отвечает за задержки, технические сбои и отказы в проведении платежей, возникшие на стороне платёжного агрегатора или банка-эмитента.
 
 3.4. Актуальная стоимость обработки запросов (цена токенов) транслируется от первичных поставщиков ИИ-моделей (OpenAI, Anthropic и др.) и не устанавливается Исполнителем самостоятельно. При изменении тарифов поставщика стоимость токенов в Сервисе обновляется автоматически. Исполнитель не обязан предварительно уведомлять Заказчика об изменении тарифов поставщиков.
+
+3.5. Минимальная сумма одного пополнения Виртуального баланса — 10 (десять) долларов США (USD) по внутреннему курсу Сервиса, действующему на момент оплаты.
 
 4. Списание баланса и ошибки обработки
 
@@ -57,7 +56,7 @@ _DEFAULT = """
 — передавать API-ключ третьим лицам для массовой перепродажи доступа (включая создание сайтов-прокладок) без письменного согласия Исполнителя;
 — пытаться обходить лимиты, вмешиваться в работу Сервиса либо направлять аномальный объём запросов, создающий угрозу стабильности Сервиса.
 
-6.2. При выявлении нарушений п. 6.1 Исполнитель вправе заблокировать API-ключ Заказчика. Остаток средств на Виртуальном балансе в таком случае не возвращается и удерживается в качестве штрафа за нарушение условий Оферты.
+6.2. При выявлении нарушений п. 6.1 Исполнитель вправе заблокировать (забанить) API-ключ Заказчика и доступ к Сервису. Остаток средств на Виртуальном балансе в таком случае не возвращается и удерживается в качестве штрафа за нарушение условий Оферты.
 
 7. Ограничение ответственности
 
@@ -89,65 +88,11 @@ _DEFAULT = """
 """.strip()
 
 
-def _offer_email() -> str:
-    return (get_setting("offer_email") or get_setting("seller_email")).strip()
-
-
-def _offer_date_display() -> str:
-    raw = get_setting("offer_date").strip()
-    if not raw:
-        return "не указана"
-    try:
-        return date.fromisoformat(raw).strftime("%d.%m.%Y")
-    except ValueError:
-        return raw
-
-
 def render_offer() -> str:
-    email = _offer_email() or "не указана"
-    revised = _offer_date_display()
-    link = offer_url() or "/offer"
-    body = (
-        _DEFAULT.replace("[Дата]", revised)
-        .replace("[E-MAIL]", email)
-        .replace("[URL]", link.removeprefix("https://").removeprefix("http://"))
+    return render_legal_page(
+        title="Публичная оферта",
+        heading="Публичная оферта",
+        body=_fill_legal(_DEFAULT, "/offer"),
+        page_path="/offer",
+        footer="Согласие даётся в Telegram-боте Aimarket.",
     )
-    paragraphs = "".join(
-        f"<p>{html.escape(part.strip()).replace(chr(10), '<br>')}</p>"
-        for part in body.split("\n\n")
-        if part.strip()
-    )
-    meta_bits = [f"Редакция от {html.escape(revised)}"]
-    if _offer_email():
-        meta_bits.append(html.escape(email))
-    return f"""<!DOCTYPE html>
-<html lang="ru">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="robots" content="noindex">
-  <title>Оферта — Aimarket</title>
-  <link rel="icon" type="image/png" href="/favicon-96x96.png" sizes="96x96">
-  <link rel="icon" type="image/svg+xml" href="/favicon.svg">
-  <link rel="shortcut icon" href="/favicon.ico">
-  <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
-  <link rel="manifest" href="/site.webmanifest">
-  <meta name="theme-color" content="#1c1915">
-  <style>
-    body {{ margin: 0; background: #f4f1ea; color: #1c1915; font: 17px/1.55 Georgia, "Times New Roman", serif; }}
-    main {{ max-width: 720px; margin: 0 auto; padding: 48px 20px 72px; }}
-    h1 {{ font: 600 32px/1.15 "Segoe UI", sans-serif; letter-spacing: -0.03em; margin: 0 0 8px; }}
-    .meta {{ font: 14px/1.4 "Segoe UI", sans-serif; color: #6b645b; margin-bottom: 28px; }}
-    p {{ margin: 0 0 16px; }}
-    a {{ color: inherit; }}
-  </style>
-</head>
-<body>
-  <main>
-    <h1>Публичная оферта</h1>
-    <p class="meta">{" · ".join(meta_bits)}</p>
-    {paragraphs}
-    <p class="meta">Согласие даётся в Telegram-боте Aimarket. Эта страница: {html.escape(link)}</p>
-  </main>
-</body>
-</html>"""
