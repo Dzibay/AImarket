@@ -142,7 +142,7 @@ class RouterCheap:
         page: int = 1,
         page_size: int = 100,
     ) -> tuple[list[dict], bool]:
-        """Журнал расходов: /api/log/token → /api/log/self → /api/log/ (админ).
+        """Журнал расходов: /api/log/token → /api/log/self (без прав админа).
 
         Второе значение — True, если следующих страниц нет.
         """
@@ -165,21 +165,7 @@ class RouterCheap:
                 ]
             items = _consumption_logs(raw_items)
             return items, len(raw_items) < page_size
-        if page > 1:
-            return [], True
-        query = urllib.parse.urlencode(
-            {"p": "1", "page_size": str(page_size), "type": "2", "token_name": token_name}
-        )
-        with self._lock:
-            self._ensure_login()
-            try:
-                payload = self._authed("GET", f"/api/log/?{query}")
-            except UpstreamError:
-                return [], True
-        items = _token_items(payload)
-        if upstream_id is not None:
-            items = [item for item in items if _log_belongs_to_token(item, token_name, upstream_id)]
-        return _consumption_logs(items), True
+        return [], True
 
     def _spend_logs_by_secret(self, token_secret: str) -> list[dict]:
         seen: set[str] = set()
@@ -382,6 +368,13 @@ def _secret_from(payload: dict) -> str:
     if not isinstance(raw, str) or not raw:
         return ""
     return raw if raw.startswith("sk-") else f"sk-{raw}"
+
+
+def _log_field(item: dict, *names: str) -> object | None:
+    for name in names:
+        if name in item and item[name] not in (None, ""):
+            return item[name]
+    return None
 
 
 def _log_quota_units(item: dict) -> int:

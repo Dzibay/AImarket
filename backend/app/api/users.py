@@ -1,11 +1,10 @@
-from datetime import datetime, timedelta
 from decimal import Decimal, ROUND_HALF_UP
-from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
 from app.billing import BillingError, describe_key, issue_key, reissue_key, sync_user, upstream_base
+from app.usage_stats import usage_period_stats
 from app.notifications import get_preferences, preferences_row, toggle_preference
 from app.payments import settle_payment
 from app.db import pool
@@ -16,8 +15,6 @@ from app.telegram_link import bot_start_url, bot_username
 from app.yookassa import YooKassaError, create_payment, enabled as yookassa_enabled
 
 router = APIRouter(dependencies=[Depends(require_bot)])
-_MSK = ZoneInfo("Europe/Moscow")
-_WEEKDAY_LABELS = ("Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс")
 _HISTORY_PAGE = 5
 
 
@@ -65,65 +62,17 @@ def _profile(conn, telegram_id: int) -> dict | None:
     ).fetchone()
 
 
-def _spent(conn, user_id: int) -> tuple[float, float]:
-    row = conn.execute(
-        """
-        SELECT
-            COALESCE(SUM(quota_units) FILTER (
-                WHERE created_at >= date_trunc('day', NOW() AT TIME ZONE 'Europe/Moscow')
-                    AT TIME ZONE 'Europe/Moscow'
-            ), 0) AS today_units,
-            COALESCE(SUM(quota_units) FILTER (
-                WHERE created_at >= date_trunc('month', NOW() AT TIME ZONE 'Europe/Moscow')
-                    AT TIME ZONE 'Europe/Moscow'
-            ), 0) AS month_units
-        FROM usage
-        WHERE user_id = %s
-          AND created_at >= date_trunc('month', NOW() AT TIME ZONE 'Europe/Moscow')
-              AT TIME ZONE 'Europe/Moscow'
-        """,
-        (user_id,),
-    ).fetchone()
-    return float(units_to_usd(int(row["today_units"]))), float(units_to_usd(int(row["month_units"])))
-
-
-def _spent_week(conn, user_id: int) -> list[dict]:
-    today = datetime.now(_MSK).date()
-    start = today - timedelta(days=6)
-    rows = conn.execute(
-        """
-        SELECT (created_at AT TIME ZONE 'Europe/Moscow')::date AS day,
-               COALESCE(SUM(quota_units), 0) AS units
-        FROM usage
-        WHERE user_id = %s
-          AND (created_at AT TIME ZONE 'Europe/Moscow')::date >= %s
-        GROUP BY day
-        ORDER BY day
-        """,
-        (user_id, start),
-    ).fetchall()
-    by_day = {row["day"]: float(units_to_usd(int(row["units"]))) for row in rows}
-    return [
-        {
-            "date": day.isoformat(),
-            "label": _WEEKDAY_LABELS[day.weekday()],
-            "usd": by_day.get(day, 0.0),
-        }
-        for day in (start + timedelta(days=offset) for offset in range(7))
-    ]
-
-
 def _public(conn, row: dict) -> dict:
     price = usd_price_rub()
-    spent_today, spent_month = _spent(conn, int(row["id"]))
+    stats = usage_period_stats(conn, int(row["id"]))
     created = row.get("key_created_at")
     return {
         "id": row["id"],
         "telegram_id": row["telegram_id"],
         "balance_usd": float(row["balance_usd"]),
-        "spent_today_usd": spent_today,
-        "spent_month_usd": spent_month,
-        "spent_week_usd": _spent_week(conn, int(row["id"])),
+        "spent_today_usd": stats["spent_today_usd"],
+        "spent_month_usd": stats["spent_month_usd"],
+        "spent_week_usd": stats["spent_week_usd"],
         "offer_accepted": row["offer_accepted_at"] is not None,
         "blocked": row["blocked_at"] is not None,
         "blocked_reason": row["blocked_reason"] or "",

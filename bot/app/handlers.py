@@ -917,15 +917,15 @@ def _token_screen(key: dict) -> tuple[str, InlineKeyboardMarkup]:
     return text, InlineKeyboardMarkup(inline_keyboard=rows)
 
 
-def _key_stats_screen(profile: dict, key: dict) -> tuple[str, InlineKeyboardMarkup]:
-    week = key.get("spent_week_usd") or profile.get("spent_week_usd") or []
+def _key_stats_screen(key: dict) -> tuple[str, InlineKeyboardMarkup]:
+    week = key.get("spent_week_usd") or []
     text = (
         "<b>📊 Статистика ключа</b>\n\n"
         f"💸 Потрачено: <b>{_usd(float(key.get('spent_usd') or 0))}</b> / "
         f"<b>{_usd(float(key.get('limit_usd') or 0))}</b>\n"
         f"💰 Остаток: <b>{_usd(float(key.get('quota_usd') or 0))}</b>\n"
-        f"Сегодня: {_spent(float(key.get('spent_today_usd') or profile.get('spent_today_usd') or 0))}\n"
-        f"За месяц: {_spent(float(key.get('spent_month_usd') or profile.get('spent_month_usd') or 0))}\n\n"
+        f"Сегодня: {_spent(float(key.get('spent_today_usd') or 0))}\n"
+        f"За месяц: {_spent(float(key.get('spent_month_usd') or 0))}\n\n"
         f"{_week_chart(week if isinstance(week, list) else [])}"
     )
     rows = [[_button("⬅️ Назад", callback="keys")]]
@@ -1584,12 +1584,11 @@ async def key_stats_open(query: CallbackQuery, state: FSMContext) -> None:
     await state.clear()
     user = query.from_user
     try:
-        profile = await _profile_of(user.id, user.username or "", user.first_name or "")
         key = await read_key(user.id)
     except BackendError as exc:
         await query.answer(_explain(exc), show_alert=True)
         return
-    text, markup = _key_stats_screen(profile, key)
+    text, markup = _key_stats_screen(key)
     await _show_callback(query, "token", text, markup)
 
 

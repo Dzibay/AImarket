@@ -2,12 +2,14 @@ import hashlib
 import logging
 import secrets
 import threading
-from datetime import date, datetime, timedelta, timezone
+from datetime import datetime, timezone
 from decimal import Decimal
 
 from app.db import pool
 from app.money import usd_to_units, units_to_usd
-from app.upstream import UpstreamError, _log_quota_units, upstream
+from app.upstream import UpstreamError, upstream
+from app.usage_logs import parse_usage_log
+from app.usage_stats import usage_period_stats
 
 log = logging.getLogger("app.billing")
 billing_lock = threading.RLock()
@@ -142,7 +144,7 @@ def issue_key(user_id: int, telegram_id: int) -> dict:
             _reraise(exc)
         created_at = _store_key(user_id, name, secret, upstream_id, amount)
         key = _active_key(user_id)
-        stats = _key_stats(int(key["id"]), upstream_id, amount) if key else {}
+        stats = _key_stats(user_id, int(key["id"]), upstream_id, amount) if key else {}
         return {
             "secret": secret,
             "base_url": _base_url(),
@@ -185,7 +187,7 @@ def reissue_key(user_id: int, telegram_id: int) -> dict:
             raise BillingError("reissue-failed") from exc
         created_at = _store_key(user_id, name, secret, new_id, amount)
         key = _active_key(user_id)
-        stats = _key_stats(int(key["id"]), new_id, amount) if key else {}
+        stats = _key_stats(user_id, int(key["id"]), new_id, amount) if key else {}
         return {
             "secret": secret,
             "base_url": _base_url(),
@@ -217,7 +219,7 @@ def describe_key(user_id: int) -> dict:
                 (key["id"],),
             ).fetchone()
         quota = Decimal(quota_row["quota_usd"] or 0) if quota_row else Decimal(0)
-        stats = _key_stats(int(key["id"]), upstream_id, quota)
+        stats = _key_stats(user_id, int(key["id"]), upstream_id, quota)
         return {
             "secret": secret,
             "prefix": key["prefix"],
@@ -265,6 +267,9 @@ def _sync_key(user_id: int, upstream_id: int) -> None:
     spent, new_usages = _import_usage(
         user_id, key_id, upstream_id, token_name, token_secret=token_secret
     )
+    if key_id is not None:
+        with pool.connection() as conn:
+            _attach_usage_to_key(user_id, key_id, conn)
     # Падение лимита без записи в журнале router.cheap — это правка квоты, не запрос.
     with pool.connection() as conn:
         conn.execute(
@@ -272,7 +277,7 @@ def _sync_key(user_id: int, upstream_id: int) -> None:
             (user_id,),
         )
     _record_balance(user_id, amount, spent)
-    _warn_if_usage_differs(key_id, token)
+    _warn_if_usage_differs(user_id, token)
     with pool.connection() as conn:
         conn.execute(
             """
@@ -489,7 +494,18 @@ def _store_key(user_id: int, name: str, secret: str, upstream_id: int, amount: D
         raise
 
 
-def _key_stats(key_id: int, upstream_id: int | None, quota_usd: Decimal) -> dict:
+def _attach_usage_to_key(user_id: int, key_id: int, conn) -> None:
+    conn.execute(
+        """
+        UPDATE usage
+        SET api_key_id = %s
+        WHERE user_id = %s AND (api_key_id IS DISTINCT FROM %s)
+        """,
+        (key_id, user_id, key_id),
+    )
+
+
+def _key_stats(user_id: int, key_id: int, upstream_id: int | None, quota_usd: Decimal) -> dict:
     remain = quota_usd
     used = Decimal(0)
     if upstream_id:
@@ -501,62 +517,22 @@ def _key_stats(key_id: int, upstream_id: int | None, quota_usd: Decimal) -> dict
         except UpstreamError:
             pass
     with pool.connection() as conn:
-        row = conn.execute(
-            """
-            SELECT COALESCE(SUM(prompt_tokens), 0) AS prompt_tokens,
-                   COALESCE(SUM(completion_tokens), 0) AS completion_tokens,
-                   COALESCE(SUM(quota_units), 0) AS spent_units,
-                   MAX(created_at) AS last_request_at
-            FROM usage
-            WHERE api_key_id = %s
-            """,
-            (key_id,),
-        ).fetchone()
-        period = conn.execute(
-            """
-            SELECT
-                COALESCE(SUM(quota_units) FILTER (
-                    WHERE created_at >= date_trunc('day', NOW() AT TIME ZONE 'Europe/Moscow')
-                        AT TIME ZONE 'Europe/Moscow'
-                ), 0) AS today_units,
-                COALESCE(SUM(quota_units) FILTER (
-                    WHERE created_at >= date_trunc('month', NOW() AT TIME ZONE 'Europe/Moscow')
-                        AT TIME ZONE 'Europe/Moscow'
-                ), 0) AS month_units
-            FROM usage
-            WHERE api_key_id = %s
-              AND created_at >= date_trunc('month', NOW() AT TIME ZONE 'Europe/Moscow')
-                  AT TIME ZONE 'Europe/Moscow'
-            """,
-            (key_id,),
-        ).fetchone()
-        week_rows = conn.execute(
-            """
-            SELECT (created_at AT TIME ZONE 'Europe/Moscow')::date AS day,
-                   COALESCE(SUM(quota_units), 0) AS units
-            FROM usage
-            WHERE api_key_id = %s
-              AND (created_at AT TIME ZONE 'Europe/Moscow')::date >= %s
-            GROUP BY day
-            ORDER BY day
-            """,
-            (key_id, _week_start_msk()),
-        ).fetchall()
-    spent_logs = units_to_usd(int(row["spent_units"] or 0))
+        stats = usage_period_stats(conn, user_id)
+    spent_logs = units_to_usd(int(stats["spent_units"]))
     if spent_logs > used:
         used = spent_logs
     limit = (remain + used).quantize(Decimal("0.01"))
-    last = row["last_request_at"]
+    last = stats["last_request_at"]
     return {
         "quota_usd": float(remain),
         "spent_usd": float(used),
         "limit_usd": float(limit),
-        "prompt_tokens": int(row["prompt_tokens"] or 0),
-        "completion_tokens": int(row["completion_tokens"] or 0),
+        "prompt_tokens": stats["prompt_tokens"],
+        "completion_tokens": stats["completion_tokens"],
         "last_request_at": last.isoformat() if last is not None else "",
-        "spent_today_usd": float(units_to_usd(int(period["today_units"] or 0))),
-        "spent_month_usd": float(units_to_usd(int(period["month_units"] or 0))),
-        "spent_week_usd": _week_chart_rows(week_rows),
+        "spent_today_usd": stats["spent_today_usd"],
+        "spent_month_usd": stats["spent_month_usd"],
+        "spent_week_usd": stats["spent_week_usd"],
     }
 
 
@@ -612,67 +588,15 @@ def _import_usage(
     return units_to_usd(inserted_units), new_usages
 
 
-_WEEKDAY_LABELS = ("Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс")
-
-
-def _week_start_msk() -> date:
-    from zoneinfo import ZoneInfo
-
-    today = datetime.now(ZoneInfo("Europe/Moscow")).date()
-    return today - timedelta(days=6)
-
-
-def _week_chart_rows(rows: list[dict]) -> list[dict]:
-    from zoneinfo import ZoneInfo
-
-    today = datetime.now(ZoneInfo("Europe/Moscow")).date()
-    start = today - timedelta(days=6)
-    by_day = {row["day"]: float(units_to_usd(int(row["units"] or 0))) for row in rows}
-    return [
-        {
-            "date": day.isoformat(),
-            "label": _WEEKDAY_LABELS[day.weekday()],
-            "usd": by_day.get(day, 0.0),
-        }
-        for day in (start + timedelta(days=offset) for offset in range(7))
-    ]
-
-
-def _upstream_log_id(item: dict) -> int | None:
-    raw = item.get("id")
-    if raw not in (None, ""):
-        try:
-            return int(raw)
-        except (TypeError, ValueError):
-            pass
-    created = item.get("created_at")
-    model = str(item.get("model_name") or "")
-    quota = _log_quota_units(item)
-    try:
-        prompt = int(item.get("prompt_tokens") or 0)
-    except (TypeError, ValueError):
-        prompt = 0
-    try:
-        completion = int(item.get("completion_tokens") or 0)
-    except (TypeError, ValueError):
-        completion = 0
-    if created in (None, "") and not model and quota <= 0:
-        return None
-    digest = hashlib.sha256(
-        f"{created}|{model}|{quota}|{prompt}|{completion}".encode()
-    ).hexdigest()
-    return int(digest[:15], 16)
-
-
 def _save_usage_page(user_id: int, key_id: int, items: list[dict]) -> tuple[int, bool, list[dict]]:
-    parsed: list[tuple[int, dict]] = []
+    parsed: list[dict] = []
     for item in items:
-        log_id = _upstream_log_id(item)
-        if log_id is not None:
-            parsed.append((log_id, item))
+        row = parse_usage_log(item)
+        if row is not None:
+            parsed.append(row)
     if not parsed:
         return 0, True, []
-    ids = [log_id for log_id, _ in parsed]
+    ids = [int(row["upstream_log_id"]) for row in parsed]
     with pool.connection() as conn:
         known = {
             int(row["upstream_log_id"])
@@ -683,40 +607,52 @@ def _save_usage_page(user_id: int, key_id: int, items: list[dict]) -> tuple[int,
         }
         inserted_units = 0
         new_usages: list[dict] = []
-        for log_id, item in parsed:
-            units = _log_quota_units(item)
-            model_name = str(item.get("model_name") or "")
-            try:
-                prompt_tokens = int(item.get("prompt_tokens") or 0)
-            except (TypeError, ValueError):
-                prompt_tokens = 0
-            try:
-                completion_tokens = int(item.get("completion_tokens") or 0)
-            except (TypeError, ValueError):
-                completion_tokens = 0
-            created_at = _log_time(item.get("created_at"))
+        for row in parsed:
+            log_id = int(row["upstream_log_id"])
+            units = int(row["quota_units"])
+            model_name = str(row["model_name"])
+            prompt_tokens = int(row["prompt_tokens"])
+            completion_tokens = int(row["completion_tokens"])
+            created_at = row["created_at"]
             if log_id in known:
-                if units > 0:
-                    patched = conn.execute(
-                        """
-                        UPDATE usage
-                        SET quota_units = %s,
-                            model_name = CASE WHEN model_name = '' THEN %s ELSE model_name END,
-                            prompt_tokens = CASE WHEN prompt_tokens = 0 THEN %s ELSE prompt_tokens END,
-                            completion_tokens = CASE WHEN completion_tokens = 0 THEN %s ELSE completion_tokens END
-                        WHERE upstream_log_id = %s AND quota_units = 0
-                        RETURNING id
-                        """,
-                        (
-                            units,
-                            model_name[:200],
-                            max(prompt_tokens, 0),
-                            max(completion_tokens, 0),
-                            log_id,
-                        ),
-                    ).fetchone()
-                    if patched is not None:
-                        inserted_units += units
+                prev = conn.execute(
+                    """
+                    SELECT quota_units
+                    FROM usage
+                    WHERE user_id = %s AND upstream_log_id = %s
+                    """,
+                    (user_id, log_id),
+                ).fetchone()
+                prev_units = int(prev["quota_units"] or 0) if prev else 0
+                conn.execute(
+                    """
+                    UPDATE usage
+                    SET api_key_id = %s,
+                        quota_units = CASE WHEN %s > 0 THEN %s ELSE quota_units END,
+                        model_name = CASE WHEN %s <> '' THEN %s ELSE model_name END,
+                        prompt_tokens = CASE WHEN %s > 0 THEN %s ELSE prompt_tokens END,
+                        completion_tokens = CASE WHEN %s > 0 THEN %s ELSE completion_tokens END,
+                        created_at = %s
+                    WHERE user_id = %s AND upstream_log_id = %s
+                    """,
+                    (
+                        key_id,
+                        units,
+                        units,
+                        model_name,
+                        model_name,
+                        prompt_tokens,
+                        prompt_tokens,
+                        completion_tokens,
+                        completion_tokens,
+                        created_at,
+                        user_id,
+                        log_id,
+                    ),
+                )
+                new_units = units if units > 0 else prev_units
+                if prev_units == 0 and new_units > 0:
+                    inserted_units += new_units
                 continue
             if not _insert_usage(
                 user_id,
@@ -743,9 +679,9 @@ def _save_usage_page(user_id: int, key_id: int, items: list[dict]) -> tuple[int,
     return inserted_units, page_done, new_usages
 
 
-def _warn_if_usage_differs(key_id: int | None, token: dict) -> None:
+def _warn_if_usage_differs(user_id: int, token: dict) -> None:
     raw_used = token.get("used_quota")
-    if key_id is None or raw_used in (None, ""):
+    if raw_used in (None, ""):
         return
     try:
         official = int(raw_used)
@@ -753,43 +689,17 @@ def _warn_if_usage_differs(key_id: int | None, token: dict) -> None:
         return
     with pool.connection() as conn:
         row = conn.execute(
-            "SELECT COALESCE(SUM(quota_units), 0) AS units FROM usage WHERE api_key_id = %s",
-            (key_id,),
+            "SELECT COALESCE(SUM(quota_units), 0) AS units FROM usage WHERE user_id = %s",
+            (user_id,),
         ).fetchone()
     logged = int(row["units"] or 0)
     if logged != official:
         log.warning(
-            "расход ключа %s не совпал с router.cheap: журнал %s, used_quota %s",
-            key_id,
+            "расход пользователя %s не совпал с router.cheap: журнал %s, used_quota %s",
+            user_id,
             logged,
             official,
         )
-
-
-def _log_time(value: object) -> datetime:
-    if isinstance(value, datetime):
-        return value if value.tzinfo is not None else value.replace(tzinfo=timezone.utc)
-    if isinstance(value, str):
-        text = value.strip()
-        if text:
-            if text.isdigit():
-                value = int(text)
-            else:
-                try:
-                    moment = datetime.fromisoformat(text.replace("Z", "+00:00"))
-                except ValueError:
-                    moment = None
-                if moment is not None:
-                    return moment if moment.tzinfo is not None else moment.replace(tzinfo=timezone.utc)
-    try:
-        stamp = int(value or 0)
-    except (TypeError, ValueError):
-        stamp = 0
-    if stamp > 10_000_000_000:
-        stamp //= 1000
-    if stamp <= 0:
-        return datetime.now(timezone.utc)
-    return datetime.fromtimestamp(stamp, timezone.utc)
 
 
 def _insert_usage(
