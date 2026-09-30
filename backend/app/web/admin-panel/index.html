@@ -209,11 +209,16 @@
     td.actions { display: flex; gap: 6px; justify-content: flex-end; flex-wrap: wrap; }
     .inline-form { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-bottom: 14px; }
     .inline-form input, .inline-form select { width: auto; min-width: 160px; flex: 1 1 160px; max-width: 280px; }
-    .referral-layout { display: grid; grid-template-columns: minmax(240px, 320px) minmax(0, 1fr); gap: 16px; align-items: start; }
-    .referral-side, .referral-main { min-width: 0; }
-    .referral-side h3, .referral-main h3 { margin-bottom: 10px; }
+    .referral-toolbar { margin-bottom: 14px; }
+    tr.referral-group-row td { background: var(--surface-soft); font-weight: 600; cursor: pointer; }
+    tr.referral-group-row:hover td { background: #f3eee6; }
+    tr.referral-section-row td { background: #faf7f2; color: var(--muted); font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; }
+    tr.referral-token-row td:first-child { padding-left: 28px; }
+    tr.referral-token-row.hidden { display: none; }
+    .referral-toggle { display: inline-block; width: 16px; margin-right: 8px; color: var(--muted); }
+    .referral-name { display: inline-flex; align-items: center; gap: 8px; }
+    .referral-count { font-size: 11px; font-weight: 600; color: var(--muted); background: #fff; border: 1px solid var(--border); border-radius: 999px; padding: 2px 8px; }
     td select { width: 100%; min-width: 120px; max-width: 200px; padding: 6px 8px; font-size: 13px; }
-    @media (max-width: 960px) { .referral-layout { grid-template-columns: 1fr; } }
     td.compact input { width: 72px; margin-right: 8px; }
     td .badge { margin-left: 8px; }
     .empty td { text-align: center; color: var(--muted); padding: 28px 14px; }
@@ -508,47 +513,27 @@
           <h2>Рефералы</h2>
           <button id="referral-open" type="button">Создать токен</button>
         </div>
-        <div class="referral-layout">
-          <div class="referral-side settings-block">
-            <h3>Группы</h3>
-            <div class="inline-form">
-              <input id="group-name" placeholder="Название группы" maxlength="64">
-              <button id="group-create" type="button" class="sm">Создать</button>
-            </div>
-            <p id="group-error" class="error"></p>
-            <div class="table-wrap">
-              <table>
-                <thead><tr><th>Группа</th><th class="num">Токены</th><th class="actions"></th></tr></thead>
-                <tbody id="referral-groups"></tbody>
-              </table>
-            </div>
-          </div>
-          <div class="referral-main">
-            <h3>Токены</h3>
-            <div class="inline-form">
-              <select id="referral-filter-group">
-                <option value="">Все группы</option>
-              </select>
-            </div>
-            <div class="table-wrap">
-              <table>
-                <thead>
-                  <tr>
-                    <th>Токен</th>
-                    <th>Группа</th>
-                    <th>Создан</th>
-                    <th class="num">Переходы</th>
-                    <th class="num">Оферта</th>
-                    <th class="num">Оплат</th>
-                    <th class="num">CR</th>
-                    <th class="num">Сумма</th>
-                    <th class="actions"></th>
-                  </tr>
-                </thead>
-                <tbody id="referrals"></tbody>
-              </table>
-            </div>
-          </div>
+        <div class="inline-form referral-toolbar">
+          <input id="group-name" placeholder="Название группы" maxlength="64">
+          <button id="group-create" type="button" class="quiet sm">Создать группу</button>
+          <span id="group-error" class="error"></span>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Токен / группа</th>
+                <th>Создан</th>
+                <th class="num">Переходы</th>
+                <th class="num">Оферта</th>
+                <th class="num">Оплат</th>
+                <th class="num">CR</th>
+                <th class="num">Сумма</th>
+                <th class="actions"></th>
+              </tr>
+            </thead>
+            <tbody id="referrals"></tbody>
+          </table>
         </div>
       </section>
     </div>
@@ -578,7 +563,8 @@
     let referralBot = "";
     let referralGroups = [];
     let referralItems = [];
-    let referralFilterGroup = "";
+    let referralExpanded = new Set();
+    let referralExpandInitialized = false;
 
     function referralUrl(token) {
       if (!referralBot) return "";
@@ -635,14 +621,12 @@
       return messages[code] || code || "error";
     }
 
-    function fillGroupSelect(select, selectedId, withEmpty) {
+    function fillGroupSelect(select, selectedId) {
       select.innerHTML = "";
-      if (withEmpty) {
-        const empty = document.createElement("option");
-        empty.value = "";
-        empty.textContent = withEmpty === true ? "Без группы" : "Все группы";
-        select.append(empty);
-      }
+      const empty = document.createElement("option");
+      empty.value = "";
+      empty.textContent = "Без группы";
+      select.append(empty);
       for (const group of referralGroups) {
         const option = document.createElement("option");
         option.value = String(group.id);
@@ -652,151 +636,218 @@
       }
     }
 
-    function renderReferralGroups() {
-      const body = $("referral-groups");
+    function aggregateReferralStats(items) {
+      const stats = { visits: 0, offers_accepted: 0, payments: 0, payers: 0, topup_rub: 0, topup_usd: 0 };
+      for (const item of items) {
+        stats.visits += Number(item.visits || 0);
+        stats.offers_accepted += Number(item.offers_accepted || 0);
+        stats.payments += Number(item.payments || 0);
+        stats.payers += Number(item.payers || 0);
+        stats.topup_rub += Number(item.topup_rub || 0);
+        stats.topup_usd += Number(item.topup_usd || 0);
+      }
+      stats.payment_conversion = stats.visits > 0
+        ? Math.round(stats.payers / stats.visits * 1000) / 10
+        : 0;
+      return stats;
+    }
+
+    function appendReferralMetricCells(tr, stats, createdText) {
+      const createdCell = document.createElement("td");
+      createdCell.textContent = createdText || "—";
+      const visitsCell = document.createElement("td");
+      visitsCell.className = "num";
+      visitsCell.textContent = String(stats.visits || 0);
+      const offersCell = document.createElement("td");
+      offersCell.className = "num";
+      offersCell.textContent = String(stats.offers_accepted || 0);
+      const paymentsCell = document.createElement("td");
+      paymentsCell.className = "num";
+      paymentsCell.textContent = String(stats.payments || 0);
+      const conversionCell = document.createElement("td");
+      conversionCell.className = "num";
+      conversionCell.textContent = conversion(stats.payment_conversion, stats.visits);
+      const topupsCell = document.createElement("td");
+      topupsCell.className = "num";
+      topupsCell.textContent = rub(stats.topup_rub || 0) + " · " + usd(stats.topup_usd || 0);
+      tr.append(createdCell, visitsCell, offersCell, paymentsCell, conversionCell, topupsCell);
+    }
+
+    function appendTokenActions(tr, item) {
+      const actionCell = document.createElement("td");
+      actionCell.className = "actions";
+      const groupSelect = document.createElement("select");
+      fillGroupSelect(groupSelect, item.group_id);
+      groupSelect.onchange = async (event) => {
+        event.stopPropagation();
+        const next = groupSelect.value ? Number(groupSelect.value) : null;
+        const prev = item.group_id ?? null;
+        try {
+          await api("/api/admin/referrals/" + item.id + "/group", {
+            method: "PUT",
+            body: JSON.stringify({ group_id: next })
+          });
+          await loadReferrals();
+        } catch (error) {
+          alert(error.message);
+          groupSelect.value = prev ? String(prev) : "";
+        }
+      };
+      const url = referralUrl(item.token);
+      const copyButton = document.createElement("button");
+      copyButton.className = "quiet sm";
+      copyButton.type = "button";
+      copyButton.textContent = "Копировать";
+      copyButton.disabled = !url;
+      copyButton.onclick = async (event) => {
+        event.stopPropagation();
+        try {
+          await copyText(url);
+          copyButton.textContent = "Скопировано";
+          setTimeout(() => { copyButton.textContent = "Копировать"; }, 1200);
+        } catch (error) {
+          alert("Не удалось скопировать");
+        }
+      };
+      const deleteButton = document.createElement("button");
+      deleteButton.className = "danger sm";
+      deleteButton.type = "button";
+      deleteButton.textContent = "Удалить";
+      deleteButton.onclick = async (event) => {
+        event.stopPropagation();
+        if (!confirm("Удалить токен " + item.token + "?")) return;
+        try {
+          await api("/api/admin/referrals/" + item.id, { method: "DELETE" });
+          await loadReferrals();
+        } catch (error) {
+          alert(error.message);
+        }
+      };
+      actionCell.append(groupSelect, copyButton, deleteButton);
+      tr.append(actionCell);
+    }
+
+    function appendTokenRow(body, item, groupId) {
+      const tr = document.createElement("tr");
+      tr.className = "referral-token-row";
+      if (groupId) {
+        tr.dataset.groupId = String(groupId);
+        if (!referralExpanded.has(groupId)) tr.classList.add("hidden");
+      }
+      const tokenCell = document.createElement("td");
+      const code = document.createElement("code");
+      code.textContent = item.token;
+      tokenCell.append(code);
+      tr.append(tokenCell);
+      appendReferralMetricCells(tr, item, shortDate(item.created_at));
+      appendTokenActions(tr, item);
+      body.append(tr);
+      return tr;
+    }
+
+    function toggleReferralGroup(groupId) {
+      if (referralExpanded.has(groupId)) referralExpanded.delete(groupId);
+      else referralExpanded.add(groupId);
+      renderReferralTree();
+    }
+
+    function appendGroupRow(body, group, items) {
+      const stats = aggregateReferralStats(items);
+      const expanded = referralExpanded.has(group.id);
+      const tr = document.createElement("tr");
+      tr.className = "referral-group-row";
+      tr.onclick = (event) => {
+        if (event.target.closest("button, select")) return;
+        toggleReferralGroup(group.id);
+      };
+      const nameCell = document.createElement("td");
+      const wrap = document.createElement("span");
+      wrap.className = "referral-name";
+      const toggle = document.createElement("span");
+      toggle.className = "referral-toggle";
+      toggle.textContent = expanded ? "▾" : "▸";
+      const title = document.createElement("span");
+      title.textContent = group.name;
+      const count = document.createElement("span");
+      count.className = "referral-count";
+      count.textContent = String(items.length);
+      wrap.append(toggle, title, count);
+      nameCell.append(wrap);
+      tr.append(nameCell);
+      appendReferralMetricCells(tr, stats, shortDate(group.created_at));
+      const actionCell = document.createElement("td");
+      actionCell.className = "actions";
+      const deleteButton = document.createElement("button");
+      deleteButton.className = "danger sm";
+      deleteButton.type = "button";
+      deleteButton.textContent = "Удалить";
+      deleteButton.onclick = async (event) => {
+        event.stopPropagation();
+        if (!confirm("Удалить группу " + group.name + "? Токены останутся без группы.")) return;
+        try {
+          await api("/api/admin/referral-groups/" + group.id, { method: "DELETE" });
+          referralExpanded.delete(group.id);
+          await loadReferrals();
+        } catch (error) {
+          alert(error.message);
+        }
+      };
+      actionCell.append(deleteButton);
+      tr.append(actionCell);
+      body.append(tr);
+      for (const item of items) appendTokenRow(body, item, group.id);
+    }
+
+    function appendSectionRow(body, title, stats) {
+      const tr = document.createElement("tr");
+      tr.className = "referral-section-row";
+      const nameCell = document.createElement("td");
+      nameCell.colSpan = 1;
+      nameCell.textContent = title;
+      tr.append(nameCell);
+      appendReferralMetricCells(tr, stats, "");
+      const actionCell = document.createElement("td");
+      actionCell.className = "actions";
+      tr.append(actionCell);
+      body.append(tr);
+    }
+
+    function renderReferralTree() {
+      const body = $("referrals");
       body.innerHTML = "";
-      if (!referralGroups.length) {
+      const grouped = new Map(referralGroups.map((group) => [group.id, []]));
+      const ungrouped = [];
+      for (const item of referralItems) {
+        if (item.group_id && grouped.has(item.group_id)) grouped.get(item.group_id).push(item);
+        else ungrouped.push(item);
+      }
+      if (!referralGroups.length && !referralItems.length) {
         const tr = document.createElement("tr");
         tr.className = "empty";
         const td = document.createElement("td");
-        td.colSpan = 3;
-        td.textContent = "Нет групп";
+        td.colSpan = 8;
+        td.textContent = "Пока нет групп и токенов";
         tr.append(td);
         body.append(tr);
         return;
       }
       for (const group of referralGroups) {
-        const tr = document.createElement("tr");
-        const nameCell = document.createElement("td");
-        nameCell.textContent = group.name;
-        const countCell = document.createElement("td");
-        countCell.className = "num";
-        countCell.textContent = String(group.tokens || 0);
-        const actionCell = document.createElement("td");
-        actionCell.className = "actions";
-        const deleteButton = document.createElement("button");
-        deleteButton.className = "danger sm";
-        deleteButton.type = "button";
-        deleteButton.textContent = "Удалить";
-        deleteButton.onclick = async () => {
-          if (!confirm("Удалить группу " + group.name + "? Токены останутся без группы.")) return;
-          try {
-            await api("/api/admin/referral-groups/" + group.id, { method: "DELETE" });
-            if (referralFilterGroup === String(group.id)) referralFilterGroup = "";
-            await loadReferrals();
-          } catch (error) {
-            alert(error.message);
-          }
-        };
-        actionCell.append(deleteButton);
-        tr.append(nameCell, countCell, actionCell);
-        body.append(tr);
+        appendGroupRow(body, group, grouped.get(group.id) || []);
       }
-    }
-
-    function renderReferralItems() {
-      const body = $("referrals");
-      body.innerHTML = "";
-      const items = referralFilterGroup
-        ? referralItems.filter((item) => String(item.group_id || "") === referralFilterGroup)
-        : referralItems;
-      if (!items.length) {
-        const tr = document.createElement("tr");
-        tr.className = "empty";
-        const td = document.createElement("td");
-        td.colSpan = 9;
-        td.textContent = referralItems.length ? "В этой группе пока нет токенов" : "Пока нет токенов";
-        tr.append(td);
-        body.append(tr);
-        return;
-      }
-      for (const item of items) {
-        const tr = document.createElement("tr");
-        const tokenCell = document.createElement("td");
-        const code = document.createElement("code");
-        code.textContent = item.token;
-        tokenCell.append(code);
-        const groupCell = document.createElement("td");
-        const groupSelect = document.createElement("select");
-        fillGroupSelect(groupSelect, item.group_id, true);
-        groupSelect.onchange = async () => {
-          const next = groupSelect.value ? Number(groupSelect.value) : null;
-          const prev = item.group_id ?? null;
-          try {
-            await api("/api/admin/referrals/" + item.id + "/group", {
-              method: "PUT",
-              body: JSON.stringify({ group_id: next })
-            });
-            await loadReferrals();
-          } catch (error) {
-            alert(error.message);
-            groupSelect.value = prev ? String(prev) : "";
-          }
-        };
-        groupCell.append(groupSelect);
-        const createdCell = document.createElement("td");
-        createdCell.textContent = shortDate(item.created_at);
-        const visitsCell = document.createElement("td");
-        visitsCell.className = "num";
-        visitsCell.textContent = String(item.visits || 0);
-        const offersCell = document.createElement("td");
-        offersCell.className = "num";
-        offersCell.textContent = String(item.offers_accepted || 0);
-        const paymentsCell = document.createElement("td");
-        paymentsCell.className = "num";
-        paymentsCell.textContent = String(item.payments || 0);
-        const conversionCell = document.createElement("td");
-        conversionCell.className = "num";
-        conversionCell.textContent = conversion(item.payment_conversion, item.visits);
-        const topupsCell = document.createElement("td");
-        topupsCell.className = "num";
-        topupsCell.textContent = rub(item.topup_rub || 0) + " · " + usd(item.topup_usd || 0);
-        const actionCell = document.createElement("td");
-        actionCell.className = "actions";
-        const url = referralUrl(item.token);
-        const copyButton = document.createElement("button");
-        copyButton.className = "quiet sm";
-        copyButton.type = "button";
-        copyButton.textContent = "Копировать";
-        copyButton.disabled = !url;
-        copyButton.onclick = async () => {
-          try {
-            await copyText(url);
-            copyButton.textContent = "Скопировано";
-            setTimeout(() => { copyButton.textContent = "Копировать"; }, 1200);
-          } catch (error) {
-            alert("Не удалось скопировать");
-          }
-        };
-        const deleteButton = document.createElement("button");
-        deleteButton.className = "danger sm";
-        deleteButton.type = "button";
-        deleteButton.textContent = "Удалить";
-        deleteButton.onclick = async () => {
-          if (!confirm("Удалить токен " + item.token + "?")) return;
-          try {
-            await api("/api/admin/referrals/" + item.id, { method: "DELETE" });
-            await loadReferrals();
-          } catch (error) {
-            alert(error.message);
-          }
-        };
-        actionCell.append(copyButton, deleteButton);
-        tr.append(tokenCell, groupCell, createdCell, visitsCell, offersCell, paymentsCell, conversionCell, topupsCell, actionCell);
-        body.append(tr);
+      if (ungrouped.length) {
+        appendSectionRow(body, "Без группы", aggregateReferralStats(ungrouped));
+        for (const item of ungrouped) appendTokenRow(body, item, null);
       }
     }
 
     function syncReferralGroupControls() {
-      fillGroupSelect($("referral-filter-group"), referralFilterGroup, "all");
-      $("referral-filter-group").value = referralFilterGroup;
-      fillGroupSelect($("referral-group"), referralFilterGroup || "", true);
+      fillGroupSelect($("referral-group"), "");
     }
 
     function openReferralModal() {
       $("referral-error").textContent = "";
       $("referral-token").value = "";
-      fillGroupSelect($("referral-group"), referralFilterGroup || "", true);
+      fillGroupSelect($("referral-group"), "");
       $("referral-modal").classList.remove("hidden");
       $("referral-modal").setAttribute("aria-hidden", "false");
       $("referral-token").focus();
@@ -813,9 +864,16 @@
       referralBot = data.bot_username || "";
       referralGroups = data.groups || [];
       referralItems = data.items || [];
+      const groupIds = new Set(referralGroups.map((group) => group.id));
+      for (const id of referralExpanded) {
+        if (!groupIds.has(id)) referralExpanded.delete(id);
+      }
+      if (!referralExpandInitialized) {
+        for (const group of referralGroups) referralExpanded.add(group.id);
+        referralExpandInitialized = true;
+      }
       syncReferralGroupControls();
-      renderReferralGroups();
-      renderReferralItems();
+      renderReferralTree();
     }
 
     function authHeaders() {
@@ -1255,10 +1313,6 @@
     $("referral-open").onclick = openReferralModal;
     $("referral-cancel").onclick = closeReferralModal;
     $("referral-backdrop").onclick = closeReferralModal;
-    $("referral-filter-group").onchange = () => {
-      referralFilterGroup = $("referral-filter-group").value;
-      renderReferralItems();
-    };
     $("group-create").onclick = async () => {
       $("group-error").textContent = "";
       const name = $("group-name").value.trim();
@@ -1267,11 +1321,12 @@
         return;
       }
       try {
-        await api("/api/admin/referral-groups", {
+        const created = await api("/api/admin/referral-groups", {
           method: "POST",
           body: JSON.stringify({ name })
         });
         $("group-name").value = "";
+        if (created && created.id) referralExpanded.add(created.id);
         await loadReferrals();
       } catch (error) {
         $("group-error").textContent = groupErrorText(error.message);
