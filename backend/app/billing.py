@@ -5,6 +5,7 @@ import threading
 from datetime import datetime, timezone
 from decimal import Decimal
 
+from app.datetime_util import iso_utc
 from app.db import pool
 from app.money import usd_to_units, units_to_usd
 from app.upstream import UpstreamError, upstream
@@ -314,7 +315,13 @@ def _sync_key(user_id: int, upstream_id: int) -> None:
         limit_usd = amount
     from app.notifications import process_balance_alerts, process_new_usages
 
-    process_new_usages(user_id, telegram_id, key_id, new_usages, amount)
+    with pool.connection() as conn:
+        balance_row = conn.execute(
+            "SELECT balance_usd FROM users WHERE id = %s",
+            (user_id,),
+        ).fetchone()
+    user_balance = Decimal(balance_row["balance_usd"]) if balance_row else amount
+    process_new_usages(user_id, telegram_id, key_id, new_usages, user_balance)
     process_balance_alerts(
         user_id,
         telegram_id,
@@ -529,10 +536,11 @@ def _key_stats(user_id: int, key_id: int, upstream_id: int | None, quota_usd: De
         "limit_usd": float(limit),
         "prompt_tokens": stats["prompt_tokens"],
         "completion_tokens": stats["completion_tokens"],
-        "last_request_at": last.isoformat() if last is not None else "",
+        "last_request_at": iso_utc(last),
         "spent_today_usd": stats["spent_today_usd"],
         "spent_month_usd": stats["spent_month_usd"],
         "spent_week_usd": stats["spent_week_usd"],
+        "spent_today_date": stats["spent_today_date"],
     }
 
 
@@ -588,6 +596,65 @@ def _import_usage(
     return units_to_usd(inserted_units), new_usages
 
 
+def _usage_notice(
+    model_name: str,
+    prompt_tokens: int,
+    completion_tokens: int,
+    units: int,
+) -> dict:
+    return {
+        "model_name": model_name,
+        "prompt_tokens": prompt_tokens,
+        "completion_tokens": completion_tokens,
+        "amount_usd": float(units_to_usd(units)),
+    }
+
+
+def _patch_usage_row(
+    conn,
+    *,
+    row_id: int,
+    key_id: int,
+    units: int,
+    model_name: str,
+    prompt_tokens: int,
+    completion_tokens: int,
+    created_at: datetime,
+) -> int:
+    """Обновляет строку расхода. Возвращает итоговые quota_units."""
+    prev = conn.execute(
+        "SELECT quota_units FROM usage WHERE id = %s",
+        (row_id,),
+    ).fetchone()
+    prev_units = int(prev["quota_units"] or 0) if prev else 0
+    conn.execute(
+        """
+        UPDATE usage
+        SET api_key_id = %s,
+            quota_units = CASE WHEN %s > 0 THEN %s ELSE quota_units END,
+            model_name = CASE WHEN %s <> '' THEN %s ELSE model_name END,
+            prompt_tokens = CASE WHEN %s > 0 THEN %s ELSE prompt_tokens END,
+            completion_tokens = CASE WHEN %s > 0 THEN %s ELSE completion_tokens END,
+            created_at = %s
+        WHERE id = %s
+        """,
+        (
+            key_id,
+            units,
+            units,
+            model_name,
+            model_name,
+            prompt_tokens,
+            prompt_tokens,
+            completion_tokens,
+            completion_tokens,
+            created_at,
+            row_id,
+        ),
+    )
+    return units if units > 0 else prev_units
+
+
 def _save_usage_page(user_id: int, key_id: int, items: list[dict]) -> tuple[int, bool, list[dict]]:
     parsed: list[dict] = []
     for item in items:
@@ -596,17 +663,10 @@ def _save_usage_page(user_id: int, key_id: int, items: list[dict]) -> tuple[int,
             parsed.append(row)
     if not parsed:
         return 0, True, []
-    ids = [int(row["upstream_log_id"]) for row in parsed]
+
+    inserted_units = 0
+    new_usages: list[dict] = []
     with pool.connection() as conn:
-        known = {
-            int(row["upstream_log_id"])
-            for row in conn.execute(
-                "SELECT upstream_log_id FROM usage WHERE upstream_log_id = ANY(%s)",
-                (ids,),
-            ).fetchall()
-        }
-        inserted_units = 0
-        new_usages: list[dict] = []
         for row in parsed:
             log_id = int(row["upstream_log_id"])
             units = int(row["quota_units"])
@@ -614,46 +674,35 @@ def _save_usage_page(user_id: int, key_id: int, items: list[dict]) -> tuple[int,
             prompt_tokens = int(row["prompt_tokens"])
             completion_tokens = int(row["completion_tokens"])
             created_at = row["created_at"]
-            if log_id in known:
-                prev = conn.execute(
-                    """
-                    SELECT quota_units
-                    FROM usage
-                    WHERE user_id = %s AND upstream_log_id = %s
-                    """,
-                    (user_id, log_id),
-                ).fetchone()
-                prev_units = int(prev["quota_units"] or 0) if prev else 0
-                conn.execute(
-                    """
-                    UPDATE usage
-                    SET api_key_id = %s,
-                        quota_units = CASE WHEN %s > 0 THEN %s ELSE quota_units END,
-                        model_name = CASE WHEN %s <> '' THEN %s ELSE model_name END,
-                        prompt_tokens = CASE WHEN %s > 0 THEN %s ELSE prompt_tokens END,
-                        completion_tokens = CASE WHEN %s > 0 THEN %s ELSE completion_tokens END,
-                        created_at = %s
-                    WHERE user_id = %s AND upstream_log_id = %s
-                    """,
-                    (
-                        key_id,
-                        units,
-                        units,
-                        model_name,
-                        model_name,
-                        prompt_tokens,
-                        prompt_tokens,
-                        completion_tokens,
-                        completion_tokens,
-                        created_at,
-                        user_id,
-                        log_id,
-                    ),
+
+            prev = conn.execute(
+                """
+                SELECT id, quota_units
+                FROM usage
+                WHERE user_id = %s AND upstream_log_id = %s
+                """,
+                (user_id, log_id),
+            ).fetchone()
+
+            if prev is not None:
+                prev_units = int(prev["quota_units"] or 0)
+                effective = _patch_usage_row(
+                    conn,
+                    row_id=int(prev["id"]),
+                    key_id=key_id,
+                    units=units,
+                    model_name=model_name,
+                    prompt_tokens=prompt_tokens,
+                    completion_tokens=completion_tokens,
+                    created_at=created_at,
                 )
-                new_units = units if units > 0 else prev_units
-                if prev_units == 0 and new_units > 0:
-                    inserted_units += new_units
+                if prev_units == 0 and effective > 0:
+                    inserted_units += effective
+                    new_usages.append(
+                        _usage_notice(model_name, prompt_tokens, completion_tokens, effective)
+                    )
                 continue
+
             if not _insert_usage(
                 user_id,
                 key_id,
@@ -665,17 +714,58 @@ def _save_usage_page(user_id: int, key_id: int, items: list[dict]) -> tuple[int,
                 created_at,
                 conn,
             ):
+                owner = conn.execute(
+                    "SELECT user_id FROM usage WHERE upstream_log_id = %s",
+                    (log_id,),
+                ).fetchone()
+                if owner is not None and int(owner["user_id"]) != user_id:
+                    log.warning(
+                        "расход upstream_log_id=%s уже у user=%s, пропуск user=%s",
+                        log_id,
+                        owner["user_id"],
+                        user_id,
+                    )
+                    continue
+                prev = conn.execute(
+                    """
+                    SELECT id, quota_units
+                    FROM usage
+                    WHERE user_id = %s AND upstream_log_id = %s
+                    """,
+                    (user_id, log_id),
+                ).fetchone()
+                if prev is None:
+                    log.warning(
+                        "расход upstream_log_id=%s не записан для user=%s",
+                        log_id,
+                        user_id,
+                    )
+                    continue
+                prev_units = int(prev["quota_units"] or 0)
+                effective = _patch_usage_row(
+                    conn,
+                    row_id=int(prev["id"]),
+                    key_id=key_id,
+                    units=units,
+                    model_name=model_name,
+                    prompt_tokens=prompt_tokens,
+                    completion_tokens=completion_tokens,
+                    created_at=created_at,
+                )
+                if prev_units == 0 and effective > 0:
+                    inserted_units += effective
+                    new_usages.append(
+                        _usage_notice(model_name, prompt_tokens, completion_tokens, effective)
+                    )
                 continue
-            inserted_units += units
-            new_usages.append(
-                {
-                    "model_name": model_name,
-                    "prompt_tokens": prompt_tokens,
-                    "completion_tokens": completion_tokens,
-                    "amount_usd": float(units_to_usd(units)),
-                }
-            )
-    page_done = len(parsed) > 0 and inserted_units == 0
+
+            if units > 0:
+                inserted_units += units
+                new_usages.append(
+                    _usage_notice(model_name, prompt_tokens, completion_tokens, units)
+                )
+
+    page_done = len(parsed) > 0 and inserted_units == 0 and not new_usages
     return inserted_units, page_done, new_usages
 
 

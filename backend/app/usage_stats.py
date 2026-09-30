@@ -14,12 +14,18 @@ def week_start_msk() -> date:
     return datetime.now(MSK).date() - timedelta(days=6)
 
 
+def today_msk() -> date:
+    return datetime.now(MSK).date()
+
+
 def week_chart(by_day: dict[date, float]) -> list[dict]:
     start = week_start_msk()
+    today = today_msk()
     return [
         {
             "date": day.isoformat(),
-            "label": WEEKDAY_LABELS[day.weekday()],
+            "label": f"{day.strftime('%d.%m')} {WEEKDAY_LABELS[day.weekday()]}",
+            "is_today": day == today,
             "usd": by_day.get(day, 0.0),
         }
         for day in (start + timedelta(days=offset) for offset in range(7))
@@ -54,10 +60,12 @@ def usage_period_stats(conn, user_id: int) -> dict:
         (user_id, start),
     ).fetchall()
     by_day = {r["day"]: float(units_to_usd(int(r["units"] or 0))) for r in week_rows}
+    today = today_msk()
     return {
         "spent_today_usd": float(units_to_usd(int(row["today_units"] or 0))),
         "spent_month_usd": float(units_to_usd(int(row["month_units"] or 0))),
         "spent_week_usd": week_chart(by_day),
+        "spent_today_date": today.isoformat(),
         "prompt_tokens": int(row["prompt_tokens"] or 0),
         "completion_tokens": int(row["completion_tokens"] or 0),
         "spent_units": int(row["spent_units"] or 0),

@@ -1,8 +1,11 @@
 """Разбор строк журнала router.cheap / New API."""
 
 from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
 
 from app.upstream import _log_field, _log_quota_units
+
+MSK = ZoneInfo("Europe/Moscow")
 
 
 def upstream_log_id(item: dict) -> int | None:
@@ -38,7 +41,10 @@ def log_created_at(item: dict) -> datetime | None:
                 moment = datetime.fromisoformat(text.replace("Z", "+00:00"))
             except ValueError:
                 return None
-            return moment if moment.tzinfo is not None else moment.replace(tzinfo=timezone.utc)
+            if moment.tzinfo is None:
+                # router.cheap иногда отдаёт локальное время без offset — считаем MSK
+                moment = moment.replace(tzinfo=MSK)
+            return moment.astimezone(timezone.utc)
     try:
         stamp = int(float(raw))
     except (TypeError, ValueError):

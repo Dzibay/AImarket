@@ -110,19 +110,23 @@ def process_new_usages(
             ).fetchone()
         if key is not None:
             key_label = _mask_key_label(str(key.get("secret") or ""), str(key.get("prefix") or ""))
+    running_balance = balance_usd.quantize(Decimal("0.0001"))
     for item in usages:
+        amount_usd = Decimal(str(item.get("amount_usd") or 0)).quantize(Decimal("0.0001"))
         try:
             notify_spend(
                 telegram_id,
                 model=str(item.get("model_name") or "—"),
                 prompt_tokens=int(item.get("prompt_tokens") or 0),
                 completion_tokens=int(item.get("completion_tokens") or 0),
-                amount_usd=Decimal(str(item.get("amount_usd") or 0)),
-                balance_usd=balance_usd,
+                amount_usd=amount_usd,
+                balance_usd=running_balance,
                 key_label=key_label,
             )
         except Exception:
             log.exception("уведомление о трате user=%s", user_id)
+        else:
+            running_balance = max(Decimal(0), running_balance - amount_usd).quantize(Decimal("0.0001"))
 
 
 def process_balance_alerts(

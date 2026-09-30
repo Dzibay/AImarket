@@ -1,6 +1,6 @@
 import html
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from decimal import Decimal, ROUND_DOWN, ROUND_HALF_UP
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -75,38 +75,47 @@ def _spent(value: float) -> str:
 
 
 def _when(value: str) -> str:
-    if not value:
+    moment = _parse_api_dt(value)
+    if moment is None:
         return "только что"
-    moment = datetime.fromisoformat(value.replace("Z", "+00:00")).astimezone(_MSK)
     return f"{moment.day} {_MONTHS[moment.month - 1]} {moment.year}, {moment:%H:%M}"
 
 
 def _date_short(value: str) -> str:
-    if not value:
+    moment = _parse_api_dt(value)
+    if moment is None:
         return "—"
-    moment = datetime.fromisoformat(value.replace("Z", "+00:00")).astimezone(_MSK)
     return moment.strftime("%d.%m.%Y")
 
 
-def _ago(value: str) -> str:
+def _parse_api_dt(value: str) -> datetime | None:
     if not value:
+        return None
+    moment = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    if moment.tzinfo is None:
+        moment = moment.replace(tzinfo=timezone.utc)
+    return moment.astimezone(_MSK)
+
+
+def _ago(value: str) -> str:
+    moment = _parse_api_dt(value)
+    if moment is None:
         return "ещё не было"
-    moment = datetime.fromisoformat(value.replace("Z", "+00:00")).astimezone(_MSK)
+    when = moment.strftime("%d.%m.%Y %H:%M")
     secs = int((datetime.now(_MSK) - moment).total_seconds())
     if secs < 0:
-        return "только что"
+        return f"{when} (только что)"
     if secs < 60:
-        return "только что" if secs < 10 else f"{secs} сек назад"
-    mins = secs // 60
-    if mins < 60:
-        return f"{mins} мин назад"
-    hours = mins // 60
-    if hours < 24:
-        return f"{hours} ч назад"
-    days = hours // 24
-    if days < 30:
-        return f"{days} дн назад"
-    return _date_short(value)
+        rel = "только что" if secs < 10 else f"{secs} сек назад"
+    elif secs < 3600:
+        rel = f"{secs // 60} мин назад"
+    elif secs < 86400:
+        rel = f"{secs // 3600} ч назад"
+    elif secs < 86400 * 30:
+        rel = f"{secs // 86400} дн назад"
+    else:
+        return when
+    return f"{when} ({rel})"
 
 
 def _mask_key(secret: str) -> str:
@@ -262,7 +271,9 @@ def _week_chart(days: list[dict]) -> str:
     lines: list[str] = []
     for item in days:
         usd = float(item.get("usd") or 0)
-        label = str(item.get("label") or "??")[:2]
+        label = str(item.get("label") or "??")[:12]
+        if item.get("is_today"):
+            label = f"{label} ←"
         bar_len = round(usd / peak * width) if usd > 0 else 0
         bar = "█" * bar_len if bar_len else "▏"
         amount = _spent(usd) if usd > 0 else "$0"
@@ -317,14 +328,30 @@ def _unknown_command_screen(profile: dict) -> tuple[str, InlineKeyboardMarkup]:
     return text, InlineKeyboardMarkup(inline_keyboard=_welcome_buttons(profile))
 
 
+def _today_label(raw: str) -> str:
+    moment = _parse_api_dt(raw) if "T" in raw else None
+    if moment is not None:
+        return moment.strftime("%d.%m.%Y")
+    if raw and len(raw) >= 10:
+        try:
+            day = datetime.fromisoformat(raw[:10]).date()
+            return day.strftime("%d.%m.%Y")
+        except ValueError:
+            pass
+    return datetime.now(_MSK).strftime("%d.%m.%Y")
+
+
 def _cabinet_screen(profile: dict) -> tuple[str, InlineKeyboardMarkup]:
     balance = float(profile.get("balance_usd") or 0)
     week = profile.get("spent_week_usd") or []
+    today = _today_label(str(profile.get("spent_today_date") or ""))
+    last = _ago(str(profile.get("last_request_at") or ""))
     text = (
         "<b>Личный кабинет</b>\n\n"
         f"Баланс: <b>{_usd(balance)}</b>\n"
-        f"Расход сегодня: {_spent(float(profile.get('spent_today_usd') or 0))}\n"
-        f"Расход за месяц: {_spent(float(profile.get('spent_month_usd') or 0))}\n\n"
+        f"Расход за {today}: {_spent(float(profile.get('spent_today_usd') or 0))}\n"
+        f"Расход за месяц: {_spent(float(profile.get('spent_month_usd') or 0))}\n"
+        f"Последняя трата: {last}\n\n"
         f"{_week_chart(week if isinstance(week, list) else [])}"
     )
     return text, InlineKeyboardMarkup(inline_keyboard=_welcome_buttons(profile))
@@ -678,9 +705,9 @@ def _support_screen(profile: dict) -> tuple[str, InlineKeyboardMarkup]:
 
 
 def _history_short_when(value: str) -> str:
-    if not value:
+    moment = _parse_api_dt(value)
+    if moment is None:
         return "— — —"
-    moment = datetime.fromisoformat(value.replace("Z", "+00:00")).astimezone(_MSK)
     return moment.strftime("%d.%m %H:%M")
 
 
@@ -919,13 +946,15 @@ def _token_screen(key: dict) -> tuple[str, InlineKeyboardMarkup]:
 
 def _key_stats_screen(key: dict) -> tuple[str, InlineKeyboardMarkup]:
     week = key.get("spent_week_usd") or []
+    today = _today_label(str(key.get("spent_today_date") or ""))
     text = (
         "<b>📊 Статистика ключа</b>\n\n"
         f"💸 Потрачено: <b>{_usd(float(key.get('spent_usd') or 0))}</b> / "
         f"<b>{_usd(float(key.get('limit_usd') or 0))}</b>\n"
         f"💰 Остаток: <b>{_usd(float(key.get('quota_usd') or 0))}</b>\n"
-        f"Сегодня: {_spent(float(key.get('spent_today_usd') or 0))}\n"
-        f"За месяц: {_spent(float(key.get('spent_month_usd') or 0))}\n\n"
+        f"За {today}: {_spent(float(key.get('spent_today_usd') or 0))}\n"
+        f"За месяц: {_spent(float(key.get('spent_month_usd') or 0))}\n"
+        f"Последний запрос: {_ago(str(key.get('last_request_at') or ''))}\n\n"
         f"{_week_chart(week if isinstance(week, list) else [])}"
     )
     rows = [[_button("⬅️ Назад", callback="keys")]]

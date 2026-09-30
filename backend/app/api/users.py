@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
 from app.billing import BillingError, describe_key, issue_key, reissue_key, sync_user, upstream_base
+from app.datetime_util import iso_utc
 from app.usage_stats import usage_period_stats
 from app.notifications import get_preferences, preferences_row, toggle_preference
 from app.payments import settle_payment
@@ -73,11 +74,13 @@ def _public(conn, row: dict) -> dict:
         "spent_today_usd": stats["spent_today_usd"],
         "spent_month_usd": stats["spent_month_usd"],
         "spent_week_usd": stats["spent_week_usd"],
+        "spent_today_date": stats["spent_today_date"],
+        "last_request_at": iso_utc(stats["last_request_at"]),
         "offer_accepted": row["offer_accepted_at"] is not None,
         "blocked": row["blocked_at"] is not None,
         "blocked_reason": row["blocked_reason"] or "",
         "key_prefix": row["key_prefix"] or "",
-        "key_created_at": created.isoformat() if created is not None else "",
+        "key_created_at": iso_utc(created),
         "has_key": bool(row["key_prefix"]),
         "offer_url": offer_url(),
         "privacy_url": privacy_url(),
@@ -323,7 +326,7 @@ def key_history(
                 "prompt_tokens": int(item["prompt_tokens"] or 0),
                 "completion_tokens": int(item["completion_tokens"] or 0),
                 "amount_usd": float(units_to_usd(int(item["quota_units"] or 0))),
-                "created_at": item["created_at"].isoformat() if item["created_at"] is not None else "",
+                "created_at": iso_utc(item["created_at"]),
             }
             for item in items[:limit]
         ],
@@ -370,7 +373,7 @@ def _history_item(row: dict) -> dict:
             "note": row["note"] or "",
             "amount_usd": float(row["amount_usd"]),
             "amount_rub": float(int(row["amount_kopecks"] or 0)) / 100,
-            "created_at": row["created_at"].isoformat() if row["created_at"] is not None else "",
+            "created_at": iso_utc(row["created_at"]),
         }
     if entry_type == "ledger_spend":
         note = str(row["note"] or "").strip()
@@ -382,7 +385,7 @@ def _history_item(row: dict) -> dict:
             "prompt_tokens": 0,
             "completion_tokens": 0,
             "amount_usd": float(row["amount_usd"]),
-            "created_at": row["created_at"].isoformat() if row["created_at"] is not None else "",
+            "created_at": iso_utc(row["created_at"]),
         }
     return {
         "entry_type": "spend",
@@ -392,7 +395,7 @@ def _history_item(row: dict) -> dict:
         "prompt_tokens": int(row["prompt_tokens"] or 0),
         "completion_tokens": int(row["completion_tokens"] or 0),
         "amount_usd": float(units_to_usd(int(row["quota_units"] or 0))),
-        "created_at": row["created_at"].isoformat() if row["created_at"] is not None else "",
+        "created_at": iso_utc(row["created_at"]),
     }
 
 
