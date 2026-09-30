@@ -23,6 +23,7 @@ _TEXT_KEYS = (
     "usd_price_rub",
     "offer_email",
     "offer_date",
+    "support_username",
 )
 
 
@@ -72,6 +73,7 @@ def _settings_payload() -> dict:
         "usd_price_rub": str(usd_price_rub()) if usd_price_rub() > 0 else get_setting("usd_price_rub"),
         "offer_email": get_setting("offer_email") or get_setting("seller_email"),
         "offer_date": get_setting("offer_date"),
+        "support_username": get_setting("support_username"),
         "router_root_key_set": bool(root),
         "router_root_key_hint": root[-4:] if len(root) >= 8 else "",
         "supplier_balance_usd": supplier,
@@ -111,6 +113,7 @@ def write_settings(body: SettingsIn) -> dict:
         "usd_price_rub": price,
         "offer_email": body.offer_email.strip(),
         "offer_date": offer_date,
+        "support_username": body.support_username.strip().lstrip("@"),
     }
     for key in _TEXT_KEYS:
         set_setting(key, values[key])

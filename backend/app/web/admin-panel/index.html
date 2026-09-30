@@ -143,6 +143,8 @@
         <input id="offer-date" type="date">
         <label for="offer-email">Почта</label>
         <input id="offer-email" type="email" placeholder="support@example.com">
+        <label for="support-username">Telegram поддержки</label>
+        <input id="support-username" placeholder="support_username">
         <div class="row"><button id="save" type="button">Сохранить</button><span id="save-status"></span></div>
       </section>
 
@@ -344,6 +346,7 @@
       $("price").value = settings.usd_price_rub || "";
       $("offer-date").value = settings.offer_date || "";
       $("offer-email").value = settings.offer_email || "";
+      $("support-username").value = settings.support_username || "";
       $("root").value = "";
       $("root-hint").textContent = settings.router_root_key_set
         ? "Ключ задан, окончание " + settings.router_root_key_hint
@@ -579,6 +582,7 @@
             usd_price_rub: $("price").value,
             offer_date: $("offer-date").value,
             offer_email: $("offer-email").value,
+            support_username: $("support-username").value,
             router_root_key: $("root").value
           })
         });

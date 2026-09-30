@@ -12,6 +12,7 @@ from app.api.products import router as products_router
 from app.api.users import router as users_router
 from app.api.yookassa import router as yookassa_router
 from app.billing import sync_all
+from app.reminders import send_offer_reminders
 from app.config import settings
 from app.db import ensure_schema, pool
 from app.legal import render_consent, render_privacy
@@ -57,6 +58,16 @@ def _sync_loop() -> None:
         _stop.wait(max(15, settings.sync_interval_sec))
 
 
+def _reminder_loop() -> None:
+    _stop.wait(30)
+    while not _stop.is_set():
+        try:
+            send_offer_reminders()
+        except Exception:
+            log.exception("напоминания об оферте")
+        _stop.wait(120)
+
+
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
     if not settings.bot_internal_token:
@@ -67,8 +78,8 @@ async def lifespan(_app: FastAPI):
         log.warning("YOOKASSA_SHOP_ID или YOOKASSA_SECRET_KEY не заданы — оплата закрыта")
     ensure_schema()
     bootstrap_settings()
-    worker = threading.Thread(target=_sync_loop, name="balance-sync", daemon=True)
-    worker.start()
+    threading.Thread(target=_sync_loop, name="balance-sync", daemon=True).start()
+    threading.Thread(target=_reminder_loop, name="offer-reminders", daemon=True).start()
     yield
     _stop.set()
     pool.close()

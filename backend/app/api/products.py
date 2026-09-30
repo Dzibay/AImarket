@@ -30,7 +30,13 @@ def list_products() -> dict:
     rub_per_usd = float(usd_price_rub())
     return {
         "items": [
-            {"model_name": item["model_name"], "price_label": _price_label(item, rub_per_usd)}
+            {
+                "model_name": item["model_name"],
+                "price_label": _price_label(item, rub_per_usd),
+                "input_usd_per_million": item.get("input_usd_per_million"),
+                "output_usd_per_million": item.get("output_usd_per_million"),
+                "request_usd": item.get("request_usd"),
+            }
             for item in models
         ]
     }

@@ -74,6 +74,16 @@ async def read_key(telegram_id: int) -> dict:
     return await _request("GET", f"/api/users/{telegram_id}/key")
 
 
+async def get_key_history(
+    telegram_id: int,
+    *,
+    offset: int = 0,
+    limit: int = 5,
+) -> dict:
+    params = f"?offset={offset}&limit={limit}"
+    return await _request("GET", f"/api/users/{telegram_id}/key/history{params}")
+
+
 async def reissue_key(telegram_id: int) -> dict:
     return await _request("POST", f"/api/users/{telegram_id}/keys/reissue")
 
@@ -81,3 +91,22 @@ async def reissue_key(telegram_id: int) -> dict:
 async def list_products() -> list[dict]:
     data = await _request("GET", "/api/products")
     return list(data.get("items") or [])
+
+
+async def toggle_notification(telegram_id: int, key: str) -> dict:
+    return await _request(
+        "POST",
+        f"/api/users/{telegram_id}/notifications/toggle",
+        {"key": key},
+    )
+
+
+async def get_history(
+    telegram_id: int,
+    *,
+    filter: str = "all",
+    offset: int = 0,
+    limit: int = 5,
+) -> dict:
+    params = f"?filter={filter}&offset={offset}&limit={limit}"
+    return await _request("GET", f"/api/users/{telegram_id}/history{params}")

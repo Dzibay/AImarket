@@ -73,5 +73,22 @@ def settle_payment(payment_id: str) -> str:
         ).fetchone()
     if credited is None:
         return "already"
-    notify_payment(int(row["telegram_id"]), Decimal(row["amount_usd"]), balance)
+    with pool.connection() as conn:
+        has_key = (
+            conn.execute(
+                """
+                SELECT 1 FROM api_keys
+                WHERE user_id = %s AND revoked_at IS NULL
+                LIMIT 1
+                """,
+                (int(row["user_id"]),),
+            ).fetchone()
+            is not None
+        )
+    notify_payment(
+        int(row["telegram_id"]),
+        Decimal(row["amount_usd"]),
+        balance,
+        has_key=has_key,
+    )
     return "credited"

@@ -31,6 +31,9 @@ def sync_all() -> None:
             ).fetchall()
         for row in rows:
             _sync_key(int(row["user_id"]), int(row["upstream_id"]))
+    from app.notifications import check_low_balance_users
+
+    check_low_balance_users()
 
 
 def sync_user(user_id: int) -> None:
@@ -111,6 +114,12 @@ def add_usd(user_id: int, amount: Decimal, kind: str, note: str, amount_kopecks:
             except UpstreamError as exc:
                 _reraise(exc)
             _set_key_quota(int(key["id"]), updated)
+            from app.notifications import clear_limit_alert
+
+            clear_limit_alert(int(key["id"]))
+        from app.notifications import clear_low_balance_alert
+
+        clear_low_balance_alert(user_id)
         _set_balance(user_id, updated, kind, note, amount_kopecks, amount)
         return updated
 
@@ -132,11 +141,14 @@ def issue_key(user_id: int, telegram_id: int) -> dict:
         except UpstreamError as exc:
             _reraise(exc)
         created_at = _store_key(user_id, name, secret, upstream_id, amount)
+        key = _active_key(user_id)
+        stats = _key_stats(int(key["id"]), upstream_id, amount) if key else {}
         return {
             "secret": secret,
             "base_url": _base_url(),
             "balance_usd": float(amount),
             "created_at": created_at.isoformat(),
+            **stats,
         }
 
 
@@ -172,11 +184,14 @@ def reissue_key(user_id: int, telegram_id: int) -> dict:
             log.warning("перевыпуск не создал новый ключ, лимит сохранён у пользователя %s", user_id)
             raise BillingError("reissue-failed") from exc
         created_at = _store_key(user_id, name, secret, new_id, amount)
+        key = _active_key(user_id)
+        stats = _key_stats(int(key["id"]), new_id, amount) if key else {}
         return {
             "secret": secret,
             "base_url": _base_url(),
             "balance_usd": float(amount),
             "created_at": created_at.isoformat(),
+            **stats,
         }
 
 
@@ -195,12 +210,21 @@ def describe_key(user_id: int) -> dict:
             with pool.connection() as conn:
                 conn.execute("UPDATE api_keys SET secret = %s WHERE id = %s", (secret, key["id"]))
         created_at = key["created_at"]
+        upstream_id = int(key["upstream_id"]) if key["upstream_id"] else None
+        with pool.connection() as conn:
+            quota_row = conn.execute(
+                "SELECT quota_usd FROM api_keys WHERE id = %s",
+                (key["id"],),
+            ).fetchone()
+        quota = Decimal(quota_row["quota_usd"] or 0) if quota_row else Decimal(0)
+        stats = _key_stats(int(key["id"]), upstream_id, quota)
         return {
             "secret": secret,
             "prefix": key["prefix"],
             "base_url": _base_url(),
             "balance_usd": float(_balance(user_id)),
             "created_at": created_at.isoformat() if created_at is not None else "",
+            **stats,
         }
 
 
@@ -230,7 +254,7 @@ def _sync_key(user_id: int, upstream_id: int) -> None:
         ).fetchone()
     key_id = int(row["id"]) if row else None
     token_name = str((row or {}).get("name") or token.get("name") or "")
-    spent = _import_usage(user_id, key_id, upstream_id, token_name)
+    spent, new_usages = _import_usage(user_id, key_id, upstream_id, token_name)
     # Падение лимита без записи в журнале router.cheap — это правка квоты, не запрос.
     with pool.connection() as conn:
         conn.execute(
@@ -248,6 +272,42 @@ def _sync_key(user_id: int, upstream_id: int) -> None:
             """,
             (amount, upstream_id),
         )
+    with pool.connection() as conn:
+        user_row = conn.execute(
+            "SELECT telegram_id FROM users WHERE id = %s",
+            (user_id,),
+        ).fetchone()
+    telegram_id = int(user_row["telegram_id"]) if user_row else 0
+    key_label = token_name
+    if key_id is not None:
+        with pool.connection() as conn:
+            key_row = conn.execute(
+                "SELECT prefix, secret, quota_usd FROM api_keys WHERE id = %s",
+                (key_id,),
+            ).fetchone()
+        if key_row is not None:
+            secret = str(key_row.get("secret") or "")
+            prefix = str(key_row.get("prefix") or "")
+            if len(secret) > 12:
+                key_label = f"{secret[:8]}...{secret[-4:]}"
+            elif prefix:
+                key_label = prefix
+            limit_usd = units_to_usd(int(token.get("used_quota") or 0)) + amount
+        else:
+            limit_usd = amount
+    else:
+        limit_usd = amount
+    from app.notifications import process_balance_alerts, process_new_usages
+
+    process_new_usages(user_id, telegram_id, key_id, new_usages, amount)
+    process_balance_alerts(
+        user_id,
+        telegram_id,
+        key_id,
+        amount,
+        limit_usd,
+        key_label=key_label,
+    )
     if _is_blocked(user_id):
         try:
             status = int(token.get("status") or 1)
@@ -419,6 +479,44 @@ def _store_key(user_id: int, name: str, secret: str, upstream_id: int, amount: D
         raise
 
 
+def _key_stats(key_id: int, upstream_id: int | None, quota_usd: Decimal) -> dict:
+    remain = quota_usd
+    used = Decimal(0)
+    if upstream_id:
+        try:
+            token = upstream.get_token(upstream_id)
+            if token:
+                remain = units_to_usd(int(token.get("remain_quota") or 0))
+                used = units_to_usd(int(token.get("used_quota") or 0))
+        except UpstreamError:
+            pass
+    with pool.connection() as conn:
+        row = conn.execute(
+            """
+            SELECT COALESCE(SUM(prompt_tokens), 0) AS prompt_tokens,
+                   COALESCE(SUM(completion_tokens), 0) AS completion_tokens,
+                   COALESCE(SUM(quota_units), 0) AS spent_units,
+                   MAX(created_at) AS last_request_at
+            FROM usage
+            WHERE api_key_id = %s
+            """,
+            (key_id,),
+        ).fetchone()
+    spent_logs = units_to_usd(int(row["spent_units"] or 0))
+    if used <= 0 and spent_logs > 0:
+        used = spent_logs
+    limit = (remain + used).quantize(Decimal("0.01"))
+    last = row["last_request_at"]
+    return {
+        "quota_usd": float(remain),
+        "spent_usd": float(used),
+        "limit_usd": float(limit),
+        "prompt_tokens": int(row["prompt_tokens"] or 0),
+        "completion_tokens": int(row["completion_tokens"] or 0),
+        "last_request_at": last.isoformat() if last is not None else "",
+    }
+
+
 def _base_url() -> str:
     return upstream_base()
 
@@ -429,10 +527,16 @@ def upstream_base() -> str:
     return settings.router_base_url.rstrip("/") + "/v1"
 
 
-def _import_usage(user_id: int, key_id: int | None, upstream_id: int, token_name: str) -> Decimal:
+def _import_usage(
+    user_id: int,
+    key_id: int | None,
+    upstream_id: int,
+    token_name: str,
+) -> tuple[Decimal, list[dict]]:
     if not token_name or key_id is None:
-        return Decimal(0)
+        return Decimal(0), []
     inserted_units = 0
+    new_usages: list[dict] = []
     try:
         for page in range(10):
             items = upstream.spend_logs(token_name, page)
@@ -441,13 +545,14 @@ def _import_usage(user_id: int, key_id: int | None, upstream_id: int, token_name
             matched = [item for item in items if _log_matches(item, token_name, upstream_id)]
             if not matched:
                 break
-            page_units, seen_old = _save_usage_page(user_id, key_id, matched)
+            page_units, seen_old, page_usages = _save_usage_page(user_id, key_id, matched)
             inserted_units += page_units
+            new_usages.extend(page_usages)
             if seen_old or len(items) < 100:
                 break
     except UpstreamError as exc:
         log.warning("журнал расходов router.cheap не прочитан: %s", exc.message)
-    return units_to_usd(inserted_units)
+    return units_to_usd(inserted_units), new_usages
 
 
 def _log_matches(item: dict, token_name: str, upstream_id: int) -> bool:
@@ -461,10 +566,10 @@ def _log_matches(item: dict, token_name: str, upstream_id: int) -> bool:
     return str(item.get("token_name") or "") == token_name
 
 
-def _save_usage_page(user_id: int, key_id: int, items: list[dict]) -> tuple[int, bool]:
+def _save_usage_page(user_id: int, key_id: int, items: list[dict]) -> tuple[int, bool, list[dict]]:
     ids = [int(item["id"]) for item in items if str(item.get("id") or "").isdigit() or isinstance(item.get("id"), int)]
     if not ids:
-        return 0, False
+        return 0, False, []
     with pool.connection() as conn:
         known = {
             int(row["upstream_log_id"])
@@ -474,6 +579,7 @@ def _save_usage_page(user_id: int, key_id: int, items: list[dict]) -> tuple[int,
             ).fetchall()
         }
         inserted_units = 0
+        new_usages: list[dict] = []
         for item in items:
             log_id = item.get("id")
             if not isinstance(log_id, int) and not str(log_id or "").isdigit():
@@ -484,19 +590,31 @@ def _save_usage_page(user_id: int, key_id: int, items: list[dict]) -> tuple[int,
             units = int(item.get("quota") or 0)
             if units < 0:
                 units = 0
-            _insert_usage(
+            model_name = str(item.get("model_name") or "")
+            prompt_tokens = int(item.get("prompt_tokens") or 0)
+            completion_tokens = int(item.get("completion_tokens") or 0)
+            if not _insert_usage(
                 user_id,
                 key_id,
                 log_id,
-                str(item.get("model_name") or ""),
-                int(item.get("prompt_tokens") or 0),
-                int(item.get("completion_tokens") or 0),
+                model_name,
+                prompt_tokens,
+                completion_tokens,
                 units,
                 _log_time(item.get("created_at")),
                 conn,
-            )
+            ):
+                continue
             inserted_units += units
-    return inserted_units, bool(known)
+            new_usages.append(
+                {
+                    "model_name": model_name,
+                    "prompt_tokens": prompt_tokens,
+                    "completion_tokens": completion_tokens,
+                    "amount_usd": float(units_to_usd(units)),
+                }
+            )
+    return inserted_units, bool(known), new_usages
 
 
 def _warn_if_usage_differs(key_id: int | None, token: dict) -> None:
@@ -544,7 +662,7 @@ def _insert_usage(
     quota_units: int,
     created_at: datetime,
     conn=None,
-) -> None:
+) -> bool:
     sql = """
         INSERT INTO usage (
             user_id, api_key_id, upstream_log_id, model_name,
@@ -553,7 +671,9 @@ def _insert_usage(
         VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
     """
     if upstream_log_id is not None:
-        sql += " ON CONFLICT (upstream_log_id) WHERE upstream_log_id IS NOT NULL DO NOTHING"
+        sql += " ON CONFLICT (upstream_log_id) WHERE upstream_log_id IS NOT NULL DO NOTHING RETURNING id"
+    else:
+        sql += " RETURNING id"
     params = (
         user_id,
         key_id,
@@ -566,9 +686,10 @@ def _insert_usage(
     )
     if conn is None:
         with pool.connection() as own:
-            own.execute(sql, params)
+            row = own.execute(sql, params).fetchone()
     else:
-        conn.execute(sql, params)
+        row = conn.execute(sql, params).fetchone()
+    return row is not None
 
 
 def _reraise(exc: UpstreamError) -> None:

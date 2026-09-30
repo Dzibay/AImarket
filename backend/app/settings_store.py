@@ -46,6 +46,10 @@ def consent_url() -> str:
     return f"{base}/consent" if base else ""
 
 
+def support_username() -> str:
+    return get_setting("support_username").strip().lstrip("@")
+
+
 def bootstrap_settings() -> None:
     if not get_setting("router_root_key") and settings.router_root_key:
         set_setting("router_root_key", settings.router_root_key)
