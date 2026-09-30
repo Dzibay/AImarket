@@ -549,26 +549,74 @@ def _import_usage(
         return Decimal(0), []
     inserted_units = 0
     new_usages: list[dict] = []
+    page = 1
     try:
-        items = upstream.spend_logs(
-            token_secret,
-            token_name=token_name,
-            upstream_id=upstream_id,
-            page=0,
-        )
-        if items:
-            page_units, _, page_usages = _save_usage_page(user_id, key_id, items)
-            inserted_units += page_units
-            new_usages.extend(page_usages)
+        while page <= 20:
+            items, complete = upstream.spend_logs(
+                token_secret,
+                token_name=token_name,
+                upstream_id=upstream_id,
+                page=page,
+            )
+            if items:
+                page_units, page_done, page_usages = _save_usage_page(user_id, key_id, items)
+                inserted_units += page_units
+                new_usages.extend(page_usages)
+                if page_done:
+                    break
+            if complete:
+                break
+            page += 1
+        if inserted_units:
+            log.info(
+                "импортировано %s записей расходов для ключа %s (user=%s)",
+                len(new_usages),
+                token_name or key_id,
+                user_id,
+            )
     except UpstreamError as exc:
         log.warning("журнал расходов router.cheap не прочитан: %s", exc.message)
     return units_to_usd(inserted_units), new_usages
 
 
+def _upstream_log_id(item: dict) -> int | None:
+    raw = item.get("id")
+    if raw not in (None, ""):
+        try:
+            return int(raw)
+        except (TypeError, ValueError):
+            pass
+    created = item.get("created_at")
+    model = str(item.get("model_name") or "")
+    try:
+        quota = int(item.get("quota") or 0)
+    except (TypeError, ValueError):
+        quota = 0
+    try:
+        prompt = int(item.get("prompt_tokens") or 0)
+    except (TypeError, ValueError):
+        prompt = 0
+    try:
+        completion = int(item.get("completion_tokens") or 0)
+    except (TypeError, ValueError):
+        completion = 0
+    if created in (None, "") and not model and quota <= 0:
+        return None
+    digest = hashlib.sha256(
+        f"{created}|{model}|{quota}|{prompt}|{completion}".encode()
+    ).hexdigest()
+    return int(digest[:15], 16)
+
+
 def _save_usage_page(user_id: int, key_id: int, items: list[dict]) -> tuple[int, bool, list[dict]]:
-    ids = [int(item["id"]) for item in items if str(item.get("id") or "").isdigit() or isinstance(item.get("id"), int)]
-    if not ids:
-        return 0, False, []
+    parsed: list[tuple[int, dict]] = []
+    for item in items:
+        log_id = _upstream_log_id(item)
+        if log_id is not None:
+            parsed.append((log_id, item))
+    if not parsed:
+        return 0, True, []
+    ids = [log_id for log_id, _ in parsed]
     with pool.connection() as conn:
         known = {
             int(row["upstream_log_id"])
@@ -579,19 +627,24 @@ def _save_usage_page(user_id: int, key_id: int, items: list[dict]) -> tuple[int,
         }
         inserted_units = 0
         new_usages: list[dict] = []
-        for item in items:
-            log_id = item.get("id")
-            if not isinstance(log_id, int) and not str(log_id or "").isdigit():
-                continue
-            log_id = int(log_id)
+        for log_id, item in parsed:
             if log_id in known:
                 continue
-            units = int(item.get("quota") or 0)
+            try:
+                units = int(item.get("quota") or 0)
+            except (TypeError, ValueError):
+                units = 0
             if units < 0:
                 units = 0
             model_name = str(item.get("model_name") or "")
-            prompt_tokens = int(item.get("prompt_tokens") or 0)
-            completion_tokens = int(item.get("completion_tokens") or 0)
+            try:
+                prompt_tokens = int(item.get("prompt_tokens") or 0)
+            except (TypeError, ValueError):
+                prompt_tokens = 0
+            try:
+                completion_tokens = int(item.get("completion_tokens") or 0)
+            except (TypeError, ValueError):
+                completion_tokens = 0
             if not _insert_usage(
                 user_id,
                 key_id,
@@ -613,7 +666,8 @@ def _save_usage_page(user_id: int, key_id: int, items: list[dict]) -> tuple[int,
                     "amount_usd": float(units_to_usd(units)),
                 }
             )
-    return inserted_units, bool(known), new_usages
+    page_done = len(parsed) > 0 and inserted_units == 0
+    return inserted_units, page_done, new_usages
 
 
 def _warn_if_usage_differs(key_id: int | None, token: dict) -> None:
