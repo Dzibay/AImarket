@@ -65,7 +65,7 @@ def sync_user(user_id: int, *, force: bool = False) -> None:
             ).fetchone()
         if row is None:
             return
-        _sync_key(user_id, int(row["upstream_id"]))
+        _sync_key(user_id, int(row["upstream_id"]), force=force)
         _user_sync_at[user_id] = time.monotonic()
 
 
@@ -245,7 +245,7 @@ def describe_key(user_id: int) -> dict:
         }
 
 
-def _sync_key(user_id: int, upstream_id: int) -> None:
+def _sync_key(user_id: int, upstream_id: int, *, force: bool = False) -> None:
     try:
         token = upstream.get_token(upstream_id)
     except UpstreamError as exc:
@@ -280,7 +280,12 @@ def _sync_key(user_id: int, upstream_id: int) -> None:
         except UpstreamError as exc:
             log.warning("не удалось получить секрет ключа %s: %s", upstream_id, exc.message)
     spent, new_usages = _import_usage(
-        user_id, key_id, upstream_id, token_name, token_secret=token_secret
+        user_id,
+        key_id,
+        upstream_id,
+        token_name,
+        token_secret=token_secret,
+        force=force,
     )
     if key_id is not None:
         with pool.connection() as conn:
@@ -575,8 +580,15 @@ def _import_usage(
     token_name: str,
     *,
     token_secret: str = "",
+    force: bool = False,
 ) -> tuple[Decimal, list[dict]]:
-    if key_id is None or (not token_secret and not token_name):
+    if key_id is None:
+        return Decimal(0), []
+    if not token_secret.strip():
+        log.warning(
+            "импорт расходов user=%s: секрет ключа не сохранён, задайте root в админке или перевыпустите ключ",
+            user_id,
+        )
         return Decimal(0), []
     inserted_units = 0
     new_usages: list[dict] = []
@@ -588,6 +600,7 @@ def _import_usage(
                 token_name=token_name,
                 upstream_id=upstream_id,
                 page=page,
+                force=force,
             )
             if items:
                 page_units, page_done, page_usages = _save_usage_page(user_id, key_id, items)
@@ -604,6 +617,12 @@ def _import_usage(
                 len(new_usages),
                 token_name or key_id,
                 user_id,
+            )
+        elif page == 1:
+            log.warning(
+                "журнал расходов пуст для user=%s (ключ %s): проверьте секрет в БД и /api/log/token",
+                user_id,
+                token_name or key_id,
             )
     except UpstreamError as exc:
         log.warning("журнал расходов router.cheap не прочитан: %s", exc.message)

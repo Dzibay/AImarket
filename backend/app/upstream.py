@@ -145,13 +145,18 @@ class RouterCheap:
         upstream_id: int | None = None,
         page: int = 1,
         page_size: int = 100,
+        force: bool = False,
     ) -> tuple[list[dict], bool]:
-        """Журнал расходов: /api/log/self → /api/log/token (fallback).
+        """Журнал расходов: /api/log/token (без root) → /api/log/self (если root задан).
 
         Второе значение — True, если следующих страниц нет.
         """
         page = max(1, page)
-        if token_name:
+        if page == 1 and token_secret.strip():
+            items = self._spend_logs_by_secret(token_secret, force=force)
+            if items:
+                return items, True
+        if token_name and self._has_root_key():
             raw_items = self._spend_logs_by_self(token_name, page=page, page_size=page_size)
             if raw_items:
                 if upstream_id is not None:
@@ -163,14 +168,17 @@ class RouterCheap:
                 items = _consumption_logs(raw_items)
                 if items:
                     return items, len(raw_items) < page_size
-        if page == 1 and token_secret.strip():
-            items = self._spend_logs_by_secret(token_secret)
-            if items:
-                return items, True
         return [], True
 
-    def _spend_logs_by_secret(self, token_secret: str) -> list[dict]:
-        if _token_log_cooled_down():
+    def _has_root_key(self) -> bool:
+        return bool(self._root_key())
+
+    def _spend_logs_by_secret(self, token_secret: str, *, force: bool = False) -> list[dict]:
+        if not force and _token_log_cooled_down():
+            log.warning(
+                "журнал /api/log/token пропущен (rate limit), повтор через %s с",
+                max(1, int(_token_log_blocked_until - time.monotonic())),
+            )
             return []
         key = _token_log_canonical(token_secret)
         if not key:
@@ -195,9 +203,13 @@ class RouterCheap:
             )
             return []
         items = _consumption_logs(_token_items(payload))
+        if items:
+            log.info("журнал /api/log/token: %s записей расхода", len(items))
         return items
 
     def _spend_logs_by_self(self, token_name: str, *, page: int, page_size: int) -> list[dict]:
+        if not self._has_root_key():
+            return []
         query = urllib.parse.urlencode(
             {
                 "p": str(page),
@@ -213,7 +225,10 @@ class RouterCheap:
             except UpstreamError as exc:
                 log.warning("журнал router.cheap /api/log/self не прочитан: %s", exc.message)
                 return []
-        return _token_items(payload)
+        items = _token_items(payload)
+        if items:
+            log.info("журнал /api/log/self: %s строк для %s", len(items), token_name)
+        return items
 
     def delete_key(self, token_id: int) -> None:
         with self._lock:

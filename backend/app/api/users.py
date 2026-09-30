@@ -297,19 +297,19 @@ def key_history(
             SELECT COUNT(*) AS requests,
                    COALESCE(SUM(quota_units), 0) AS units
             FROM usage
-            WHERE api_key_id = %s
+            WHERE user_id = %s
             """,
-            (key["id"],),
+            (user_id,),
         ).fetchone()
         items = conn.execute(
             """
             SELECT model_name, prompt_tokens, completion_tokens, quota_units, created_at
             FROM usage
-            WHERE api_key_id = %s
+            WHERE user_id = %s
             ORDER BY created_at DESC
             LIMIT %s OFFSET %s
             """,
-            (key["id"], limit + 1, offset),
+            (user_id, limit + 1, offset),
         ).fetchall()
     has_more = len(items) > limit
     key_label = _mask_key_label(str(key["secret"] or ""), str(key["prefix"] or key["name"] or ""))
