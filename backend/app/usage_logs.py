@@ -21,17 +21,45 @@ def _log_id_from_request_id(item: dict) -> int | None:
     return value if value > 0 else None
 
 
+def _log_id_from_fingerprint(item: dict) -> int | None:
+    created_at = log_created_at(item)
+    if created_at is None:
+        return None
+    units = _log_quota_units(item)
+    model = str(_log_field(item, "model_name", "model") or "")
+    try:
+        prompt = int(_log_field(item, "prompt_tokens") or 0)
+    except (TypeError, ValueError):
+        prompt = 0
+    try:
+        completion = int(_log_field(item, "completion_tokens") or 0)
+    except (TypeError, ValueError):
+        completion = 0
+    stamp = int(created_at.timestamp())
+    key = f"{stamp}|{model}|{units}|{prompt}|{completion}"
+    digest = hashlib.blake2b(key.encode(), digest_size=8).digest()
+    value = int.from_bytes(digest, "big") & 0x7FFFFFFFFFFFFFFF
+    return value if value > 0 else None
+
+
 def upstream_log_id(item: dict) -> int | None:
     from_request = _log_id_from_request_id(item)
     if from_request is not None:
         return from_request
+    fingerprint = _log_id_from_fingerprint(item)
+    if fingerprint is not None:
+        return fingerprint
     raw = _log_field(item, "id", "Id")
     if raw in (None, ""):
         return None
     try:
-        return int(raw)
+        value = int(raw)
     except (TypeError, ValueError):
         return None
+    # /api/log/token подменяет id на 1..N — такие значения нестабильны.
+    if value >= 100_000:
+        return value
+    return None
 
 
 def log_created_at(item: dict) -> datetime | None:

@@ -592,10 +592,12 @@ def _import_usage(
             user_id,
         )
         return Decimal(0), []
+    _cleanup_legacy_display_usage(user_id)
     inserted_units = 0
     new_usages: list[dict] = []
     page = 1
     fetched_rows = 0
+    refreshed_rows = 0
     try:
         while page <= 20:
             items, complete = upstream.spend_logs(
@@ -607,8 +609,11 @@ def _import_usage(
             )
             if items:
                 fetched_rows += len(items)
-                page_units, page_done, page_usages = _save_usage_page(user_id, key_id, items)
+                page_units, page_done, page_usages, page_refreshed = _save_usage_page(
+                    user_id, key_id, items
+                )
                 inserted_units += page_units
+                refreshed_rows += page_refreshed
                 new_usages.extend(page_usages)
                 if page_done:
                     break
@@ -624,10 +629,11 @@ def _import_usage(
             )
         elif page == 1 and fetched_rows:
             log.info(
-                "расходы уже синхронизированы для user=%s (ключ %s, %s строк в журнале)",
+                "расходы синхронизированы для user=%s (ключ %s): %s строк, обновлено %s",
                 user_id,
                 token_name or key_id,
                 fetched_rows,
+                refreshed_rows,
             )
     except UpstreamError as exc:
         log.warning("журнал расходов router.cheap не прочитан: %s", exc.message)
@@ -671,10 +677,27 @@ def _track_new_usage(
         )
 
 
-def _dedupe_usage_logs(user_id: int) -> None:
-    """Убирает дубли после смены схемы id (display id vs request_id)."""
+def _cleanup_legacy_display_usage(user_id: int) -> None:
+    """Удаляет строки с нестабильными display-id (1..N) из /api/log/token."""
     with pool.connection() as conn:
-        by_request = conn.execute(
+        removed = conn.execute(
+            """
+            DELETE FROM usage
+            WHERE user_id = %s
+              AND request_id = ''
+              AND upstream_log_id IS NOT NULL
+              AND upstream_log_id < 100000
+            """,
+            (user_id,),
+        ).rowcount
+    if removed:
+        log.info("удалено %s устаревших строк расходов (display id) user=%s", removed, user_id)
+
+
+def _dedupe_usage_logs(user_id: int) -> None:
+    """Убирает дубли: строка без request_id, если есть копия с request_id."""
+    with pool.connection() as conn:
+        removed = conn.execute(
             """
             DELETE FROM usage a
             USING usage b
@@ -689,21 +712,6 @@ def _dedupe_usage_logs(user_id: int) -> None:
             """,
             (user_id, user_id),
         ).rowcount
-        by_fingerprint = conn.execute(
-            """
-            DELETE FROM usage a
-            USING usage b
-            WHERE a.user_id = %s AND b.user_id = %s
-              AND a.id < b.id
-              AND date_trunc('second', a.created_at) = date_trunc('second', b.created_at)
-              AND a.quota_units = b.quota_units
-              AND a.model_name = b.model_name
-              AND a.prompt_tokens = b.prompt_tokens
-              AND a.completion_tokens = b.completion_tokens
-            """,
-            (user_id, user_id),
-        ).rowcount
-    removed = int(by_request or 0) + int(by_fingerprint or 0)
     if removed:
         log.info("удалено %s дублей расходов user=%s", removed, user_id)
 
@@ -753,16 +761,17 @@ def _patch_usage_row(
     return units if units > 0 else prev_units
 
 
-def _save_usage_page(user_id: int, key_id: int, items: list[dict]) -> tuple[int, bool, list[dict]]:
+def _save_usage_page(user_id: int, key_id: int, items: list[dict]) -> tuple[int, bool, list[dict], int]:
     parsed: list[dict] = []
     for item in items:
         row = parse_usage_log(item)
         if row is not None:
             parsed.append(row)
     if not parsed:
-        return 0, True, []
+        return 0, True, [], 0
 
     inserted_units = 0
+    refreshed_rows = 0
     new_usages: list[dict] = []
     with pool.connection() as conn:
         for row in parsed:
@@ -806,6 +815,7 @@ def _save_usage_page(user_id: int, key_id: int, items: list[dict]) -> tuple[int,
                     completion_tokens=completion_tokens,
                     created_at=created_at,
                 )
+                refreshed_rows += 1
                 if request_id:
                     conn.execute(
                         "UPDATE usage SET request_id = %s, upstream_log_id = %s WHERE id = %s",
@@ -873,6 +883,12 @@ def _save_usage_page(user_id: int, key_id: int, items: list[dict]) -> tuple[int,
                     completion_tokens=completion_tokens,
                     created_at=created_at,
                 )
+                refreshed_rows += 1
+                if request_id:
+                    conn.execute(
+                        "UPDATE usage SET request_id = %s, upstream_log_id = %s WHERE id = %s",
+                        (request_id, log_id, int(prev["id"])),
+                    )
                 if prev_units == 0 and effective > 0:
                     inserted_units += effective
                     _track_new_usage(
@@ -897,7 +913,7 @@ def _save_usage_page(user_id: int, key_id: int, items: list[dict]) -> tuple[int,
                 )
 
     page_done = len(parsed) > 0 and inserted_units == 0 and not new_usages
-    return inserted_units, page_done, new_usages
+    return inserted_units, page_done, new_usages, refreshed_rows
 
 
 def _warn_if_usage_differs(user_id: int, token: dict) -> None:
