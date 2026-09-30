@@ -1745,7 +1745,7 @@ async def catalog(message: Message, state: FSMContext) -> None:
         await message.answer_photo(_photo("catalog"), caption=part)
 
 
-@router.message(Command())
+@router.message(F.text.startswith("/"), StateFilter(None))
 async def unknown_command(message: Message, state: FSMContext) -> None:
     await state.clear()
     user = message.from_user
