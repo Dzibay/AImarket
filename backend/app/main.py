@@ -15,6 +15,7 @@ from app.billing import sync_all
 from app.reminders import send_offer_reminders
 from app.config import settings
 from app.db import ensure_schema, pool
+from app.landing import render_home
 from app.legal import render_consent, render_privacy
 from app.offer import render_offer
 from app.settings_store import bootstrap_settings
@@ -32,16 +33,10 @@ _SETUP_NAME = re.compile(
 _STATIC_FILES = frozenset(
     p.name for p in _STATIC_DIR.iterdir() if p.is_file()
 ) if _STATIC_DIR.is_dir() else frozenset()
-_FAVICON_LINKS = """
-<link rel="icon" type="image/png" href="/favicon-96x96.png" sizes="96x96">
-<link rel="icon" type="image/svg+xml" href="/favicon.svg">
-<link rel="shortcut icon" href="/favicon.ico">
-<link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
-<link rel="manifest" href="/site.webmanifest">
-<meta name="theme-color" content="#1c1915">
-""".strip()
 _MEDIA = {
     ".ico": "image/x-icon",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
     ".png": "image/png",
     ".svg": "image/svg+xml",
     ".webmanifest": "application/manifest+json",
@@ -95,31 +90,7 @@ def health() -> dict:
 
 @app.get("/")
 def home() -> HTMLResponse:
-    page = f"""<!DOCTYPE html>
-<html lang="ru">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="robots" content="noindex">
-  <title>Aimarket</title>
-  {_FAVICON_LINKS}
-  <style>
-    body {{ margin: 0; background: #f4f1ea; color: #1c1915; font: 16px/1.45 "Segoe UI", sans-serif; }}
-    main {{ max-width: 520px; margin: 15vh auto; padding: 24px; }}
-    a {{ color: inherit; }}
-  </style>
-</head>
-<body>
-  <main>
-    <h1>Aimarket</h1>
-    <p><a href="/privacy">Политика конфиденциальности</a></p>
-    <p><a href="/consent">Согласие на обработку персональных данных</a></p>
-    <p><a href="/offer">Публичная оферта</a></p>
-    <p><a href="/admin-panel">Админка</a></p>
-  </main>
-</body>
-</html>"""
-    return HTMLResponse(page)
+    return HTMLResponse(render_home())
 
 
 @app.get("/privacy")

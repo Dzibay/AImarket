@@ -118,12 +118,6 @@ def _ago(value: str) -> str:
     return f"{when} ({rel})"
 
 
-def _mask_key(secret: str) -> str:
-    if len(secret) <= 12:
-        return secret
-    return f"{secret[:8]}...{secret[-4:]}"
-
-
 def _explain(exc: BackendError) -> str:
     reasons = {
         "offer": "Сначала примите все условия.",
@@ -920,7 +914,7 @@ def _empty_balance_screen() -> tuple[str, InlineKeyboardMarkup]:
 
 def _token_screen(key: dict) -> tuple[str, InlineKeyboardMarkup]:
     secret = str(key.get("secret") or "")
-    shown = html.escape(_mask_key(secret)) if secret else "—"
+    shown = html.escape(secret) if secret else "—"
     spent = float(key.get("spent_usd") or 0)
     limit = float(key.get("limit_usd") or key.get("balance_usd") or 0)
     remain = float(key.get("quota_usd") or key.get("balance_usd") or 0)
@@ -934,13 +928,18 @@ def _token_screen(key: dict) -> tuple[str, InlineKeyboardMarkup]:
         f"🕒 Последний запрос: {_ago(str(key.get('last_request_at') or ''))}\n"
         f"📅 Создан: {_date_short(str(key.get('created_at') or ''))}"
     )
-    rows = [
+    rows: list[list[InlineKeyboardButton]] = []
+    if secret:
+        rows.append([_button("📋 Скопировать токен", copy=secret)])
+    rows.extend(
         [
-            _button("📊 Статистика", callback="key:stats"),
-            _button("📋 История по ключу", callback="key:history"),
-        ],
-        [_button("⬅️ Назад", callback="cabinet")],
-    ]
+            [
+                _button("📊 Статистика", callback="key:stats"),
+                _button("📋 История по ключу", callback="key:history"),
+            ],
+            [_button("⬅️ Назад", callback="cabinet")],
+        ]
+    )
     return text, InlineKeyboardMarkup(inline_keyboard=rows)
 
 
