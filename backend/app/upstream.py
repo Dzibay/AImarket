@@ -12,6 +12,10 @@ from app.money import usd_to_units, units_to_usd
 
 log = logging.getLogger("app.upstream")
 
+# /api/log/token жёстко лимитируется — после 429 не дергаем несколько минут.
+_token_log_blocked_until = 0.0
+_TOKEN_LOG_COOLDOWN_SEC = 300
+
 
 class UpstreamError(Exception):
     def __init__(self, message: str) -> None:
@@ -142,53 +146,56 @@ class RouterCheap:
         page: int = 1,
         page_size: int = 100,
     ) -> tuple[list[dict], bool]:
-        """Журнал расходов: /api/log/token → /api/log/self (без прав админа).
+        """Журнал расходов: /api/log/self → /api/log/token (fallback).
 
         Второе значение — True, если следующих страниц нет.
         """
         page = max(1, page)
-        if page == 1:
-            secret = token_secret.strip()
-            if secret:
-                items = self._spend_logs_by_secret(secret)
+        if token_name:
+            raw_items = self._spend_logs_by_self(token_name, page=page, page_size=page_size)
+            if raw_items:
+                if upstream_id is not None:
+                    raw_items = [
+                        item
+                        for item in raw_items
+                        if _log_belongs_to_token(item, token_name, upstream_id)
+                    ]
+                items = _consumption_logs(raw_items)
                 if items:
-                    return items, True
-        if not token_name:
-            return [], True
-        raw_items = self._spend_logs_by_self(token_name, page=page, page_size=page_size)
-        if raw_items:
-            if upstream_id is not None:
-                raw_items = [
-                    item
-                    for item in raw_items
-                    if _log_belongs_to_token(item, token_name, upstream_id)
-                ]
-            items = _consumption_logs(raw_items)
-            return items, len(raw_items) < page_size
+                    return items, len(raw_items) < page_size
+        if page == 1 and token_secret.strip():
+            items = self._spend_logs_by_secret(token_secret)
+            if items:
+                return items, True
         return [], True
 
     def _spend_logs_by_secret(self, token_secret: str) -> list[dict]:
-        seen: set[str] = set()
-        for variant in _token_key_variants(token_secret):
-            if variant in seen:
-                continue
-            seen.add(variant)
-            query = urllib.parse.urlencode({"key": variant})
-            try:
-                payload = self._public("GET", f"/api/log/token?{query}")
-            except UpstreamError as exc:
-                log.warning("журнал router.cheap по ключу не прочитан: %s", exc.message)
-                continue
-            if isinstance(payload, dict) and payload.get("success") is False:
+        if _token_log_cooled_down():
+            return []
+        key = _token_log_canonical(token_secret)
+        if not key:
+            return []
+        query = urllib.parse.urlencode({"key": key})
+        try:
+            payload = self._public("GET", f"/api/log/token?{query}")
+        except UpstreamError as exc:
+            if "429" in exc.message:
+                _mark_token_log_rate_limited()
                 log.warning(
-                    "журнал router.cheap по ключу: %s",
-                    payload.get("message") or "ошибка",
+                    "журнал /api/log/token: rate limit, повтор не раньше чем через %s с",
+                    _TOKEN_LOG_COOLDOWN_SEC,
                 )
-                continue
-            items = _consumption_logs(_token_items(payload))
-            if items:
-                return items
-        return []
+            else:
+                log.warning("журнал router.cheap по ключу не прочитан: %s", exc.message)
+            return []
+        if isinstance(payload, dict) and payload.get("success") is False:
+            log.warning(
+                "журнал router.cheap по ключу: %s",
+                payload.get("message") or "ошибка",
+            )
+            return []
+        items = _consumption_logs(_token_items(payload))
+        return items
 
     def _spend_logs_by_self(self, token_name: str, *, page: int, page_size: int) -> list[dict]:
         query = urllib.parse.urlencode(
@@ -411,16 +418,20 @@ def _log_created_sort_key(value: object) -> int:
     return max(stamp, 0)
 
 
-def _token_key_variants(token_secret: str) -> list[str]:
+def _token_log_cooled_down() -> bool:
+    return time.monotonic() < _token_log_blocked_until
+
+
+def _mark_token_log_rate_limited() -> None:
+    global _token_log_blocked_until
+    _token_log_blocked_until = time.monotonic() + _TOKEN_LOG_COOLDOWN_SEC
+
+
+def _token_log_canonical(token_secret: str) -> str:
     secret = token_secret.strip()
     if not secret:
-        return []
-    variants = [secret]
-    if secret.startswith("sk-"):
-        variants.append(secret[3:])
-    else:
-        variants.append(f"sk-{secret}")
-    return variants
+        return ""
+    return secret if secret.startswith("sk-") else f"sk-{secret}"
 
 
 def _consumption_logs(items: list[dict]) -> list[dict]:

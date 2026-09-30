@@ -279,7 +279,7 @@ def key_history(
         row = _user_or_404(conn, telegram_id)
         _require_active(row)
         user_id = int(row["id"])
-    sync_user(user_id)
+    sync_user(user_id, force=True)
     with pool.connection() as conn:
         row = _user_or_404(conn, telegram_id)
         key = conn.execute(
@@ -423,7 +423,7 @@ def user_history(
     with pool.connection() as conn:
         row = _user_or_404(conn, telegram_id)
         user_id = int(row["id"])
-    sync_user(user_id)
+    sync_user(user_id, force=True)
     with pool.connection() as conn:
         row = _user_or_404(conn, telegram_id)
         user_id = int(row["id"])

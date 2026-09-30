@@ -2,6 +2,7 @@ import hashlib
 import logging
 import secrets
 import threading
+import time
 from datetime import datetime, timezone
 from decimal import Decimal
 
@@ -14,6 +15,8 @@ from app.usage_stats import usage_period_stats
 
 log = logging.getLogger("app.billing")
 billing_lock = threading.RLock()
+_user_sync_at: dict[int, float] = {}
+_USER_SYNC_MIN_SEC = 45
 
 
 class BillingError(Exception):
@@ -39,8 +42,18 @@ def sync_all() -> None:
     check_low_balance_users()
 
 
-def sync_user(user_id: int) -> None:
+def sync_user(user_id: int, *, force: bool = False) -> None:
+    if not force:
+        now = time.monotonic()
+        last = _user_sync_at.get(user_id, 0.0)
+        if now - last < _USER_SYNC_MIN_SEC:
+            return
     with billing_lock:
+        if not force:
+            now = time.monotonic()
+            last = _user_sync_at.get(user_id, 0.0)
+            if now - last < _USER_SYNC_MIN_SEC:
+                return
         with pool.connection() as conn:
             row = conn.execute(
                 """
@@ -53,6 +66,7 @@ def sync_user(user_id: int) -> None:
         if row is None:
             return
         _sync_key(user_id, int(row["upstream_id"]))
+        _user_sync_at[user_id] = time.monotonic()
 
 
 def block_user(user_id: int, reason: str = "") -> None:
@@ -61,7 +75,7 @@ def block_user(user_id: int, reason: str = "") -> None:
             raise BillingError("user")
         if _is_blocked(user_id):
             return
-        sync_user(user_id)
+        sync_user(user_id, force=True)
         key = _active_key(user_id)
         if key is not None:
             try:
