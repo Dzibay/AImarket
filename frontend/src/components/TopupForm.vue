@@ -26,11 +26,13 @@
       <span>{{ currency === 'usd' ? 'Сумма пополнения, $' : 'Сумма к оплате, ₽' }}</span>
       <div class="amount-wrap">
         <input
-          v-model="amount"
           class="input big"
           inputmode="decimal"
           autocomplete="off"
-          :placeholder="currency === 'usd' ? String(minUsd) : String(minRub)"
+          :value="amount"
+          :placeholder="currency === 'usd' ? formatMoneyInput(String(minUsd), 'usd') : formatMoneyInput(String(Math.ceil(minRub)), 'rub')"
+          @input="onAmountInput"
+          @blur="onAmountBlur"
         >
         <b class="unit">{{ currency === 'usd' ? '$' : '₽' }}</b>
       </div>
@@ -41,8 +43,8 @@
         v-for="preset in presets"
         :key="preset"
         type="button"
-        :class="{ on: Number(amount) === preset }"
-        @click="amount = String(preset)"
+        :class="{ on: Math.abs(parsed - preset) < 1e-9 }"
+        @click="setAmount(preset)"
       >{{ currency === 'usd' ? usd(preset, 0) : rub(preset, 0) }}</button>
     </div>
 
@@ -92,11 +94,11 @@
         <RouterLink to="/offer">оферту</RouterLink>,
         <RouterLink to="/privacy">политику конфиденциальности</RouterLink> и
         <RouterLink to="/consent">согласие на обработку данных</RouterLink>.
-        Минимальное пополнение — {{ usd(minUsd, 0) }}.
+        Минимальное пополнение — {{ usd(minUsd, 0) }}. Максимум за раз — {{ currency === 'usd' ? usd(10000, 0) : rub(100000, 0) }}.
       </template>
       <template v-else>
         Оплата через ЮKassa. Баланс зачислится автоматически после подтверждения платежа.
-        Минимальное пополнение — {{ usd(minUsd, 0) }}.
+        Минимальное пополнение — {{ usd(minUsd, 0) }}. Максимум за раз — {{ currency === 'usd' ? usd(10000, 0) : rub(100000, 0) }}.
       </template>
     </p>
     <p v-if="mode === 'checkout'" class="small muted">
@@ -109,12 +111,15 @@
 import { computed, ref, watch } from 'vue'
 import { RouterLink } from 'vue-router'
 import { errorText, webApi } from '../api/web'
-import { rub, usd } from '../utils/format'
+import { formatMoneyInput, parseMoneyInput, rub, usd } from '../utils/format'
 
 const props = defineProps({
   mode: { type: String, default: 'checkout' },
   config: { type: Object, default: null },
 })
+
+const MAX_USD = 10_000
+const MAX_RUB = 100_000
 
 const currency = ref('usd')
 const amount = ref('')
@@ -133,22 +138,24 @@ const USD_PRESETS = [10, 25, 50, 100, 500, 1000]
 
 function usdPresetList(min) {
   const floor = Number(min) || 0
-  let list = USD_PRESETS.filter((value) => value + 1e-9 >= floor)
-  if (floor > 0 && !list.some((value) => Math.abs(value - floor) < 1e-9) && floor <= USD_PRESETS[USD_PRESETS.length - 1]) {
+  let list = USD_PRESETS.filter((value) => value + 1e-9 >= floor && value <= MAX_USD + 1e-9)
+  if (floor > 0 && !list.some((value) => Math.abs(value - floor) < 1e-9) && floor <= MAX_USD) {
     list = [Math.round(floor * 100) / 100, ...list].sort((a, b) => a - b)
   }
-  return list.length ? list : (floor > 0 ? [Math.round(floor * 100) / 100] : [...USD_PRESETS])
+  return list.length ? list : (floor > 0 && floor <= MAX_USD ? [Math.round(floor * 100) / 100] : [...USD_PRESETS])
 }
 
 const presets = computed(() => {
   const usdList = usdPresetList(minUsd.value)
   if (currency.value === 'usd') return usdList
   if (!price.value) return []
-  return usdList.map((value) => Math.ceil(value * price.value))
+  return usdList
+    .map((value) => Math.ceil(value * price.value))
+    .filter((value) => value <= MAX_RUB + 1e-9)
 })
 
 const parsed = computed(() => {
-  const value = Number(String(amount.value).replace(',', '.').replace(/\s/g, ''))
+  const value = parseMoneyInput(amount.value, currency.value)
   return Number.isFinite(value) && value > 0 ? value : 0
 })
 
@@ -184,7 +191,15 @@ const nextTier = computed(() => tiers.value.find((tier) => usdAmount.value < tie
 const validationError = computed(() => {
   if (!salesOpen.value) return 'Продажи временно закрыты. Попробуйте позже.'
   if (!parsed.value) return ''
-  if (usdAmount.value < minUsd.value) return `Минимальное пополнение — ${usd(minUsd.value, 0)} (${rub(minRub.value)}).`
+  if (currency.value === 'usd' && parsed.value > MAX_USD) {
+    return `Максимум за раз — ${usd(MAX_USD, 0)}.`
+  }
+  if (currency.value === 'rub' && parsed.value > MAX_RUB) {
+    return `Максимум за раз — ${rub(MAX_RUB, 0)}.`
+  }
+  if (usdAmount.value < minUsd.value) {
+    return `Минимальное пополнение — ${usd(minUsd.value, 0)} (${rub(minRub.value)}).`
+  }
   return ''
 })
 
@@ -195,15 +210,53 @@ const canSubmit = computed(() => {
 })
 
 watch(() => props.config, (config) => {
-  if (!amount.value && config?.min_topup_usd) amount.value = String(Number(config.min_topup_usd))
+  if (!amount.value && config?.min_topup_usd) setAmount(Number(config.min_topup_usd))
 }, { immediate: true })
+
+function clampAmount(value) {
+  const max = currency.value === 'usd' ? MAX_USD : MAX_RUB
+  if (!Number.isFinite(value) || value <= 0) return value
+  return Math.min(value, max)
+}
+
+function setAmount(value) {
+  const capped = clampAmount(Number(value))
+  if (!Number.isFinite(capped) || capped <= 0) {
+    amount.value = ''
+    return
+  }
+  amount.value = formatMoneyInput(String(capped), currency.value)
+}
+
+function onAmountInput(event) {
+  const next = formatMoneyInput(event.target.value, currency.value)
+  const numeric = parseMoneyInput(next, currency.value)
+  if (Number.isFinite(numeric)) {
+    const max = currency.value === 'usd' ? MAX_USD : MAX_RUB
+    if (numeric > max) {
+      amount.value = formatMoneyInput(String(max), currency.value)
+      return
+    }
+  }
+  amount.value = next
+}
+
+function onAmountBlur() {
+  const value = parseMoneyInput(amount.value, currency.value)
+  if (!Number.isFinite(value) || value <= 0) {
+    amount.value = ''
+    return
+  }
+  setAmount(Math.round(value * 100) / 100)
+}
 
 function setCurrency(next) {
   if (next === currency.value) return
   // Переносим текущую сумму в другую валюту, чтобы не сбивать человека.
   const carry = next === 'rub' ? rubAmount.value : usdAmount.value
   currency.value = next
-  amount.value = carry ? String(next === 'rub' ? Math.round(carry) : Math.round(carry * 100) / 100) : ''
+  if (carry) setAmount(next === 'rub' ? Math.round(carry) : Math.round(carry * 100) / 100)
+  else amount.value = ''
 }
 
 async function submit() {
@@ -273,7 +326,11 @@ async function submit() {
 }
 .switch button.on { background: var(--accent); color: var(--bg); }
 .amount-wrap { position: relative; }
-.amount-wrap .input { padding-right: 44px; }
+.amount-wrap .input {
+  padding-right: 44px;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.01em;
+}
 .unit {
   position: absolute;
   right: 16px;

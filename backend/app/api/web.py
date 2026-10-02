@@ -38,8 +38,8 @@ _RETURN_TOKEN_TTL = "24 hours"
 
 
 class AmountIn(BaseModel):
-    amount_usd: float | None = Field(default=None, gt=0, le=100_000)
-    amount_rub: float | None = Field(default=None, gt=0, le=10_000_000)
+    amount_usd: float | None = Field(default=None, gt=0, le=10_000)
+    amount_rub: float | None = Field(default=None, gt=0, le=100_000)
 
 
 class CheckoutIn(AmountIn):

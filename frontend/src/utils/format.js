@@ -1,25 +1,130 @@
-export function rub(value, digits = 2) {
-  return Number(value || 0).toLocaleString('ru-RU', { minimumFractionDigits: digits, maximumFractionDigits: digits }) + ' ₽'
+/** Сколько знаков после запятой показывать: 0, если копеек/центов нет. */
+function fractionDigits(value, max = 2) {
+  const amount = Number(value || 0)
+  if (!Number.isFinite(amount)) return 0
+  const cents = Math.round(Math.abs(amount) * 100)
+  return cents % 100 === 0 ? 0 : max
 }
 
-export function usd(value, digits = 2) {
-  return '$' + Number(value || 0).toLocaleString('en-US', { minimumFractionDigits: digits, maximumFractionDigits: digits })
+/**
+ * Рубли: пробел как разделитель тысяч, запятая — копейки (ru-RU).
+ * Пример: 10 000 ₽ или 10 000,50 ₽
+ */
+export function rub(value, digits) {
+  const amount = Number(value || 0)
+  const places = digits == null ? fractionDigits(amount) : digits
+  return amount.toLocaleString('ru-RU', {
+    minimumFractionDigits: places,
+    maximumFractionDigits: places,
+  }) + ' ₽'
+}
+
+/**
+ * Доллары: запятая как разделитель тысяч, точка — центы (en-US).
+ * Пример: $10,000 или $10,000.50
+ */
+export function usd(value, digits) {
+  const amount = Number(value || 0)
+  const places = digits == null ? fractionDigits(amount) : digits
+  return '$' + amount.toLocaleString('en-US', {
+    minimumFractionDigits: places,
+    maximumFractionDigits: places,
+  })
 }
 
 export function usdSmart(value) {
   const amount = Number(value || 0)
-  return usd(amount, amount !== 0 && Math.abs(amount) < 0.01 ? 4 : 2)
+  if (amount !== 0 && Math.abs(amount) < 0.01) return usd(amount, 4)
+  return usd(amount)
 }
 
 export function dateTime(value) {
   if (!value) return '—'
   const moment = new Date(value)
   if (Number.isNaN(moment.getTime())) return '—'
-  return moment.toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })
+  return moment.toLocaleString('ru-RU', {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  })
 }
 
 export function tokens(value) {
   return Number(value || 0).toLocaleString('ru-RU')
+}
+
+/**
+ * Разбор суммы из поля ввода.
+ * USD: «10,000.50» — запятые тысяч, точка дробная.
+ * RUB: «10 000,50» — пробелы тысяч, запятая дробная.
+ */
+export function parseMoneyInput(raw, currency = 'usd') {
+  let text = String(raw || '').replace(/\s/g, '').replace(/[^\d.,]/g, '')
+  if (!text || text === '.' || text === ',') return NaN
+
+  if (currency === 'usd') {
+    text = text.replace(/,/g, '')
+  } else {
+    // Рубли: точка как тысяч (если вставили) убираем, запятая → десятичная.
+    text = text.replace(/\./g, '').replace(',', '.')
+  }
+
+  const parts = text.split('.')
+  const normalized = parts.length > 2
+    ? parts[0] + '.' + parts.slice(1).join('')
+    : text
+  const value = Number(normalized)
+  return Number.isFinite(value) ? value : NaN
+}
+
+/**
+ * Красивый ввод суммы: рубли — «10 000,5», доллары — «10,000.5».
+ * Сохраняет незакрытую дробную часть при наборе.
+ */
+export function formatMoneyInput(raw, currency) {
+  const text = String(raw || '')
+  const compact = text.replace(/\s/g, '')
+  const hasTrailingSep = currency === 'usd' ? /\.$/.test(compact) : /,$/.test(compact)
+  const cleaned = compact.replace(/[^\d.,]/g, '')
+  if (!cleaned) return ''
+
+  let intRaw
+  let frac = ''
+  let hasFrac = false
+
+  if (currency === 'usd') {
+    // Тысячи — запятые, дробная — точка.
+    const dot = cleaned.indexOf('.')
+    const intPart = (dot >= 0 ? cleaned.slice(0, dot) : cleaned).replace(/,/g, '')
+    intRaw = intPart
+    if (dot >= 0) {
+      hasFrac = true
+      frac = cleaned.slice(dot + 1).replace(/[^\d]/g, '').slice(0, 2)
+    }
+  } else {
+    // Тысячи — пробелы (уже сняты), дробная — запятая.
+    const comma = cleaned.indexOf(',')
+    const intPart = (comma >= 0 ? cleaned.slice(0, comma) : cleaned).replace(/[.,]/g, '')
+    intRaw = intPart
+    if (comma >= 0) {
+      hasFrac = true
+      frac = cleaned.slice(comma + 1).replace(/[^\d]/g, '').slice(0, 2)
+    }
+  }
+
+  const intNum = Number((intRaw || '0').replace(/^0+(?=\d)/, '') || '0')
+  if (!Number.isFinite(intNum)) return ''
+
+  const intFormatted = currency === 'usd'
+    ? intNum.toLocaleString('en-US', { maximumFractionDigits: 0 })
+    : intNum.toLocaleString('ru-RU', { maximumFractionDigits: 0 })
+
+  if (hasFrac || hasTrailingSep) {
+    return intFormatted + (currency === 'usd' ? '.' : ',') + frac
+  }
+  return intFormatted
 }
 
 export async function copyText(text) {
