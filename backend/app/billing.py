@@ -142,7 +142,7 @@ def add_usd(user_id: int, amount: Decimal, kind: str, note: str, amount_kopecks:
         return updated
 
 
-def issue_key(user_id: int, telegram_id: int) -> dict:
+def issue_key(user_id: int, telegram_id: int | None) -> dict:
     with billing_lock:
         _require_not_blocked(user_id)
         _require_offer(user_id)
@@ -153,7 +153,7 @@ def issue_key(user_id: int, telegram_id: int) -> dict:
         if amount <= 0:
             raise BillingError("balance")
         _ensure_pool(Decimal(0))
-        name = f"aimarket-{telegram_id}-{secrets.token_hex(3)}"
+        name = _key_name(user_id, telegram_id)
         try:
             upstream_id, secret = upstream.create_child_key(name, amount)
         except UpstreamError as exc:
@@ -170,7 +170,7 @@ def issue_key(user_id: int, telegram_id: int) -> dict:
         }
 
 
-def reissue_key(user_id: int, telegram_id: int) -> dict:
+def reissue_key(user_id: int, telegram_id: int | None) -> dict:
     with billing_lock:
         _require_not_blocked(user_id)
         _require_offer(user_id)
@@ -195,7 +195,7 @@ def reissue_key(user_id: int, telegram_id: int) -> dict:
             if "не найден" not in exc.message.lower() and "not found" not in exc.message.lower():
                 _reraise(exc)
         _revoke_key(int(key["id"]))
-        name = f"aimarket-{telegram_id}-{secrets.token_hex(3)}"
+        name = _key_name(user_id, telegram_id)
         try:
             new_id, secret = upstream.create_child_key(name, amount)
         except UpstreamError as exc:
@@ -211,6 +211,12 @@ def reissue_key(user_id: int, telegram_id: int) -> dict:
             "created_at": created_at.isoformat(),
             **stats,
         }
+
+
+def _key_name(user_id: int, telegram_id: int | None) -> str:
+    # Пользователи с сайта без Telegram — метим по внутреннему id.
+    label = str(telegram_id) if telegram_id else f"web{user_id}"
+    return f"aimarket-{label}-{secrets.token_hex(3)}"
 
 
 def describe_key(user_id: int) -> dict:
@@ -314,7 +320,7 @@ def _sync_key(user_id: int, upstream_id: int, *, force: bool = False) -> None:
             "SELECT telegram_id FROM users WHERE id = %s",
             (user_id,),
         ).fetchone()
-    telegram_id = int(user_row["telegram_id"]) if user_row else 0
+    telegram_id = int(user_row["telegram_id"] or 0) if user_row else 0
     key_label = token_name
     if key_id is not None:
         with pool.connection() as conn:

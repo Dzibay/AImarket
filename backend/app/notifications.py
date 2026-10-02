@@ -220,7 +220,7 @@ def check_low_balance_users() -> None:
     for row in rows:
         process_balance_alerts(
             int(row["id"]),
-            int(row["telegram_id"]),
+            int(row["telegram_id"] or 0),
             None,
             Decimal(row["balance_usd"]),
             Decimal("0"),

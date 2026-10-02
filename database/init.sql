@@ -24,9 +24,14 @@ ALTER TABLE users ADD COLUMN IF NOT EXISTS notify_limit_exhausted BOOLEAN NOT NU
 ALTER TABLE users ADD COLUMN IF NOT EXISTS notify_topup BOOLEAN NOT NULL DEFAULT TRUE;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS low_balance_notified_at TIMESTAMPTZ;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS referral_token TEXT NOT NULL DEFAULT '';
+-- Пользователи с сайта: без Telegram, вход по API-ключу, почта для писем.
+ALTER TABLE users ALTER COLUMN telegram_id DROP NOT NULL;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS email TEXT NOT NULL DEFAULT '';
 
 CREATE INDEX IF NOT EXISTS idx_users_referral_token
     ON users (referral_token) WHERE referral_token <> '';
+CREATE INDEX IF NOT EXISTS idx_users_email
+    ON users (lower(email)) WHERE email <> '';
 
 CREATE TABLE IF NOT EXISTS products (
     id                     BIGSERIAL PRIMARY KEY,
@@ -113,6 +118,13 @@ CREATE TABLE IF NOT EXISTS topups (
 );
 
 ALTER TABLE topups ADD COLUMN IF NOT EXISTS payment_id TEXT;
+-- Платежи с сайта: хэш одноразового токена из return_url, по нему логиним в кабинет.
+ALTER TABLE topups ADD COLUMN IF NOT EXISTS return_token_hash TEXT NOT NULL DEFAULT '';
+-- Бонус к пополнению (из админки), зачисляется сверх amount_usd.
+ALTER TABLE topups ADD COLUMN IF NOT EXISTS bonus_usd NUMERIC(12, 4) NOT NULL DEFAULT 0;
+-- Вход по ссылке из письма: хэш токена и срок действия.
+ALTER TABLE users ADD COLUMN IF NOT EXISTS email_login_hash TEXT NOT NULL DEFAULT '';
+ALTER TABLE users ADD COLUMN IF NOT EXISTS email_login_expires_at TIMESTAMPTZ;
 
 CREATE INDEX IF NOT EXISTS idx_topups_status ON topups (status, created_at DESC);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_topups_payment

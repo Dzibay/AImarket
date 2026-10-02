@@ -22,7 +22,13 @@ def enabled() -> bool:
     return bool(settings.yookassa_shop_id.strip() and settings.yookassa_secret_key.strip())
 
 
-def create_payment(topup_id: int, amount_rub: Decimal, return_url: str) -> dict:
+def create_payment(
+    topup_id: int,
+    amount_rub: Decimal,
+    return_url: str,
+    *,
+    customer_email: str = "",
+) -> dict:
     value = f"{amount_rub.quantize(Decimal('0.01')):.2f}"
     body: dict = {
         "amount": {"value": value, "currency": "RUB"},
@@ -31,7 +37,7 @@ def create_payment(topup_id: int, amount_rub: Decimal, return_url: str) -> dict:
         "description": f"Пополнение Aimarket #{topup_id}",
         "metadata": {"topup_id": str(topup_id)},
     }
-    receipt_email = settings.yookassa_receipt_email.strip()
+    receipt_email = customer_email.strip() or settings.yookassa_receipt_email.strip()
     if receipt_email:
         body["receipt"] = {
             "customer": {"email": receipt_email},

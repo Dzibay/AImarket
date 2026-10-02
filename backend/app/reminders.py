@@ -14,6 +14,7 @@ def send_offer_reminders() -> None:
             SELECT id, telegram_id
             FROM users
             WHERE offer_accepted_at IS NULL
+              AND telegram_id IS NOT NULL
               AND blocked_at IS NULL
               AND offer_reminder_sent_at IS NULL
               AND created_at <= NOW() - INTERVAL '20 minutes'

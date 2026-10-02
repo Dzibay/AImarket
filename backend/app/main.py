@@ -5,44 +5,28 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
+from fastapi.responses import FileResponse
 
 from app.api.admin import router as admin_router
 from app.api.products import router as products_router
+from app.api.site import router as site_router
 from app.api.users import router as users_router
+from app.api.web import router as web_router
 from app.api.yookassa import router as yookassa_router
 from app.billing import sync_all
 from app.reminders import send_offer_reminders
 from app.config import settings
 from app.db import ensure_schema, pool
-from app.landing import render_home
-from app.legal import render_consent, render_privacy
-from app.offer import render_offer
 from app.settings_store import bootstrap_settings
 
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger("app.main")
 _stop = threading.Event()
 _WEB = Path(__file__).resolve().parent / "web"
-_ADMIN_PAGE = _WEB / "admin-panel" / "index.html"
-_STATIC_DIR = _WEB / "static"
 _SETUP_DIR = _WEB / "downloads" / "setup"
 _SETUP_NAME = re.compile(
     r"aimarket-[a-z0-9-]+-(windows|macos)-(ru|en)\.zip|setup-aimarket-[a-z0-9-]+-(ru|en)\.sh"
 )
-_STATIC_FILES = frozenset(
-    p.name for p in _STATIC_DIR.iterdir() if p.is_file()
-) if _STATIC_DIR.is_dir() else frozenset()
-_MEDIA = {
-    ".ico": "image/x-icon",
-    ".jpg": "image/jpeg",
-    ".jpeg": "image/jpeg",
-    ".png": "image/png",
-    ".svg": "image/svg+xml",
-    ".webmanifest": "application/manifest+json",
-}
-
-
 def _sync_loop() -> None:
     _stop.wait(5)
     while not _stop.is_set():
@@ -88,36 +72,6 @@ def health() -> dict:
     return {"status": "ok"}
 
 
-@app.get("/")
-def home() -> HTMLResponse:
-    return HTMLResponse(render_home())
-
-
-@app.get("/privacy")
-def privacy() -> HTMLResponse:
-    return HTMLResponse(render_privacy())
-
-
-@app.get("/consent")
-def consent() -> HTMLResponse:
-    return HTMLResponse(render_consent())
-
-
-@app.get("/offer")
-def offer() -> HTMLResponse:
-    return HTMLResponse(render_offer())
-
-
-@app.get("/admin")
-def admin_redirect() -> RedirectResponse:
-    return RedirectResponse("/admin-panel", status_code=307)
-
-
-@app.get("/admin-panel")
-def admin_panel() -> FileResponse:
-    return FileResponse(_ADMIN_PAGE)
-
-
 @app.get("/downloads/setup/{name}")
 def download_setup(name: str) -> FileResponse:
     if _SETUP_NAME.fullmatch(name) is None:
@@ -129,15 +83,9 @@ def download_setup(name: str) -> FileResponse:
     return FileResponse(path, filename=name, media_type=media)
 
 
+app.include_router(site_router, prefix="/api")
+app.include_router(web_router, prefix="/api")
 app.include_router(products_router, prefix="/api")
 app.include_router(users_router, prefix="/api")
 app.include_router(admin_router, prefix="/api/admin")
 app.include_router(yookassa_router, prefix="/api/yookassa")
-
-
-@app.get("/{filename}")
-def root_static(filename: str) -> FileResponse:
-    if filename not in _STATIC_FILES:
-        raise HTTPException(status_code=404, detail="not found")
-    path = _STATIC_DIR / filename
-    return FileResponse(path, media_type=_MEDIA.get(path.suffix.lower()))

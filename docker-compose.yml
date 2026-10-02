@@ -1,6 +1,8 @@
 # Aimarket: Postgres → FastAPI → Nginx → Caddy → сайт. Telegram-бот отдельно.
 #
-# Бот забирает сообщения длинным опросом. Сайт — /admin-panel, /privacy, /consent, /offer.
+# Бот забирает сообщения длинным опросом.
+# Сайт (Vue) — /, /login, /cabinet, /pay/return, /admin-panel, /privacy, /consent, /offer.
+# Return URL ЮKassa для оплат с сайта: {PUBLIC_BASE_URL}/pay/return — PUBLIC_BASE_URL обязателен.
 # Caddy выпускает сертификат на хост из PUBLIC_BASE_URL и слушает 80 и 443.
 #
 # Запуск из корня репозитория:
@@ -60,10 +62,10 @@ services:
     networks: [internal]
 
   nginx:
-    image: nginx:1.27-alpine
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
     restart: unless-stopped
-    volumes:
-      - ./nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
     depends_on:
       backend:
         condition: service_healthy

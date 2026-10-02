@@ -42,6 +42,22 @@ class Settings(BaseSettings):
     admin_token_secret: str = ""
     admin_token_ttl_hours: int = 12
 
+    # Сессии личного кабинета на сайте. Если пусто, выводится из ADMIN_TOKEN_SECRET/пароля.
+    web_session_secret: str = ""
+    web_session_ttl_days: int = 30
+    # Ссылка для входа из письма действует столько дней.
+    email_login_ttl_days: int = 7
+
+    # SMTP для писем с ключом и ссылкой в кабинет. Пустой SMTP_HOST — письма не отправляются.
+    smtp_host: str = ""
+    smtp_port: int = 587
+    smtp_user: str = ""
+    smtp_password: str = ""
+    # starttls | ssl | none
+    smtp_security: str = "starttls"
+    smtp_from: str = ""
+    smtp_from_name: str = "Aimarket"
+
     # ЮKassa: shopId и секретный ключ из кабинета магазина.
     yookassa_shop_id: str = ""
     yookassa_secret_key: str = ""

@@ -1,0 +1,155 @@
+<template>
+  <div class="site">
+    <SiteHeader />
+    <main class="site-main">
+      <div class="narrow wrap">
+        <template v-if="state === 'loading'">
+          <h1 class="page-title">Проверяем оплату…</h1>
+          <p class="page-lead">Это займёт пару секунд.</p>
+        </template>
+
+        <template v-else-if="state === 'paid'">
+          <h1 class="page-title">Оплата прошла</h1>
+          <p class="page-lead">
+            Зачислено <b>{{ usd(credited) }}</b><template v-if="bonusUsd > 0"> (из них бонус {{ usd(bonusUsd) }})</template>,
+            баланс — <b>{{ usd(profile.balance_usd) }}</b>. Вы уже вошли в личный кабинет — осталось сохранить ключ.
+            <template v-if="profile.email_enabled && profile.email">
+              Копию ключа и кнопку входа мы отправили на {{ profile.email }}.
+            </template>
+          </p>
+          <KeyCard
+            v-if="profile.key"
+            :secret="profile.key.secret"
+            :base-url="profile.api_base_url"
+            title="Ваш ключ доступа"
+            highlight
+            reveal-by-default
+          />
+          <div v-else class="notice">
+            Платёж зачислен, но ключ ещё выпускается. Откройте личный кабинет через минуту — ключ появится там.
+          </div>
+          <div class="actions">
+            <RouterLink to="/cabinet#setup" class="btn">Подключить приложение</RouterLink>
+            <RouterLink to="/cabinet" class="btn quiet">В личный кабинет</RouterLink>
+          </div>
+          <p class="muted small">
+            В кабинете есть пошаговая инструкция и готовые установщики для Cursor, Codex, Claude Code и других
+            программ — ключ и адрес API они пропишут сами.
+          </p>
+        </template>
+
+        <template v-else-if="state === 'pending'">
+          <h1 class="page-title">Платёж ещё обрабатывается</h1>
+          <p class="page-lead">
+            Банк пока не подтвердил оплату. Обычно это занимает до минуты — страница проверяет статус
+            автоматически.
+          </p>
+          <div class="card soft">
+            <p class="muted small">Проверок: {{ attempts }}. Если платёж не подтвердится, деньги вернутся на карту.</p>
+            <button type="button" class="btn quiet sm" :disabled="checking" @click="check">
+              {{ checking ? 'Проверяем…' : 'Проверить сейчас' }}
+            </button>
+          </div>
+        </template>
+
+        <template v-else-if="state === 'failed'">
+          <h1 class="page-title">Оплата не прошла</h1>
+          <p class="page-lead">Платёж отклонён или отменён. Деньги не списаны либо вернутся на карту.</p>
+          <RouterLink to="/" class="btn">Попробовать снова</RouterLink>
+        </template>
+
+        <template v-else>
+          <h1 class="page-title">Ссылка недействительна</h1>
+          <p class="page-lead">{{ error }}</p>
+          <div class="actions">
+            <RouterLink to="/login" class="btn">Войти по ключу</RouterLink>
+            <RouterLink to="/" class="btn quiet">На главную</RouterLink>
+          </div>
+        </template>
+      </div>
+    </main>
+    <SiteFooter />
+  </div>
+</template>
+
+<script setup>
+import { onBeforeUnmount, onMounted, ref } from 'vue'
+import { RouterLink, useRoute } from 'vue-router'
+import KeyCard from '../components/KeyCard.vue'
+import SiteFooter from '../components/SiteFooter.vue'
+import SiteHeader from '../components/SiteHeader.vue'
+import { errorText, webApi } from '../api/web'
+import { useSession } from '../composables/useSession'
+import { usd } from '../utils/format'
+import { useHead } from '../utils/useHead'
+
+const route = useRoute()
+const { setSession } = useSession()
+
+const state = ref('loading')
+const profile = ref(null)
+const error = ref('')
+const attempts = ref(0)
+const checking = ref(false)
+const credited = ref(0)
+const bonusUsd = ref(0)
+let timer = null
+
+const topup = Number(route.query.topup || 0)
+const token = String(route.query.t || '')
+
+async function check() {
+  if (checking.value) return
+  checking.value = true
+  attempts.value += 1
+  try {
+    const result = await webApi.paymentReturn(topup, token)
+    if (result.status === 'paid') {
+      setSession(result.session)
+      profile.value = result.profile
+      bonusUsd.value = Number(result.bonus_usd || 0)
+      credited.value = Number(result.amount_usd || 0) + bonusUsd.value
+      state.value = 'paid'
+      if (typeof window.ym === 'function') {
+        window.ym(113324421, 'reachGoal', 'payment_success')
+      }
+      stop()
+    } else if (result.status === 'pending') {
+      state.value = 'pending'
+      if (attempts.value < 12 && !timer) timer = setTimeout(() => { timer = null; check() }, 5000)
+    } else {
+      state.value = 'failed'
+      stop()
+    }
+  } catch (err) {
+    error.value = errorText(err)
+    state.value = 'invalid'
+    stop()
+  } finally {
+    checking.value = false
+  }
+}
+
+function stop() {
+  if (timer) clearTimeout(timer)
+  timer = null
+}
+
+onMounted(() => {
+  useHead('Оплата — Aimarket', true)
+  if (!topup || !token) {
+    error.value = 'В ссылке нет данных о платеже.'
+    state.value = 'invalid'
+    return
+  }
+  check()
+})
+
+onBeforeUnmount(stop)
+</script>
+
+<style scoped>
+.wrap { padding-top: 40px; padding-bottom: 72px; }
+.actions { display: flex; gap: 12px; flex-wrap: wrap; margin-top: 20px; }
+.card.soft .btn { margin-top: 8px; }
+</style>

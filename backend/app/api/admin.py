@@ -1,3 +1,4 @@
+import json
 import logging
 from datetime import date, datetime, timedelta
 from decimal import Decimal
@@ -10,7 +11,8 @@ from pydantic import BaseModel, Field
 from app.auth import check_password, make_token, require_admin
 from app.billing import BillingError, add_usd, block_user, unblock_user
 from app.db import pool
-from app.money import units_to_usd, usd_price_rub
+from app.mailer import enabled as mail_enabled
+from app.money import bonus_tiers, min_topup_usd, normalize_bonus_tiers, units_to_usd, usd_price_rub
 from app.referrals import (
     ReferralError,
     create_group,
@@ -32,6 +34,8 @@ _MSK = ZoneInfo("Europe/Moscow")
 _TEXT_KEYS = (
     "public_base_url",
     "usd_price_rub",
+    "min_topup_usd",
+    "topup_bonuses",
     "offer_email",
     "offer_date",
     "support_username",
@@ -42,11 +46,19 @@ class LoginIn(BaseModel):
     password: str = Field(min_length=1, max_length=200)
 
 
+class BonusTierIn(BaseModel):
+    min_usd: float = Field(gt=0, le=1_000_000)
+    percent: float = Field(gt=0, le=1000)
+
+
 class SettingsIn(BaseModel):
     public_base_url: str = Field(default="", max_length=300)
     usd_price_rub: str = Field(default="", max_length=32)
+    min_topup_usd: str = Field(default="", max_length=32)
+    topup_bonuses: list[BonusTierIn] = Field(default_factory=list, max_length=20)
     offer_email: str = Field(default="", max_length=200)
     offer_date: str = Field(default="", max_length=32)
+    support_username: str = Field(default="", max_length=64)
     router_root_key: str = Field(default="", max_length=300)
 
 
@@ -95,6 +107,9 @@ def _settings_payload() -> dict:
         "public_base_url": public_base_url(),
         "offer_url": offer_url(),
         "usd_price_rub": str(usd_price_rub()) if usd_price_rub() > 0 else get_setting("usd_price_rub"),
+        "min_topup_usd": str(min_topup_usd()),
+        "topup_bonuses": bonus_tiers(),
+        "mail_enabled": mail_enabled(),
         "offer_email": get_setting("offer_email") or get_setting("seller_email"),
         "offer_date": get_setting("offer_date"),
         "support_username": get_setting("support_username"),
@@ -126,15 +141,25 @@ def write_settings(body: SettingsIn) -> dict:
                 raise HTTPException(status_code=422, detail="price")
         except Exception as exc:
             raise HTTPException(status_code=422, detail="price") from exc
+    min_topup = body.min_topup_usd.strip().replace(",", ".")
+    if min_topup:
+        try:
+            if Decimal(min_topup) <= 0:
+                raise ValueError
+        except Exception as exc:
+            raise HTTPException(status_code=422, detail="min_topup") from exc
     offer_date = body.offer_date.strip()
     if offer_date:
         try:
             date.fromisoformat(offer_date)
         except ValueError as exc:
             raise HTTPException(status_code=422, detail="offer_date") from exc
+    tiers = normalize_bonus_tiers([tier.model_dump() for tier in body.topup_bonuses])
     values = {
         "public_base_url": body.public_base_url.strip().rstrip("/"),
         "usd_price_rub": price,
+        "min_topup_usd": min_topup,
+        "topup_bonuses": json.dumps(tiers, ensure_ascii=False) if tiers else "",
         "offer_email": body.offer_email.strip(),
         "offer_date": offer_date,
         "support_username": body.support_username.strip().lstrip("@"),
@@ -153,7 +178,7 @@ def list_users() -> dict:
     with pool.connection() as conn:
         rows = conn.execute(
             """
-            SELECT u.id, u.telegram_id, u.username, u.first_name, u.balance_usd,
+            SELECT u.id, u.telegram_id, u.username, u.first_name, u.email, u.balance_usd,
                    u.offer_accepted_at, u.blocked_at, u.blocked_reason, k.prefix
             FROM users u
             LEFT JOIN api_keys k ON k.user_id = u.id AND k.revoked_at IS NULL
@@ -166,6 +191,7 @@ def list_users() -> dict:
             {
                 "id": row["id"],
                 "telegram_id": row["telegram_id"],
+                "email": row["email"] or "",
                 "username": row["username"],
                 "first_name": row["first_name"],
                 "balance_usd": float(row["balance_usd"]),
@@ -249,7 +275,12 @@ def delete_user(user_id: int) -> dict:
 
 def _person(row: dict) -> str:
     name = str(row["first_name"] or "").strip()
-    handle = f"@{row['username']}" if row["username"] else str(row["telegram_id"])
+    if row["username"]:
+        handle = f"@{row['username']}"
+    elif row["telegram_id"]:
+        handle = str(row["telegram_id"])
+    else:
+        handle = str(row.get("email") or "").strip() or "сайт"
     return f"{name} {handle}".strip()
 
 
@@ -364,7 +395,7 @@ def analytics(days: int = Query(default=30, ge=7, le=90)) -> dict:
         ).fetchall()
         spender_rows = conn.execute(
             """
-            SELECT u.telegram_id, u.username, u.first_name,
+            SELECT u.telegram_id, u.username, u.first_name, u.email,
                    COALESCE(SUM(g.quota_units), 0) AS units,
                    COUNT(*) AS requests
             FROM usage g
@@ -378,7 +409,7 @@ def analytics(days: int = Query(default=30, ge=7, le=90)) -> dict:
         ).fetchall()
         payer_rows = conn.execute(
             """
-            SELECT u.telegram_id, u.username, u.first_name,
+            SELECT u.telegram_id, u.username, u.first_name, u.email,
                    COALESCE(SUM(t.amount_kopecks), 0) AS kopecks,
                    COALESCE(SUM(t.amount_usd), 0) AS usd,
                    COUNT(*) AS payments
@@ -394,7 +425,7 @@ def analytics(days: int = Query(default=30, ge=7, le=90)) -> dict:
         recent_rows = conn.execute(
             """
             SELECT g.created_at, g.model_name, g.quota_units, g.prompt_tokens, g.completion_tokens,
-                   u.telegram_id, u.username, u.first_name
+                   u.telegram_id, u.username, u.first_name, u.email
             FROM usage g
             JOIN users u ON u.id = g.user_id
             ORDER BY g.created_at DESC
@@ -549,7 +580,7 @@ def list_ledger() -> dict:
         rows = conn.execute(
             """
             SELECT l.id, l.user_id, l.kind, l.note, l.amount_usd, l.amount_kopecks, l.created_at,
-                   u.telegram_id, u.username, u.first_name
+                   u.telegram_id, u.username, u.first_name, u.email
             FROM ledger l
             JOIN users u ON u.id = l.user_id
             ORDER BY l.id DESC
@@ -568,6 +599,7 @@ def list_ledger() -> dict:
                 "amount_usd": float(row["amount_usd"]),
                 "amount_rub": int(row["amount_kopecks"] or 0) / 100,
                 "telegram_id": row["telegram_id"],
+                "email": row["email"] or "",
                 "username": row["username"],
                 "first_name": row["first_name"],
                 "created_at": row["created_at"].isoformat(),
@@ -618,7 +650,7 @@ def list_topups() -> dict:
         rows = conn.execute(
             """
             SELECT t.id, t.amount_kopecks, t.amount_usd, t.status, t.created_at,
-                   u.telegram_id, u.username, u.first_name
+                   u.telegram_id, u.username, u.first_name, u.email
             FROM topups t
             JOIN users u ON u.id = t.user_id
             ORDER BY t.id DESC
@@ -630,6 +662,7 @@ def list_topups() -> dict:
             {
                 "id": row["id"],
                 "telegram_id": row["telegram_id"],
+                "email": row["email"] or "",
                 "username": row["username"],
                 "first_name": row["first_name"],
                 "amount_rub": row["amount_kopecks"] / 100,
