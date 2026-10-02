@@ -272,9 +272,15 @@
             <div class="settings-block">
               <h3>Почта</h3>
               <p class="muted">
-                SMTP задаётся в .env.
+                SMTP задаётся в <code>.env</code> в корне проекта, затем перезапустите backend:
+                <code>docker compose up -d --build backend</code>.
                 <span v-if="mailEnabled" class="badge ok">настроено</span>
                 <span v-else class="badge warn">не настроено — письма не уходят</span>
+              </p>
+              <p v-if="!mailEnabled && mailMissing.length" class="muted small mail-hint">
+                Не хватает: {{ mailMissing.join(', ') }}.
+                Нужны как минимум <code>SMTP_HOST</code> и <code>SMTP_USER</code>
+                (или <code>SMTP_FROM</code>, если совпадает с разрешённым отправителем).
               </p>
             </div>
             <div class="settings-block">
@@ -629,6 +635,11 @@ const {
   tabs,
   periodOptions,
   settingsForm,
+  bonusTiers,
+  mailEnabled,
+  mailMissing,
+  addBonusTier,
+  removeBonusTier,
   rootKey,
   rootHint,
   supplierDisplay,
@@ -951,6 +962,8 @@ onMounted(() => {
 }
 .admin-page .bonus-row label { margin: 0; }
 .admin-page .bonus-row input { width: 100%; }
+.admin-page .mail-hint { margin-top: 8px; }
+.admin-page .mail-hint code { font-size: 12px; background: var(--surface-soft); padding: 1px 5px; border-radius: 4px; }
 @media (max-width: 640px) {
   .admin-page .bonus-row { grid-template-columns: 1fr 1fr; }
   .admin-page .bonus-row button { grid-column: 1 / -1; }

@@ -11,6 +11,7 @@ from pydantic import BaseModel, Field
 from app.auth import check_password, make_token, require_admin
 from app.billing import BillingError, add_usd, block_user, unblock_user
 from app.db import pool
+from app.config import settings
 from app.mailer import enabled as mail_enabled
 from app.money import bonus_tiers, min_topup_usd, normalize_bonus_tiers, units_to_usd, usd_price_rub
 from app.referrals import (
@@ -94,6 +95,15 @@ class ReferralGroupAssignIn(BaseModel):
 _LEDGER_KINDS = {"topup", "credit", "spend", "adjust"}
 
 
+def _mail_missing() -> list[str]:
+    missing: list[str] = []
+    if not settings.smtp_host.strip():
+        missing.append("SMTP_HOST")
+    if not settings.smtp_from.strip() and not settings.smtp_user.strip():
+        missing.append("SMTP_USER или SMTP_FROM")
+    return missing
+
+
 def _settings_payload() -> dict:
     root = get_setting("router_root_key")
     supplier = None
@@ -110,6 +120,7 @@ def _settings_payload() -> dict:
         "min_topup_usd": str(min_topup_usd()),
         "topup_bonuses": bonus_tiers(),
         "mail_enabled": mail_enabled(),
+        "mail_missing": _mail_missing(),
         "offer_email": get_setting("offer_email") or get_setting("seller_email"),
         "offer_date": get_setting("offer_date"),
         "support_username": get_setting("support_username"),

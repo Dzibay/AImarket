@@ -119,6 +119,7 @@ export function useAdminPanel() {
   })
   const bonusTiers = ref([])
   const mailEnabled = ref(false)
+  const mailMissing = ref([])
 
   function addBonusTier() {
     bonusTiers.value.push({ min_usd: '', percent: '' })
@@ -382,6 +383,7 @@ export function useAdminPanel() {
       percent: String(tier.percent),
     }))
     mailEnabled.value = Boolean(settings.mail_enabled)
+    mailMissing.value = Array.isArray(settings.mail_missing) ? settings.mail_missing : []
     settingsForm.offer_date = settings.offer_date || ''
     settingsForm.offer_email = settings.offer_email || ''
     settingsForm.support_username = settings.support_username || ''
@@ -714,6 +716,7 @@ export function useAdminPanel() {
     settingsForm,
     bonusTiers,
     mailEnabled,
+    mailMissing,
     addBonusTier,
     removeBonusTier,
     rootKey,
