@@ -63,7 +63,8 @@
           <h1 class="page-title">Ссылка недействительна</h1>
           <p class="page-lead">{{ error }}</p>
           <div class="actions">
-            <RouterLink to="/login" class="btn">Войти по ключу</RouterLink>
+            <RouterLink v-if="hasSession" to="/cabinet" class="btn">В личный кабинет</RouterLink>
+            <RouterLink to="/login" class="btn" :class="{ quiet: hasSession }">Войти по ключу</RouterLink>
             <RouterLink to="/" class="btn quiet">На главную</RouterLink>
           </div>
         </template>
@@ -80,12 +81,13 @@ import KeyCard from '../components/KeyCard.vue'
 import SiteFooter from '../components/SiteFooter.vue'
 import SiteHeader from '../components/SiteHeader.vue'
 import { errorText, webApi } from '../api/web'
-import { useSession } from '../composables/useSession'
+import { getSession, useSession } from '../composables/useSession'
 import { usd } from '../utils/format'
 import { useHead } from '../utils/useHead'
 
 const route = useRoute()
 const { setSession } = useSession()
+const hasSession = Boolean(getSession())
 
 const state = ref('loading')
 const profile = ref(null)

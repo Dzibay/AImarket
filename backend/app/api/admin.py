@@ -390,6 +390,16 @@ def analytics(days: int = Query(default=30, ge=7, le=90)) -> dict:
             """,
             (today,),
         ).fetchone()
+        user_rows = conn.execute(
+            """
+            SELECT (created_at AT TIME ZONE 'Europe/Moscow')::date AS day,
+                   COUNT(*) AS users
+            FROM users
+            WHERE created_at >= %s
+            GROUP BY 1
+            """,
+            (start,),
+        ).fetchall()
         model_rows = conn.execute(
             """
             SELECT COALESCE(NULLIF(model_name, ''), 'без модели') AS model,
@@ -461,6 +471,7 @@ def analytics(days: int = Query(default=30, ge=7, le=90)) -> dict:
             supplier = None
     revenue_days = _fill_days(start, days, revenue_rows)
     spend_days = _fill_days(start, days, spend_rows)
+    user_days = _fill_days(start, days, user_rows)
     paid = int(money["period_paid"] or 0)
     period_kop = int(money["period_kop"] or 0)
     return {
@@ -498,6 +509,13 @@ def analytics(days: int = Query(default=30, ge=7, le=90)) -> dict:
                 "completion_tokens": int(row.get("completion_tokens") or 0),
             }
             for day, row in spend_days.items()
+        ],
+        "users_by_day": [
+            {
+                "day": day.isoformat(),
+                "users": int(row.get("users") or 0),
+            }
+            for day, row in user_days.items()
         ],
         "models": [
             {

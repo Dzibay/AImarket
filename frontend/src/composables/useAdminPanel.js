@@ -19,8 +19,8 @@ const GROUP_ERROR_MESSAGES = {
   long: 'Не длиннее 64 символов.',
 }
 
-export function rub(value) {
-  return Number(value).toFixed(2) + ' ₽'
+export function rub(value, digits = 2) {
+  return Number(value || 0).toFixed(digits) + ' ₽'
 }
 
 export function usd(value) {
@@ -84,27 +84,63 @@ function aggregateReferralStats(items) {
   return stats
 }
 
-function buildChartBars(rows, field) {
-  const max = Math.max(...rows.map((row) => Number(row[field]) || 0), 0)
+function niceCeil(value) {
+  if (!value || value <= 0) return 1
+  const exp = 10 ** Math.floor(Math.log10(value))
+  const n = value / exp
+  const nice = n <= 1 ? 1 : n <= 2 ? 2 : n <= 5 ? 5 : 10
+  return nice * exp
+}
+
+function dayLabel(iso) {
+  if (!iso) return '—'
+  const parts = String(iso).slice(0, 10).split('-')
+  if (parts.length !== 3) return String(iso).slice(5)
+  return `${parts[2]}.${parts[1]}`
+}
+
+function buildChartSeries(rows, {
+  valueKey,
+  formatValue,
+  detail = () => '',
+  formatTick = formatValue,
+}) {
+  const values = rows.map((row) => Number(row[valueKey]) || 0)
+  const rawMax = Math.max(...values, 0)
+  const max = niceCeil(rawMax)
   const step = rows.length > 40 ? 14 : rows.length > 14 ? 5 : 1
-  return rows.map((row, index) => {
-    const value = Number(row[field]) || 0
+  const total = values.reduce((sum, value) => sum + value, 0)
+  const tickRatios = max <= 2 ? [1, 0.5, 0] : [1, 0.75, 0.5, 0.25, 0]
+  const ticks = tickRatios.map((ratio) => ({
+    ratio,
+    label: formatTick(max * ratio),
+  }))
+  const bars = rows.map((row, index) => {
+    const value = Number(row[valueKey]) || 0
     return {
       day: row.day,
       value,
-      empty: max === 0 || value === 0,
-      height: max === 0 || value === 0 ? 4 : Math.max(6, Math.round(value / max * 140)),
-      title: row.day + ': ' + (field === 'rub' ? rub(value) : usd4(value)),
-      showLabel: index % step === 0,
-      label: index % step === 0 ? row.day.slice(5) : '',
+      empty: value <= 0,
+      heightRatio: max > 0 ? value / max : 0,
+      showLabel: index % step === 0 || index === rows.length - 1,
+      label: dayLabel(row.day),
+      dayLabel: dayLabel(row.day),
+      display: formatValue(value),
+      detail: detail(row, value),
+      title: `${dayLabel(row.day)}: ${formatValue(value)}`,
     }
   })
+  return { bars, ticks, total, max }
 }
 
 export function useAdminPanel() {
-  const isLoggedIn = ref(false)
+  // checking — есть токен, грузим данные; guest — форма входа; in — панель.
+  const authPhase = ref(sessionStorage.getItem(TOKEN_KEY) ? 'checking' : 'guest')
+  const isLoggedIn = computed(() => authPhase.value === 'in')
   const password = ref('')
   const loginError = ref('')
+  const bootError = ref('')
+  const loggingIn = ref(false)
 
   const activeTab = ref('analytics')
   const period = ref(30)
@@ -134,9 +170,10 @@ export function useAdminPanel() {
   const saveStatus = ref('')
   const saveStatusIsError = ref(false)
 
-  const kpiCards = ref([])
-  const revenueBars = ref([])
-  const spendBars = ref([])
+  const kpiGroups = ref([])
+  const revenueChart = ref({ bars: [], ticks: [], totalLabel: '', subtitle: '' })
+  const spendChart = ref({ bars: [], ticks: [], totalLabel: '', subtitle: '' })
+  const usersChart = ref({ bars: [], ticks: [], totalLabel: '', subtitle: '' })
   const models = ref([])
   const spenders = ref([])
   const payers = ref([])
@@ -267,7 +304,15 @@ export function useAdminPanel() {
   }
 
   function showLogin() {
-    isLoggedIn.value = false
+    sessionStorage.removeItem(TOKEN_KEY)
+    authPhase.value = 'guest'
+    bootError.value = ''
+  }
+
+  function logout() {
+    showLogin()
+    password.value = ''
+    loginError.value = ''
   }
 
   function referralUrl(token) {
@@ -324,33 +369,95 @@ export function useAdminPanel() {
   }
 
   function formatRecentAt(at) {
-    return at.replace('T', ' ').slice(0, 16)
+    if (!at) return '—'
+    return String(at).replace('T', ' ').slice(0, 16)
   }
 
   async function loadAnalytics() {
     const data = await api('/api/admin/analytics?days=' + period.value)
     const supplier = data.supplier_balance_usd == null ? '—' : usd(data.supplier_balance_usd)
-    kpiCards.value = [
-      ['Выручка сегодня', rub(data.revenue_today_rub)],
-      ['Выручка за период', rub(data.revenue_rub)],
-      ['Зачислено лимита', usd(data.revenue_usd)],
-      ['Средний чек', rub(data.average_check_rub)],
-      ['Оплат', String(data.payments_paid) + ' / ' + data.payments],
-      ['Платящих', String(data.paying_users)],
-      ['Расход сегодня', usd4(data.spend_today_usd)],
-      ['Запросов сегодня', String(data.requests_today)],
-      ['Пользователи', String(data.users)],
-      ['Новые', String(data.users_new)],
-      ['Оферта', String(data.users_accepted)],
-      ['Ключи', String(data.keys_active)],
-      ['Балансы', usd(data.customer_balance_usd)],
-      ['Поставщик', supplier],
-      ['Расход за период', usd4(data.spend_by_day.reduce((sum, row) => sum + row.usd, 0))],
-      ['Запросов за период', String(data.spend_by_day.reduce((sum, row) => sum + row.requests, 0))],
-    ].map(([label, value]) => ({ label, value }))
+    const spendPeriod = (data.spend_by_day || []).reduce((sum, row) => sum + Number(row.usd || 0), 0)
+    const requestsPeriod = (data.spend_by_day || []).reduce((sum, row) => sum + Number(row.requests || 0), 0)
 
-    revenueBars.value = buildChartBars(data.revenue_by_day, 'rub')
-    spendBars.value = buildChartBars(data.spend_by_day, 'usd')
+    kpiGroups.value = [
+      {
+        title: 'Деньги',
+        cards: [
+          { label: 'Выручка сегодня', value: rub(data.revenue_today_rub) },
+          { label: 'Выручка за период', value: rub(data.revenue_rub) },
+          { label: 'Зачислено лимита', value: usd(data.revenue_usd) },
+          { label: 'Средний чек', value: rub(data.average_check_rub) },
+          { label: 'Оплат', value: `${data.payments_paid} / ${data.payments}` },
+          { label: 'Платящих', value: String(data.paying_users) },
+        ],
+      },
+      {
+        title: 'Расход',
+        cards: [
+          { label: 'Расход сегодня', value: usd4(data.spend_today_usd) },
+          { label: 'Расход за период', value: usd4(spendPeriod) },
+          { label: 'Запросов сегодня', value: String(data.requests_today) },
+          { label: 'Запросов за период', value: String(requestsPeriod) },
+          { label: 'Балансы клиентов', value: usd(data.customer_balance_usd) },
+          { label: 'Поставщик', value: supplier },
+        ],
+      },
+      {
+        title: 'Пользователи',
+        cards: [
+          { label: 'Всего', value: String(data.users) },
+          { label: 'Новые за период', value: String(data.users_new) },
+          { label: 'Приняли оферту', value: String(data.users_accepted) },
+          { label: 'Активные ключи', value: String(data.keys_active) },
+        ],
+      },
+    ]
+
+    const revenueSeries = buildChartSeries(data.revenue_by_day || [], {
+      valueKey: 'rub',
+      formatValue: (value) => rub(value),
+      formatTick: (value) => (value >= 1000 ? `${Math.round(value / 1000)}k ₽` : rub(value, value >= 100 ? 0 : 2)),
+      detail: (row) => {
+        const payments = Number(row.payments || 0)
+        return payments ? `${payments} опл. · ${usd(row.usd)}` : usd(row.usd)
+      },
+    })
+    revenueChart.value = {
+      bars: revenueSeries.bars,
+      ticks: revenueSeries.ticks,
+      totalLabel: rub(revenueSeries.total),
+      subtitle: 'Оплаченные пополнения, ₽',
+    }
+
+    const spendSeries = buildChartSeries(data.spend_by_day || [], {
+      valueKey: 'usd',
+      formatValue: (value) => usd4(value),
+      formatTick: (value) => (value >= 1 ? usd(value) : usd4(value)),
+      detail: (row) => {
+        const requests = Number(row.requests || 0)
+        return requests ? `${requests} запр.` : ''
+      },
+    })
+    spendChart.value = {
+      bars: spendSeries.bars,
+      ticks: spendSeries.ticks,
+      totalLabel: usd4(spendSeries.total),
+      subtitle: 'Списания с балансов клиентов',
+    }
+
+    const usersSeries = buildChartSeries(data.users_by_day || [], {
+      valueKey: 'users',
+      formatValue: (value) => String(Math.round(value)),
+      formatTick: (value) => String(Math.round(value)),
+      detail: () => 'новых аккаунтов',
+    })
+    usersChart.value = {
+      bars: usersSeries.bars,
+      ticks: usersSeries.ticks,
+      totalLabel: String(Math.round(usersSeries.total)),
+      subtitle: 'Регистрации (сайт + бот)',
+    }
+
     models.value = data.models
     spenders.value = data.spenders
     payers.value = data.payers
@@ -408,24 +515,33 @@ export function useAdminPanel() {
 
     await loadReferrals()
     await loadAnalytics()
-    isLoggedIn.value = true
+    authPhase.value = 'in'
+    bootError.value = ''
   }
 
   async function login() {
     loginError.value = ''
-    const response = await fetch('/api/admin/login', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ password: password.value }),
-    })
-    const body = await response.json().catch(() => ({}))
-    if (!response.ok) {
-      loginError.value = 'Неверный пароль'
-      return
+    loggingIn.value = true
+    try {
+      const response = await fetch('/api/admin/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ password: password.value }),
+      })
+      const body = await response.json().catch(() => ({}))
+      if (!response.ok) {
+        loginError.value = 'Неверный пароль'
+        return
+      }
+      sessionStorage.setItem(TOKEN_KEY, body.token)
+      password.value = ''
+      authPhase.value = 'checking'
+      await load()
+    } catch {
+      loginError.value = 'Не удалось войти. Проверьте сеть и попробуйте снова.'
+    } finally {
+      loggingIn.value = false
     }
-    sessionStorage.setItem(TOKEN_KEY, body.token)
-    password.value = ''
-    await load()
   }
 
   function setTab(tab) {
@@ -534,7 +650,7 @@ export function useAdminPanel() {
   }
 
   async function blockUser(user) {
-    const reason = prompt('Причина:', '') ?? ''
+    const reason = prompt('Причина блокировки:', '')
     if (reason === null) return
     if (!confirm('Заблокировать ' + person(user) + '?')) return
     try {
@@ -700,15 +816,20 @@ export function useAdminPanel() {
   }
 
   onMounted(() => {
-    if (sessionStorage.getItem(TOKEN_KEY)) {
-      load().catch(showLogin)
-    }
+    if (authPhase.value !== 'checking') return
+    load().catch(() => {
+      bootError.value = 'Сессия истекла или сервер недоступен. Войдите снова.'
+      showLogin()
+    })
   })
 
   return {
+    authPhase,
     isLoggedIn,
     password,
     loginError,
+    bootError,
+    loggingIn,
     activeTab,
     period,
     tabs,
@@ -724,9 +845,10 @@ export function useAdminPanel() {
     supplierDisplay,
     saveStatus,
     saveStatusIsError,
-    kpiCards,
-    revenueBars,
-    spendBars,
+    kpiGroups,
+    revenueChart,
+    spendChart,
+    usersChart,
     models,
     spenders,
     payers,
@@ -751,6 +873,7 @@ export function useAdminPanel() {
     groupError,
     copiedReferralIds,
     login,
+    logout,
     setTab,
     setPeriod,
     saveSettings,

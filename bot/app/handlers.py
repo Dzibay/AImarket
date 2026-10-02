@@ -119,7 +119,13 @@ def _ago(value: str) -> str:
     return f"{when} ({rel})"
 
 
-def _explain(exc: BackendError) -> str:
+def _min_topup_label(profile: dict | None = None) -> str:
+    value = float((profile or {}).get("min_topup_usd") or 10)
+    text = f"{value:.2f}".rstrip("0").rstrip(".")
+    return f"{text} $"
+
+
+def _explain(exc: BackendError, profile: dict | None = None) -> str:
     reasons = {
         "offer": "Сначала примите все условия.",
         "blocked": "Доступ к сервису ограничён. Подробности — в главном меню.",
@@ -127,7 +133,7 @@ def _explain(exc: BackendError) -> str:
         "balance": "Сначала пополните баланс.",
         "empty": "Лимит нулевой. Сначала пополните баланс.",
         "sales-closed": "Пополнение закрыто: в админке не указана цена доллара.",
-        "min-topup": "Минимальная сумма пополнения — 10 $.",
+        "min-topup": f"Минимальная сумма пополнения — {_min_topup_label(profile)}.",
         "no-yookassa": "Оплата не настроена.",
         "no-bot": "Не удалось открыть возврат в бота. Проверьте токен бота в настройках.",
         "yookassa": "Платёж сейчас не создаётся. Попробуйте позже.",
@@ -548,19 +554,21 @@ def _faq_answer(
     items = products or []
 
     if topic == "topup":
+        minimum = _min_topup_label(profile)
         text = (
             "💳 <b>Как пополнить баланс?</b>\n\n"
             "1️⃣ Нажмите «Пополнить баланс» в главном меню\n"
-            "2️⃣ Выберите сумму ($10, $25, $50, $100) или введите свою\n"
+            "2️⃣ Выберите сумму кнопкой или введите свою в рублях\n"
             "3️⃣ Оплатите картой (Visa, MasterCard, МИР) или через СБП\n"
             "4️⃣ Баланс зачислится автоматически\n\n"
-            "💵 Минимальная сумма пополнения: $10\n"
+            f"💵 Минимальная сумма пополнения: {minimum}\n"
             "📊 Курс покупки показывается и вы принимаете перед оплатой"
         )
     elif topic == "key":
+        minimum = _min_topup_label(profile)
         text = (
             "🔑 <b>Как получить API-ключ?</b>\n\n"
-            "1️⃣ Пополните баланс (минимум $10)\n"
+            f"1️⃣ Пополните баланс (минимум {minimum})\n"
             "2️⃣ Откройте «🔑 Мой ключ» → «Создать ключ»\n"
             "3️⃣ Скопируйте ключ и адрес API"
         )
@@ -612,12 +620,11 @@ def _faq_answer(
     elif topic == "refund":
         text = (
             "🔄 <b>Можно ли вернуть деньги?</b>\n\n"
-            "Возврат неизрасходованного баланса возможен через обращение в поддержку.\n\n"
-            "📋 <b>Условия возврата:</b>\n"
-            "• Возврат только на ту же карту, с которой производилась оплата\n"
-            "• Возврат возможен в течение 14 дней с момента пополнения\n"
-            "• Баланс не должен быть израсходован\n\n"
-            f"📞 Для возврата свяжитесь с поддержкой: {support}"
+            "Вы оплачиваете право доступа к сервису — оно предоставляется в момент зачисления баланса. "
+            "По умолчанию средства не возвращаются (см. раздел 9 публичной оферты).\n\n"
+            "Если произошла ошибка (двойной платёж, сбой и т.п.) — напишите в поддержку, "
+            "разберём индивидуально.\n\n"
+            f"📞 Поддержка: {support}"
         )
     elif topic == "support":
         text = (
@@ -807,17 +814,29 @@ def _history_filter_screen(active: str = "all") -> tuple[str, InlineKeyboardMark
 
 def _topup_screen(profile: dict) -> tuple[str, InlineKeyboardMarkup]:
     price = float(profile.get("usd_price_rub") or 0)
+    minimum = float(profile.get("min_topup_usd") or 10)
     text = (
         "💳 Чтобы пополнить баланс, выберите нужную сумму по кнопке "
         "или напишите сумму в рублях\n\n"
-        "Минимальная сумма: $10\n"
+        f"Минимальная сумма: {_min_topup_label(profile)}\n"
         f"Курс: 1 $ = {price:.2f} ₽"
     )
-    rows = [
-        [_button("$10", callback="topup:usd:10"), _button("$25", callback="topup:usd:25")],
-        [_button("$50", callback="topup:usd:50"), _button("$100", callback="topup:usd:100")],
-        [_button("⬅️ Назад", callback="cabinet")],
-    ]
+    presets = [10, 25, 50, 100, 500, 1000]
+    presets = [value for value in presets if value + 1e-9 >= minimum]
+    if minimum > 0 and not any(abs(value - minimum) < 1e-9 for value in presets):
+        presets = [round(minimum, 2), *presets]
+    presets = presets[:6] or [round(minimum, 2)]
+    rows: list[list[InlineKeyboardButton]] = []
+    pair: list[InlineKeyboardButton] = []
+    for value in presets:
+        label = f"${value:g}"
+        pair.append(_button(label, callback=f"topup:usd:{value:g}"))
+        if len(pair) == 2:
+            rows.append(pair)
+            pair = []
+    if pair:
+        rows.append(pair)
+    rows.append([_button("⬅️ Назад", callback="cabinet")])
     return text, InlineKeyboardMarkup(inline_keyboard=rows)
 
 
@@ -1464,7 +1483,7 @@ async def topup_amount(message: Message, state: FSMContext) -> None:
         return
     min_rub = float(profile.get("min_topup_rub") or 0)
     if min_rub > 0 and amount < min_rub:
-        await _say(message, "Минимальная сумма пополнения — 10 $.")
+        await _say(message, f"Минимальная сумма пополнения — {_min_topup_label(profile)}.")
         return
     try:
         text, markup, clear = await _process_topup_rub(amount, profile, message.from_user.id, state)
@@ -1506,7 +1525,7 @@ async def topup_preset(query: CallbackQuery, state: FSMContext) -> None:
     )
     min_rub = float(profile.get("min_topup_rub") or 0)
     if min_rub > 0 and amount_rub < min_rub:
-        await query.answer("Минимальная сумма пополнения — 10 $.", show_alert=True)
+        await query.answer(f"Минимальная сумма пополнения — {_min_topup_label(profile)}.", show_alert=True)
         return
     await query.answer()
     try:
@@ -1535,7 +1554,7 @@ async def topup_pay(query: CallbackQuery, state: FSMContext) -> None:
         return
     min_rub = float(profile.get("min_topup_rub") or 0)
     if not isinstance(amount, (int, float)) or (min_rub > 0 and float(amount) < min_rub):
-        await query.answer("Минимальная сумма пополнения — 10 $.", show_alert=True)
+        await query.answer(f"Минимальная сумма пополнения — {_min_topup_label(profile)}.", show_alert=True)
         return
     await query.answer()
     try:

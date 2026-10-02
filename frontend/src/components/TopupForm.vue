@@ -87,7 +87,8 @@
     <p class="small muted fine">
       <template v-if="mode === 'checkout'">
         После оплаты вы получите ключ доступа к личному кабинету и к API. Ключ показывается на сайте
-        и отправляется на указанную почту вместе с кнопкой входа в кабинет. Нажимая «Оплатить», вы принимаете
+        <template v-if="emailEnabled"> и отправляется на указанную почту вместе с кнопкой входа в кабинет</template>.
+        Нажимая «Оплатить», вы принимаете
         <RouterLink to="/offer">оферту</RouterLink>,
         <RouterLink to="/privacy">политику конфиденциальности</RouterLink> и
         <RouterLink to="/consent">согласие на обработку данных</RouterLink>.
@@ -126,12 +127,24 @@ const minUsd = computed(() => Number(props.config?.min_topup_usd || 10))
 const minRub = computed(() => Number(props.config?.min_topup_rub || 0))
 const salesOpen = computed(() => props.config?.sales_open !== false && price.value > 0)
 
+const emailEnabled = computed(() => Boolean(props.config?.email_enabled))
+
 const USD_PRESETS = [10, 25, 50, 100, 500, 1000]
 
+function usdPresetList(min) {
+  const floor = Number(min) || 0
+  let list = USD_PRESETS.filter((value) => value + 1e-9 >= floor)
+  if (floor > 0 && !list.some((value) => Math.abs(value - floor) < 1e-9) && floor <= USD_PRESETS[USD_PRESETS.length - 1]) {
+    list = [Math.round(floor * 100) / 100, ...list].sort((a, b) => a - b)
+  }
+  return list.length ? list : (floor > 0 ? [Math.round(floor * 100) / 100] : [...USD_PRESETS])
+}
+
 const presets = computed(() => {
-  if (currency.value === 'usd') return USD_PRESETS
+  const usdList = usdPresetList(minUsd.value)
+  if (currency.value === 'usd') return usdList
   if (!price.value) return []
-  return USD_PRESETS.map((usd) => Math.ceil(usd * price.value))
+  return usdList.map((value) => Math.ceil(value * price.value))
 })
 
 const parsed = computed(() => {

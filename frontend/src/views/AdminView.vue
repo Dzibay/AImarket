@@ -7,21 +7,31 @@
           <RouterLink to="/privacy">Политика</RouterLink>
           <RouterLink to="/consent">Согласие</RouterLink>
           <RouterLink to="/offer">Оферта</RouterLink>
+          <button v-if="isLoggedIn" type="button" class="quiet sm logout" @click="logout">Выйти</button>
         </div>
       </div>
 
-      <section v-if="!isLoggedIn" class="panel login-panel">
+      <section v-if="authPhase === 'checking'" class="panel login-panel boot">
+        <h2>Загрузка…</h2>
+        <p class="muted">Проверяем сессию и подтягиваем данные.</p>
+      </section>
+
+      <section v-else-if="authPhase === 'guest'" class="panel login-panel">
         <h2>Вход</h2>
+        <p v-if="bootError" class="error">{{ bootError }}</p>
         <label for="password">Пароль</label>
         <input
           id="password"
           v-model="password"
           type="password"
           autocomplete="current-password"
+          :disabled="loggingIn"
           @keydown.enter="login"
         >
         <div class="row">
-          <button type="button" @click="login">Войти</button>
+          <button type="button" :disabled="loggingIn || !password" @click="login">
+            {{ loggingIn ? 'Входим…' : 'Войти' }}
+          </button>
           <span v-if="loginError" class="error">{{ loginError }}</span>
         </div>
       </section>
@@ -54,46 +64,44 @@
               </button>
             </div>
           </div>
-          <div class="cards">
-            <div v-for="card in kpiCards" :key="card.label" class="card">
-              <span>{{ card.label }}</span>
-              <b>{{ card.value }}</b>
-            </div>
-          </div>
-          <div class="block">
-            <h3>Выручка по дням</h3>
-            <div class="chart-scroll">
-              <div class="chart">
-                <i
-                  v-for="(bar, index) in revenueBars"
-                  :key="'rev-' + index"
-                  :class="{ empty: bar.empty }"
-                  :style="{ height: bar.height + 'px' }"
-                  :title="bar.title"
-                />
-              </div>
-              <div class="axis">
-                <b v-for="(bar, index) in revenueBars" :key="'rev-a-' + index">{{ bar.label }}</b>
+
+          <div v-for="group in kpiGroups" :key="group.title" class="kpi-group">
+            <h3 class="kpi-title">{{ group.title }}</h3>
+            <div class="cards">
+              <div v-for="card in group.cards" :key="card.label" class="card">
+                <span>{{ card.label }}</span>
+                <b>{{ card.value }}</b>
               </div>
             </div>
           </div>
-          <div class="block">
-            <h3>Расход клиентов по дням</h3>
-            <div class="chart-scroll">
-              <div class="chart alt">
-                <i
-                  v-for="(bar, index) in spendBars"
-                  :key="'spend-' + index"
-                  :class="{ empty: bar.empty }"
-                  :style="{ height: bar.height + 'px' }"
-                  :title="bar.title"
-                />
-              </div>
-              <div class="axis">
-                <b v-for="(bar, index) in spendBars" :key="'spend-a-' + index">{{ bar.label }}</b>
-              </div>
-            </div>
+
+          <div class="charts">
+            <AdminChart
+              title="Выручка по дням"
+              tone="revenue"
+              :subtitle="revenueChart.subtitle"
+              :total-label="revenueChart.totalLabel"
+              :bars="revenueChart.bars"
+              :ticks="revenueChart.ticks"
+            />
+            <AdminChart
+              title="Расход клиентов"
+              tone="spend"
+              :subtitle="spendChart.subtitle"
+              :total-label="spendChart.totalLabel"
+              :bars="spendChart.bars"
+              :ticks="spendChart.ticks"
+            />
+            <AdminChart
+              title="Приток пользователей"
+              tone="users"
+              :subtitle="usersChart.subtitle"
+              :total-label="usersChart.totalLabel"
+              :bars="usersChart.bars"
+              :ticks="usersChart.ticks"
+            />
           </div>
+
           <div class="split block">
             <div>
               <h3>Модели</h3>
@@ -185,7 +193,9 @@
                       <td colspan="3">Пока пусто</td>
                     </tr>
                     <tr v-for="row in paymentStatuses" :key="row.status">
-                      <td>{{ row.status }}</td>
+                      <td>
+                        <span class="badge" :class="statusBadgeClass(row.status)">{{ row.status }}</span>
+                      </td>
                       <td class="num">{{ row.count }}</td>
                       <td class="num">{{ rub(row.rub) }}</td>
                     </tr>
@@ -308,6 +318,7 @@
             <table>
               <thead>
                 <tr>
+                  <th>Когда</th>
                   <th>Клиент</th>
                   <th class="num">Сумма</th>
                   <th>Статус</th>
@@ -315,9 +326,10 @@
               </thead>
               <tbody>
                 <tr v-if="!topups.length" class="empty">
-                  <td colspan="3">Пока пусто</td>
+                  <td colspan="4">Пока пусто</td>
                 </tr>
                 <tr v-for="item in topups" :key="item.id">
+                  <td class="nowrap">{{ formatRecentAt(item.created_at) }}</td>
                   <td>{{ person(item) }}</td>
                   <td class="num">{{ topupAmount(item) }}</td>
                   <td>
@@ -623,13 +635,17 @@
 <script setup>
 import { onMounted } from 'vue'
 import { RouterLink } from 'vue-router'
+import AdminChart from '../components/AdminChart.vue'
 import { useAdminPanel } from '../composables/useAdminPanel'
 import { useHead } from '../utils/useHead'
 
 const {
+  authPhase,
   isLoggedIn,
   password,
   loginError,
+  bootError,
+  loggingIn,
   activeTab,
   period,
   tabs,
@@ -645,9 +661,10 @@ const {
   supplierDisplay,
   saveStatus,
   saveStatusIsError,
-  kpiCards,
-  revenueBars,
-  spendBars,
+  kpiGroups,
+  revenueChart,
+  spendChart,
+  usersChart,
   models,
   spenders,
   payers,
@@ -672,6 +689,7 @@ const {
   groupError,
   copiedReferralIds,
   login,
+  logout,
   setTab,
   setPeriod,
   saveSettings,
@@ -758,7 +776,10 @@ onMounted(() => {
   margin-bottom: 20px;
   flex-wrap: wrap;
 }
-.admin-page .site-head .links { display: flex; gap: 14px; flex-wrap: wrap; color: var(--muted); font-size: 13px; }
+.admin-page .site-head .links { display: flex; gap: 14px; align-items: center; flex-wrap: wrap; color: var(--muted); font-size: 13px; }
+.admin-page .site-head .logout { margin-left: 4px; }
+.admin-page .login-panel.boot { text-align: center; padding: 48px 24px; }
+.admin-page .login-panel.boot h2 { margin-bottom: 8px; }
 
 .admin-page .panel {
   background: var(--surface);
@@ -902,6 +923,7 @@ onMounted(() => {
 .admin-page tbody tr:last-child td { border-bottom: 0; }
 .admin-page tbody tr:hover td { background: rgba(250, 247, 242, 0.65); }
 .admin-page td.num, .admin-page th.num { text-align: right; white-space: nowrap; }
+.admin-page td.nowrap { white-space: nowrap; }
 .admin-page td.actions, .admin-page th.actions { width: 1%; white-space: nowrap; }
 .admin-page td.actions { display: flex; gap: 6px; justify-content: flex-end; flex-wrap: wrap; }
 .admin-page .inline-form { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-bottom: 14px; }
@@ -990,6 +1012,25 @@ onMounted(() => {
 .admin-page .ledger-form label { margin: 0 0 6px; }
 .admin-page .ledger-form .field { min-width: 0; }
 .admin-page .ledger-form button { height: 42px; }
+
+.admin-page .kpi-group { margin-bottom: 18px; }
+.admin-page .kpi-title {
+  margin: 0 0 10px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.admin-page .charts {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 16px;
+  margin: 8px 0 22px;
+}
+@media (min-width: 1100px) {
+  .admin-page .charts { grid-template-columns: 1fr; }
+}
 
 .admin-page .chart-scroll { overflow-x: auto; margin-top: 4px; padding-bottom: 4px; }
 .admin-page .chart, .admin-page .axis { display: flex; align-items: flex-end; gap: 4px; min-width: 100%; }

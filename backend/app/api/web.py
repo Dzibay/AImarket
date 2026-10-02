@@ -209,16 +209,40 @@ def checkout(body: CheckoutIn) -> dict:
         raise HTTPException(status_code=400, detail="email")
     rub, usd = _resolve_amount(body)
     # Нажатие «Оплатить» на сайте — акцепт оферты, политики и согласия (п. 1.2 оферты).
+    # Повторная оплата с той же почты должна попадать на того же пользователя, иначе балансы «разъедутся».
     with pool.connection() as conn:
-        created = conn.execute(
+        existing = conn.execute(
             """
-            INSERT INTO users (telegram_id, email, offer_accepted_at)
-            VALUES (NULL, %s, NOW())
-            RETURNING id
+            SELECT id, blocked_at FROM users
+            WHERE telegram_id IS NULL AND lower(email) = %s
+            ORDER BY id ASC
+            LIMIT 1
             """,
             (email,),
         ).fetchone()
-    return _start_payment(int(created["id"]), rub, usd, email)
+        if existing is not None:
+            if existing["blocked_at"] is not None:
+                raise HTTPException(status_code=403, detail="blocked")
+            user_id = int(existing["id"])
+            conn.execute(
+                """
+                UPDATE users
+                SET email = %s, offer_accepted_at = COALESCE(offer_accepted_at, NOW())
+                WHERE id = %s
+                """,
+                (email, user_id),
+            )
+        else:
+            created = conn.execute(
+                """
+                INSERT INTO users (telegram_id, email, offer_accepted_at)
+                VALUES (NULL, %s, NOW())
+                RETURNING id
+                """,
+                (email,),
+            ).fetchone()
+            user_id = int(created["id"])
+    return _start_payment(user_id, rub, usd, email)
 
 
 @router.post("/web/payments/return")
@@ -256,9 +280,18 @@ def payment_return(body: ReturnIn) -> dict:
                 status = "paid"
     user_id = int(row["user_id"])
     profile = _profile(user_id) if status == "paid" else None
+    session = ""
+    if status == "paid":
+        session = make_session(user_id)
+        # Ссылка возврата одноразовая после успешного входа — повторное открытие потребует ключ/письмо.
+        with pool.connection() as conn:
+            conn.execute(
+                "UPDATE topups SET return_token_hash = '' WHERE id = %s AND status = 'paid'",
+                (body.topup,),
+            )
     return {
         "status": status,
-        "session": make_session(user_id) if status == "paid" else "",
+        "session": session,
         "profile": profile,
         "amount_usd": float(row["amount_usd"]),
         "bonus_usd": float(row["bonus_usd"] or 0),
@@ -267,7 +300,7 @@ def payment_return(body: ReturnIn) -> dict:
 
 @router.post("/web/login/link")
 def login_by_link(body: LinkLoginIn) -> dict:
-    """Вход по кнопке из письма — токен хранится хэшем на пользователе, срок ограничен."""
+    """Вход по кнопке из письма — токен с ограниченным сроком; после входа сбрасывается."""
     with pool.connection() as conn:
         row = conn.execute(
             """
@@ -280,6 +313,15 @@ def login_by_link(body: LinkLoginIn) -> dict:
     if row is None:
         raise HTTPException(status_code=401, detail="expired")
     user_id = int(row["id"])
+    with pool.connection() as conn:
+        conn.execute(
+            """
+            UPDATE users
+            SET email_login_hash = '', email_login_expires_at = NULL
+            WHERE id = %s
+            """,
+            (user_id,),
+        )
     return {"session": make_session(user_id), "profile": _profile(user_id)}
 
 
