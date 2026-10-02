@@ -27,36 +27,8 @@
           </aside>
         </div>
 
-        <div class="hero-aside">
-          <div id="topup" class="hero-form">
-            <TopupForm mode="checkout" :config="config" />
-          </div>
-
-          <aside class="catch">
-            <button type="button" class="catch-link" @click="scrollToTopup">
-              <span class="catch-arrow" aria-hidden="true">↑</span>
-              К форме оплаты
-            </button>
-            <h2>В чём подвох?</h2>
-            <p>
-              Мы не используем «китайские копии», не подменяем модели и не используем серые схемы.
-              Вы получаете прямой доступ к оригинальным нейросетям (Anthropic, OpenAI и др.).
-            </p>
-            <h3>Секрет цены прост</h3>
-            <p>
-              Мы агрегируем корпоративные квоты и неиспользованные API-токены, которые по условиям
-              контрактов просто сгорают у крупных компаний. Выкупаем эти «остатки» оптом и монетизируем
-              то, что иначе было бы потеряно.
-            </p>
-            <p class="catch-accent">
-              Именно поэтому мы можем отдавать их вам по цене 10% от официального тарифа.
-            </p>
-            <ul class="checks">
-              <li>Оригинальные модели (Opus, Sonnet, Haiku, GPT‑4o)</li>
-              <li>Высокая скорость ответа (собственные быстрые эндпоинты)</li>
-              <li>Прозрачная статистика расходов</li>
-            </ul>
-          </aside>
+        <div id="topup" class="hero-form">
+          <TopupForm mode="checkout" :config="config" />
         </div>
       </section>
 
@@ -88,6 +60,35 @@
           </template>
         </p>
         <button type="button" class="btn" @click="scrollToTopup">Пополнить баланс</button>
+      </section>
+
+      <section class="container block catch">
+        <div class="block-head">
+          <h2>В чём подвох?</h2>
+          <p class="muted">
+            Мы не используем «китайские копии», не подменяем модели и не используем серые схемы.
+            Вы получаете прямой доступ к оригинальным нейросетям (Anthropic, OpenAI и др.).
+          </p>
+        </div>
+        <div class="catch-body">
+          <article class="info">
+            <h3>Секрет цены прост</h3>
+            <p>
+              Мы агрегируем корпоративные квоты и неиспользованные API-токены, которые по условиям
+              контрактов просто сгорают у крупных компаний. Выкупаем эти «остатки» оптом и монетизируем
+              то, что иначе было бы потеряно.
+            </p>
+            <p class="catch-accent">
+              Именно поэтому мы можем отдавать их вам по цене 10% от официального тарифа.
+            </p>
+          </article>
+          <ul class="checks">
+            <li>Оригинальные модели (Opus, Sonnet, Haiku, GPT‑4o)</li>
+            <li>Высокая скорость ответа (собственные быстрые эндпоинты)</li>
+            <li>Прозрачная статистика расходов</li>
+          </ul>
+        </div>
+        <button type="button" class="btn block-cta" @click="scrollToTopup">Пополнить баланс</button>
       </section>
 
       <section class="container block">
@@ -385,81 +386,39 @@ h1 {
 .bot-copy span { color: var(--muted); font-size: 14px; }
 .bot-card .btn { flex: 0 0 auto; text-decoration: none; }
 
-.hero-aside {
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-}
 .hero-form {
   position: sticky;
   top: 16px;
   scroll-margin-top: 20px;
-  z-index: 2;
 }
 
-.catch {
-  padding: 18px 18px 20px;
-  border: 1px solid var(--border);
-  border-radius: 18px;
-  background: rgba(255, 255, 255, 0.7);
+.catch-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr);
+  gap: 14px;
+  align-items: stretch;
 }
-.catch-link {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  margin: 0 0 12px;
-  padding: 0;
-  border: 0;
-  background: none;
-  color: var(--muted);
-  font: inherit;
-  font-size: 13px;
-  font-weight: 600;
-  cursor: pointer;
-}
-.catch-link:hover { color: var(--text); }
-.catch-arrow {
-  display: inline-grid;
-  place-items: center;
-  width: 22px;
-  height: 22px;
-  border-radius: 50%;
-  border: 1px solid var(--border-strong);
-  background: #fff;
-  font-size: 12px;
-  line-height: 1;
-}
-.catch h2 {
-  margin: 0 0 8px;
-  font-size: 1.25rem;
-  letter-spacing: -0.03em;
-}
-.catch h3 {
-  margin: 14px 0 6px;
-  font-size: 1rem;
-  letter-spacing: -0.02em;
-}
-.catch p {
-  margin: 0 0 8px;
-  color: var(--muted-2);
-  font-size: 0.92rem;
-  line-height: 1.5;
-}
+.catch-body .info h3 { margin: 0 0 10px; }
 .catch-accent {
+  margin: 12px 0 0 !important;
   color: var(--text) !important;
   font-weight: 600;
 }
 .checks {
   list-style: none;
-  margin: 12px 0 0;
-  padding: 0;
+  margin: 0;
+  padding: 18px 18px 20px;
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.55);
   display: grid;
-  gap: 6px;
+  gap: 12px;
+  align-content: start;
 }
 .checks li {
   position: relative;
   padding-left: 22px;
-  font-size: 0.9rem;
+  font-size: 0.95rem;
   font-weight: 600;
   line-height: 1.4;
 }
@@ -648,11 +607,12 @@ h1 {
 }
 @media (max-width: 900px) {
   .hero { grid-template-columns: 1fr; padding-top: 16px; gap: 28px; }
-  .hero-aside { position: static; order: -1; }
+  .hero-form { position: static; order: -1; }
   h1 { max-width: none; }
   .how { grid-template-columns: 1fr; }
   .hero-visual { order: -1; }
   .save-grid { grid-template-columns: 1fr; }
+  .catch-body { grid-template-columns: 1fr; }
 }
 @media (max-width: 560px) {
   .cards5 { grid-template-columns: 1fr; }
