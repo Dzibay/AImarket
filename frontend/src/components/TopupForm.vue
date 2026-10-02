@@ -219,26 +219,25 @@ function clampAmount(value) {
   return Math.min(value, max)
 }
 
+function amountMax() {
+  return currency.value === 'usd' ? MAX_USD : MAX_RUB
+}
+
 function setAmount(value) {
   const capped = clampAmount(Number(value))
   if (!Number.isFinite(capped) || capped <= 0) {
     amount.value = ''
     return
   }
-  amount.value = formatMoneyInput(String(capped), currency.value)
+  amount.value = formatMoneyInput(String(capped), currency.value, amountMax())
 }
 
 function onAmountInput(event) {
-  const next = formatMoneyInput(event.target.value, currency.value)
-  const numeric = parseMoneyInput(next, currency.value)
-  if (Number.isFinite(numeric)) {
-    const max = currency.value === 'usd' ? MAX_USD : MAX_RUB
-    if (numeric > max) {
-      amount.value = formatMoneyInput(String(max), currency.value)
-      return
-    }
-  }
+  const max = amountMax()
+  const next = formatMoneyInput(event.target.value, currency.value, max)
   amount.value = next
+  // Если ref уже был на максимуме, Vue не обновит DOM — принудительно синхронизируем.
+  event.target.value = next
 }
 
 function onAmountBlur() {

@@ -82,11 +82,12 @@ export function parseMoneyInput(raw, currency = 'usd') {
 /**
  * Красивый ввод суммы: рубли — «10 000,5», доллары — «10,000.5».
  * Сохраняет незакрытую дробную часть при наборе.
+ * Если передан max — лишние цифры отбрасываются, больше лимита набрать нельзя.
  */
-export function formatMoneyInput(raw, currency) {
+export function formatMoneyInput(raw, currency, max = Infinity) {
   const text = String(raw || '')
   const compact = text.replace(/\s/g, '')
-  const hasTrailingSep = currency === 'usd' ? /\.$/.test(compact) : /,$/.test(compact)
+  let hasTrailingSep = currency === 'usd' ? /\.$/.test(compact) : /,$/.test(compact)
   const cleaned = compact.replace(/[^\d.,]/g, '')
   if (!cleaned) return ''
 
@@ -95,27 +96,46 @@ export function formatMoneyInput(raw, currency) {
   let hasFrac = false
 
   if (currency === 'usd') {
-    // Тысячи — запятые, дробная — точка.
     const dot = cleaned.indexOf('.')
-    const intPart = (dot >= 0 ? cleaned.slice(0, dot) : cleaned).replace(/,/g, '')
-    intRaw = intPart
+    intRaw = (dot >= 0 ? cleaned.slice(0, dot) : cleaned).replace(/,/g, '')
     if (dot >= 0) {
       hasFrac = true
       frac = cleaned.slice(dot + 1).replace(/[^\d]/g, '').slice(0, 2)
     }
   } else {
-    // Тысячи — пробелы (уже сняты), дробная — запятая.
     const comma = cleaned.indexOf(',')
-    const intPart = (comma >= 0 ? cleaned.slice(0, comma) : cleaned).replace(/[.,]/g, '')
-    intRaw = intPart
+    intRaw = (comma >= 0 ? cleaned.slice(0, comma) : cleaned).replace(/[.,]/g, '')
     if (comma >= 0) {
       hasFrac = true
       frac = cleaned.slice(comma + 1).replace(/[^\d]/g, '').slice(0, 2)
     }
   }
 
-  const intNum = Number((intRaw || '0').replace(/^0+(?=\d)/, '') || '0')
+  let digits = (intRaw || '0').replace(/^0+(?=\d)/, '') || '0'
+  let intNum = Number(digits)
   if (!Number.isFinite(intNum)) return ''
+
+  if (Number.isFinite(max) && max > 0 && intNum > Math.floor(max)) {
+    intNum = Math.floor(max)
+  }
+  // Дробная часть не должна выталкивать сумму за max (например 10000.99 при max=10000).
+  if (Number.isFinite(max) && max > 0 && (hasFrac || hasTrailingSep)) {
+    const withFrac = Number(`${intNum}.${frac || '0'}`)
+    if (Number.isFinite(withFrac) && withFrac > max) {
+      const capped = Math.round(max * 100) / 100
+      intNum = Math.floor(capped)
+      const cents = Math.round((capped - intNum) * 100)
+      if (cents > 0) {
+        hasFrac = true
+        hasTrailingSep = false
+        frac = String(cents).padStart(2, '0').replace(/0+$/, '')
+      } else {
+        hasFrac = false
+        hasTrailingSep = false
+        frac = ''
+      }
+    }
+  }
 
   const intFormatted = currency === 'usd'
     ? intNum.toLocaleString('en-US', { maximumFractionDigits: 0 })
