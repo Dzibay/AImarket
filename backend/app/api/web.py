@@ -13,7 +13,6 @@ import logging
 import re
 import secrets
 from decimal import Decimal, ROUND_HALF_UP, ROUND_UP
-from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
@@ -112,9 +111,9 @@ def _start_payment(user_id: int, rub: Decimal, usd: Decimal, email: str) -> dict
             (user_id, kopecks, usd, bonus_usd, key_hash(token)),
         ).fetchone()
     topup_id = int(created["id"])
-    # Путь без query — ЮKassa надёжнее принимает такой return_url, чем длинную строку с ?t=.
+    # token_urlsafe уже безопасен в пути; query не используем — ЮKassa так надёжнее.
     base = public_base_url()
-    return_url = f"{base}/pay/return/{topup_id}/{quote(token, safe='')}"
+    return_url = f"{base}/pay/return/{topup_id}/{token}"
     try:
         payment = create_payment(topup_id, rub, return_url, customer_email=email)
     except YooKassaError as exc:
@@ -229,7 +228,7 @@ def payment_return(body: ReturnIn) -> dict:
             """
             SELECT t.id, t.user_id, t.status, t.payment_id, t.return_token_hash,
                    t.amount_usd, t.bonus_usd,
-                   t.created_at >= NOW() - INTERVAL %s AS fresh
+                   t.created_at >= NOW() - (%s::text)::interval AS fresh
             FROM topups t WHERE t.id = %s
             """,
             (_RETURN_TOKEN_TTL, body.topup),
@@ -249,6 +248,12 @@ def payment_return(body: ReturnIn) -> dict:
             result = "pending"
         if result in {"credited", "already"}:
             status = "paid"
+        elif result == "pending":
+            # Вебхук мог уже зачислить параллельно — перечитаем статус.
+            with pool.connection() as conn:
+                again = conn.execute("SELECT status FROM topups WHERE id = %s", (body.topup,)).fetchone()
+            if again and again["status"] == "paid":
+                status = "paid"
     user_id = int(row["user_id"])
     profile = _profile(user_id) if status == "paid" else None
     return {

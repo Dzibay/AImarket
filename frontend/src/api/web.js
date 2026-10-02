@@ -54,5 +54,8 @@ export const ERRORS = {
 }
 
 export function errorText(error) {
-  return ERRORS[error?.code] || ERRORS[error?.message] || 'Что-то пошло не так. Попробуйте ещё раз.'
+  const code = error?.code || error?.message
+  if (typeof code === 'string' && ERRORS[code]) return ERRORS[code]
+  if (error?.status === 500) return 'Временная ошибка сервера. Обновите страницу или войдите по ключу из письма.'
+  return 'Что-то пошло не так. Попробуйте ещё раз.'
 }

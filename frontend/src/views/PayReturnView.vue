@@ -44,6 +44,7 @@
             Банк пока не подтвердил оплату. Обычно это занимает до минуты — страница проверяет статус
             автоматически.
           </p>
+          <p v-if="error" class="notice">{{ error }}</p>
           <div class="card soft">
             <p class="muted small">Проверок: {{ attempts }}. Если платёж не подтвердится, деньги вернутся на карту.</p>
             <button type="button" class="btn quiet sm" :disabled="checking" @click="check">
@@ -96,7 +97,13 @@ const bonusUsd = ref(0)
 let timer = null
 
 const topup = Number(route.params.topup || route.query.topup || 0)
-const token = String(route.params.token || route.query.t || '')
+const rawToken = String(route.params.token || route.query.t || '')
+let token = rawToken
+try {
+  token = decodeURIComponent(rawToken)
+} catch {
+  token = rawToken
+}
 
 async function check() {
   if (checking.value) return
@@ -122,9 +129,16 @@ async function check() {
       stop()
     }
   } catch (err) {
-    error.value = errorText(err)
-    state.value = 'invalid'
-    stop()
+    // Серверная 500 / сеть — даём повторить, платёж мог уже пройти по вебхуку.
+    if (err?.status === 500 || err?.status === 502 || !err?.status) {
+      error.value = errorText(err)
+      state.value = 'pending'
+      if (attempts.value < 6 && !timer) timer = setTimeout(() => { timer = null; check() }, 3000)
+    } else {
+      error.value = errorText(err)
+      state.value = 'invalid'
+      stop()
+    }
   } finally {
     checking.value = false
   }
