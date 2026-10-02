@@ -119,9 +119,11 @@ async function check() {
       bonusUsd.value = Number(result.bonus_usd || 0)
       credited.value = Number(result.amount_usd || 0) + bonusUsd.value
       state.value = 'paid'
-      if (typeof window.ym === 'function') {
-        window.ym(113324421, 'reachGoal', 'payment_success')
-      }
+      trackPaymentSuccess({
+        amount_usd: Number(result.amount_usd || 0),
+        bonus_usd: bonusUsd.value,
+        topup_id: topup,
+      })
       stop()
     } else if (result.status === 'pending') {
       state.value = 'pending'
@@ -149,6 +151,20 @@ async function check() {
 function stop() {
   if (timer) clearTimeout(timer)
   timer = null
+}
+
+/** Цель Метрики: оплата подтверждена. Один раз на topup (защита от F5). */
+function trackPaymentSuccess(params) {
+  const key = `ym_payment_success_${params.topup_id}`
+  try {
+    if (sessionStorage.getItem(key)) return
+    sessionStorage.setItem(key, '1')
+  } catch {
+    /* private mode — всё равно отправим */
+  }
+  if (typeof window.ym === 'function') {
+    window.ym(113324421, 'reachGoal', 'payment_success', params)
+  }
 }
 
 onMounted(() => {
