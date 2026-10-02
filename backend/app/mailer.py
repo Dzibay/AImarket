@@ -196,7 +196,13 @@ def _send_safe(to: str, subject: str, text: str, body_html: str) -> None:
         send_mail(to, subject, text, body_html)
         log.info("письмо «%s» отправлено на %s", subject, to)
     except Exception:
-        log.exception("не удалось отправить письмо на %s", to)
+        log.exception(
+            "не удалось отправить письмо на %s через %s:%s (%s)",
+            to,
+            settings.smtp_host.strip(),
+            settings.smtp_port,
+            settings.smtp_security.strip().lower() or "starttls",
+        )
 
 
 def send_mail(to: str, subject: str, text: str, body_html: str) -> None:

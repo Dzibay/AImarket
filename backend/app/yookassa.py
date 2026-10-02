@@ -30,6 +30,9 @@ def create_payment(
     customer_email: str = "",
 ) -> dict:
     value = f"{amount_rub.quantize(Decimal('0.01')):.2f}"
+    if not return_url.startswith("https://"):
+        log.warning("return_url без https: %s — ЮKassa может не вернуть пользователя на сайт", return_url)
+    log.info("создаём платёж #%s, return_url=%s", topup_id, return_url)
     body: dict = {
         "amount": {"value": value, "currency": "RUB"},
         "capture": True,

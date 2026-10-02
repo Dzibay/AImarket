@@ -95,8 +95,8 @@ const credited = ref(0)
 const bonusUsd = ref(0)
 let timer = null
 
-const topup = Number(route.query.topup || 0)
-const token = String(route.query.t || '')
+const topup = Number(route.params.topup || route.query.topup || 0)
+const token = String(route.params.token || route.query.t || '')
 
 async function check() {
   if (checking.value) return

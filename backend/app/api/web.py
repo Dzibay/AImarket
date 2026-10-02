@@ -3,7 +3,7 @@
 Поток новой покупки:
   1. POST /checkout — создаём пользователя (почта), заявку topups и платёж ЮKassa.
      В return_url кладём одноразовый токен; его хэш хранится в topups.return_token_hash.
-  2. ЮKassa возвращает человека на /pay/return?topup=…&t=… (страница Vue).
+  2. ЮKassa возвращает человека на /pay/return/{topup}/{token} (страница Vue).
   3. POST /payments/return — сверяем токен, подтверждаем платёж, выпускаем ключ в router.cheap,
      выдаём сессию кабинета. Ключ одновременно и доступ к API, и пароль для входа.
 """
@@ -13,6 +13,7 @@ import logging
 import re
 import secrets
 from decimal import Decimal, ROUND_HALF_UP, ROUND_UP
+from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
@@ -111,7 +112,9 @@ def _start_payment(user_id: int, rub: Decimal, usd: Decimal, email: str) -> dict
             (user_id, kopecks, usd, bonus_usd, key_hash(token)),
         ).fetchone()
     topup_id = int(created["id"])
-    return_url = f"{public_base_url()}/pay/return?topup={topup_id}&t={token}"
+    # Путь без query — ЮKassa надёжнее принимает такой return_url, чем длинную строку с ?t=.
+    base = public_base_url()
+    return_url = f"{base}/pay/return/{topup_id}/{quote(token, safe='')}"
     try:
         payment = create_payment(topup_id, rub, return_url, customer_email=email)
     except YooKassaError as exc:

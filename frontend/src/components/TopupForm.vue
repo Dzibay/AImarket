@@ -126,10 +126,12 @@ const minUsd = computed(() => Number(props.config?.min_topup_usd || 10))
 const minRub = computed(() => Number(props.config?.min_topup_rub || 0))
 const salesOpen = computed(() => props.config?.sales_open !== false && price.value > 0)
 
+const USD_PRESETS = [10, 25, 50, 100, 500, 1000]
+
 const presets = computed(() => {
-  if (currency.value === 'usd') return [10, 25, 50, 100]
-  const base = Math.ceil(minRub.value / 100) * 100 || 1000
-  return [base, base * 2, base * 5, base * 10]
+  if (currency.value === 'usd') return USD_PRESETS
+  if (!price.value) return []
+  return USD_PRESETS.map((usd) => Math.ceil(usd * price.value))
 })
 
 const parsed = computed(() => {

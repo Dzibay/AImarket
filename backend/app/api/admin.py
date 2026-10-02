@@ -24,7 +24,7 @@ from app.referrals import (
     list_links,
     set_link_group,
 )
-from app.settings_store import get_setting, offer_url, public_base_url, set_setting
+from app.settings_store import get_setting, normalize_base_url, offer_url, public_base_url, set_setting
 from app.telegram_link import bot_username
 from app.upstream import UpstreamError, upstream
 
@@ -167,7 +167,7 @@ def write_settings(body: SettingsIn) -> dict:
             raise HTTPException(status_code=422, detail="offer_date") from exc
     tiers = normalize_bonus_tiers([tier.model_dump() for tier in body.topup_bonuses])
     values = {
-        "public_base_url": body.public_base_url.strip().rstrip("/"),
+        "public_base_url": normalize_base_url(body.public_base_url),
         "usd_price_rub": price,
         "min_topup_usd": min_topup,
         "topup_bonuses": json.dumps(tiers, ensure_ascii=False) if tiers else "",
