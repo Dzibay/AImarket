@@ -733,8 +733,13 @@ def assign_referral_group(link_id: int, body: ReferralGroupAssignIn) -> dict:
 
 @router.delete("/referrals/{link_id}", dependencies=[Depends(require_admin)])
 def delete_referral_admin(link_id: int) -> dict:
-    if not delete_link(link_id):
-        raise HTTPException(status_code=404, detail="referral")
+    try:
+        if not delete_link(link_id):
+            raise HTTPException(status_code=404, detail="referral")
+    except ReferralError as exc:
+        if exc.code == "system":
+            raise HTTPException(status_code=403, detail="system") from exc
+        raise HTTPException(status_code=422, detail=exc.code) from exc
     return {"ok": True}
 
 

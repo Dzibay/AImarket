@@ -146,6 +146,9 @@ CREATE TABLE IF NOT EXISTS referral_links (
 ALTER TABLE referral_links ADD COLUMN IF NOT EXISTS group_id BIGINT REFERENCES referral_groups (id) ON DELETE SET NULL;
 CREATE INDEX IF NOT EXISTS idx_referral_links_group ON referral_links (group_id);
 
+-- Системный токен для переходов с сайта в бота (кнопка «Открыть бота»).
+INSERT INTO referral_links (token) VALUES ('web') ON CONFLICT (token) DO NOTHING;
+
 -- Настройки админки: корневой ключ, цена, продавец, текст оферты.
 CREATE TABLE IF NOT EXISTS app_settings (
     key   TEXT PRIMARY KEY,

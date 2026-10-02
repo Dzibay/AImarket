@@ -7,7 +7,8 @@ const LEDGER_KINDS = { topup: 'ЮKassa', credit: 'Админка', spend: 'Ра�
 const REFERRAL_ERROR_MESSAGES = {
   exists: 'Такой токен уже есть.',
   format: 'Только латиница, цифры и _.',
-  reserved: 'Нельзя начинать с paid_.',
+  reserved: 'Этот токен зарезервирован системой.',
+  system: 'Системный токен нельзя удалить.',
   empty: 'Введите токен.',
   long: 'Не длиннее 64 символов.',
 }

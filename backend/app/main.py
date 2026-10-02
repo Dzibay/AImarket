@@ -17,6 +17,7 @@ from app.billing import sync_all
 from app.reminders import send_offer_reminders
 from app.config import settings
 from app.db import ensure_schema, pool
+from app.referrals import ensure_system_links
 from app.settings_store import bootstrap_settings
 
 logging.basicConfig(level=logging.INFO)
@@ -57,6 +58,7 @@ async def lifespan(_app: FastAPI):
         log.warning("YOOKASSA_SHOP_ID или YOOKASSA_SECRET_KEY не заданы — оплата закрыта")
     ensure_schema()
     bootstrap_settings()
+    ensure_system_links()
     threading.Thread(target=_sync_loop, name="balance-sync", daemon=True).start()
     threading.Thread(target=_reminder_loop, name="offer-reminders", daemon=True).start()
     yield

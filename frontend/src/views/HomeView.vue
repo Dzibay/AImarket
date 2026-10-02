@@ -26,9 +26,13 @@
               <span>OpenAI Chat Completions, Claude Messages и другие протоколы.</span>
             </article>
           </div>
-          <p v-if="config?.bot_url" class="small muted alt">
-            Предпочитаете Telegram? <a :href="config.bot_url" rel="noopener">Открыть бота</a>.
-          </p>
+          <aside v-if="config?.bot_url" class="bot-card">
+            <div class="bot-copy">
+              <strong>Уведомления о балансе, история пользования, поддержка</strong>
+              <span>Всё это — в Telegram-боте</span>
+            </div>
+            <a class="btn sm" :href="config.bot_url" target="_blank" rel="noopener">Открыть бота</a>
+          </aside>
         </div>
         <div class="hero-form">
           <TopupForm mode="checkout" :config="config" />
@@ -269,7 +273,38 @@ h1 {
 }
 .feature strong { display: block; margin-bottom: 4px; font-size: 0.95rem; }
 .feature span { display: block; color: var(--muted); font-size: 0.88rem; line-height: 1.4; }
-.alt a { text-decoration: underline; text-underline-offset: 3px; }
+
+.bot-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-top: 4px;
+  padding: 16px 18px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  background: #fff;
+  box-shadow: var(--shadow);
+}
+.bot-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  flex: 1 1 220px;
+}
+.bot-copy strong {
+  font-size: 15px;
+  letter-spacing: -0.02em;
+  line-height: 1.35;
+}
+.bot-copy span {
+  color: var(--muted);
+  font-size: 14px;
+}
+.bot-card .btn { flex: 0 0 auto; text-decoration: none; }
+
 .hero-form { position: sticky; top: 16px; }
 
 .block { padding-bottom: 64px; }

@@ -6,6 +6,8 @@ from app.db import pool
 
 _TOKEN_RE = re.compile(r"^[A-Za-z0-9_]{1,64}$")
 _RESERVED_PREFIX = "paid_"
+# Системные токены: создаются при старте, нельзя создать/удалить вручную.
+_SYSTEM_TOKENS = frozenset({"web"})
 _GROUP_NAME_RE = re.compile(r"^[\w\s\-А-Яа-яЁё]{1,64}$", re.UNICODE)
 
 
@@ -13,6 +15,24 @@ class ReferralError(Exception):
     def __init__(self, code: str) -> None:
         self.code = code
         super().__init__(code)
+
+
+def is_system_token(token: str) -> bool:
+    return normalize_token(token) in _SYSTEM_TOKENS
+
+
+def ensure_system_links() -> None:
+    """Гарантирует наличие токенов (например web для кнопки с сайта)."""
+    with pool.connection() as conn:
+        for token in sorted(_SYSTEM_TOKENS):
+            conn.execute(
+                """
+                INSERT INTO referral_links (token)
+                VALUES (%s)
+                ON CONFLICT (token) DO NOTHING
+                """,
+                (token,),
+            )
 
 
 def normalize_token(raw: str) -> str:
@@ -28,7 +48,7 @@ def validate_token(token: str) -> None:
         raise ReferralError("empty")
     if len(token) > 64:
         raise ReferralError("long")
-    if token.startswith(_RESERVED_PREFIX):
+    if token.startswith(_RESERVED_PREFIX) or token in _SYSTEM_TOKENS:
         raise ReferralError("reserved")
     if _TOKEN_RE.fullmatch(token) is None:
         raise ReferralError("format")
@@ -162,7 +182,7 @@ def list_links() -> list[dict]:
             LEFT JOIN users u ON u.referral_token = r.token
             LEFT JOIN topups t ON t.user_id = u.id
             GROUP BY r.id, r.token, r.created_at, r.group_id, g.name
-            ORDER BY r.id DESC
+            ORDER BY CASE WHEN r.token IN ('web') THEN 0 ELSE 1 END, r.id DESC
             """
         ).fetchall()
     return [_stats_row(row) for row in rows]
@@ -171,10 +191,18 @@ def list_links() -> list[dict]:
 def delete_link(link_id: int) -> bool:
     with pool.connection() as conn:
         row = conn.execute(
+            "SELECT id, token FROM referral_links WHERE id = %s",
+            (link_id,),
+        ).fetchone()
+        if row is None:
+            return False
+        if is_system_token(str(row["token"])):
+            raise ReferralError("system")
+        deleted = conn.execute(
             "DELETE FROM referral_links WHERE id = %s RETURNING id",
             (link_id,),
         ).fetchone()
-    return row is not None
+    return deleted is not None
 
 
 def attribute_user(user_id: int, token: str) -> bool:
@@ -211,9 +239,11 @@ def _group_row(row: dict, *, tokens: int) -> dict:
 
 def _link_row(row: dict) -> dict:
     group_id = row.get("group_id")
+    token = str(row["token"])
     return {
         "id": int(row["id"]),
-        "token": str(row["token"]),
+        "token": token,
+        "system": is_system_token(token),
         "created_at": row["created_at"].isoformat(),
         "group_id": int(group_id) if group_id is not None else None,
         "group_name": "",
@@ -232,9 +262,11 @@ def _stats_row(row: dict) -> dict:
     payers = int(row["payers"] or 0)
     conversion = round(payers / visits * 100, 1) if visits > 0 else 0.0
     group_id = row.get("group_id")
+    token = str(row["token"])
     return {
         "id": int(row["id"]),
-        "token": str(row["token"]),
+        "token": token,
+        "system": is_system_token(token),
         "created_at": row["created_at"].isoformat(),
         "group_id": int(group_id) if group_id is not None else None,
         "group_name": str(row.get("group_name") or ""),

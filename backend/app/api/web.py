@@ -71,7 +71,7 @@ def _config_payload() -> dict:
         "api_base_url": upstream_base(),
         "support_email": (get_setting("offer_email") or get_setting("seller_email")).strip(),
         "support_username": support_username(),
-        "bot_url": bot_start_url(),
+        "bot_url": bot_start_url("web"),
     }
 
 

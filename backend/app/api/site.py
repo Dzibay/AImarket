@@ -10,7 +10,7 @@ router = APIRouter(tags=["site"])
 
 @router.get("/site/config")
 def site_config() -> dict:
-    bot_url = bot_start_url()
+    bot_url = bot_start_url("web")
     username = bot_username()
     return {
         "bot_url": bot_url,

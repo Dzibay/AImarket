@@ -77,6 +77,14 @@
 
           <div class="charts">
             <AdminChart
+              title="Приток пользователей"
+              tone="users"
+              :subtitle="usersChart.subtitle"
+              :total-label="usersChart.totalLabel"
+              :bars="usersChart.bars"
+              :ticks="usersChart.ticks"
+            />
+            <AdminChart
               title="Выручка по дням"
               tone="revenue"
               :subtitle="revenueChart.subtitle"
@@ -91,14 +99,6 @@
               :total-label="spendChart.totalLabel"
               :bars="spendChart.bars"
               :ticks="spendChart.ticks"
-            />
-            <AdminChart
-              title="Приток пользователей"
-              tone="users"
-              :subtitle="usersChart.subtitle"
-              :total-label="usersChart.totalLabel"
-              :bars="usersChart.bars"
-              :ticks="usersChart.ticks"
             />
           </div>
 
@@ -557,7 +557,10 @@
                     <td class="referral-delete"></td>
                   </tr>
                   <tr v-else-if="row.type === 'token'" class="referral-token-row">
-                    <td><code>{{ row.item.token }}</code></td>
+                    <td>
+                      <code>{{ row.item.token }}</code>
+                      <span v-if="row.item.system" class="badge ok referral-system">сайт</span>
+                    </td>
                     <td class="num">{{ row.item.visits || 0 }}</td>
                     <td class="num">{{ row.item.offers_accepted || 0 }}</td>
                     <td class="num">{{ row.item.payments || 0 }}</td>
@@ -587,7 +590,13 @@
                       </select>
                     </td>
                     <td class="referral-delete">
-                      <button type="button" class="danger sm" @click.stop="deleteReferral(row.item)">Удалить</button>
+                      <button
+                        v-if="!row.item.system"
+                        type="button"
+                        class="danger sm"
+                        @click.stop="deleteReferral(row.item)"
+                      >Удалить</button>
+                      <span v-else class="muted small">системный</span>
                     </td>
                   </tr>
                 </template>
@@ -932,6 +941,7 @@ onMounted(() => {
 .admin-page .tab-referrals td.referral-copy,
 .admin-page .tab-referrals td.referral-delete,
 .admin-page .tab-referrals td.referral-group { width: 1%; white-space: nowrap; text-align: center; vertical-align: middle; }
+.admin-page .referral-system { margin-left: 8px; vertical-align: middle; }
 .admin-page .tab-referrals td.referral-created { white-space: nowrap; vertical-align: middle; }
 .admin-page .tab-referrals td.referral-group select { width: auto; min-width: 120px; max-width: 160px; padding: 6px 8px; font-size: 13px; }
 .admin-page .tab-referrals td.num { white-space: nowrap; vertical-align: middle; }
