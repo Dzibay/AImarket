@@ -88,13 +88,10 @@
 
     <p class="small muted fine">
       <template v-if="mode === 'checkout'">
-        После оплаты вы получите ключ доступа к личному кабинету и к API. Ключ показывается на сайте
-        <template v-if="emailEnabled"> и отправляется на указанную почту вместе с кнопкой входа в кабинет</template>.
         Нажимая «Оплатить», вы принимаете
         <RouterLink to="/offer">оферту</RouterLink>,
         <RouterLink to="/privacy">политику конфиденциальности</RouterLink> и
         <RouterLink to="/consent">согласие на обработку данных</RouterLink>.
-        Минимальное пополнение — {{ usd(minUsd, 0) }}. Максимум за раз — {{ currency === 'usd' ? usd(10000, 0) : rub(100000, 0) }}.
       </template>
       <template v-else>
         Оплата через ЮKassa. Баланс зачислится автоматически после подтверждения платежа.
@@ -344,17 +341,24 @@ async function submit() {
   color: var(--muted);
   font-size: 20px;
 }
-.presets { display: flex; gap: 8px; flex-wrap: wrap; margin: -4px 0 16px; }
+.presets {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 6px;
+  margin: -4px 0 16px;
+}
 .presets button {
   border: 1px solid var(--border-strong);
   border-radius: 999px;
-  padding: 6px 14px;
+  padding: 7px 4px;
   background: #fff;
   color: var(--text);
   font: inherit;
   font-size: 13px;
   font-weight: 600;
   cursor: pointer;
+  white-space: nowrap;
+  min-width: 0;
 }
 .presets button.on { background: var(--accent); color: var(--bg); border-color: var(--accent); }
 .summary {
@@ -383,5 +387,6 @@ async function submit() {
 .fine a, .small a { text-decoration: underline; text-underline-offset: 3px; }
 @media (max-width: 480px) {
   .summary { grid-template-columns: 1fr; }
+  .presets { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 }
 </style>

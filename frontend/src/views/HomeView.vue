@@ -2,21 +2,60 @@
   <div class="site">
     <SiteHeader />
     <main class="site-main">
+      <ModelsHero @choose="scrollToTopup" />
+
       <section class="container hero">
-        <div class="hero-copy">
-          <p class="eyebrow">Aimarket</p>
-          <h1>Токены со скидкой 90%</h1>
+        <div class="hero-how">
+          <p class="eyebrow">Как это работает</p>
+          <h2>Пополнить баланс — просто</h2>
           <p class="lead">
-            Один ключ доступа ко всем ИИ. Чтобы попробовать — пополните баланс
-            за {{ rub(minRub, 0) }} на {{ usd(minUsd, 0) }}. Подключайтесь через Cursor, Codex,
-            Claude Code или другой клиент.
+            Несколько простых шагов, и вы сможете начать использовать все возможности платформы.
           </p>
-          <p class="hook">От экономии 90% вас отделяют два шага.</p>
-          <p class="lead soft">
-            Если тратите в месяц {{ usd(100, 0) }} и более на Claude, представьте:
-            эти {{ rub(spendWas) }} вы уменьшаете до {{ rub(spendNow) }}.
-          </p>
-          <button type="button" class="btn" @click="scrollToTopup">Пополнить баланс</button>
+
+          <ol class="steps">
+            <li class="step">
+              <span class="step-icon" aria-hidden="true">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="6" width="18" height="13" rx="2.5" /><path d="M3 10h18" /><path d="M7 15h3" /></svg>
+              </span>
+              <span class="step-num">Шаг 1</span>
+              <b>Пополните баланс</b>
+              <span class="step-text">
+                Сумма в долларах или рублях, курс и точная сумма к оплате — сразу в форме.
+                Оплата картой через ЮKassa. Минимум — {{ usd(minUsd, 0) }}.
+              </span>
+            </li>
+            <li class="step">
+              <span class="step-icon" aria-hidden="true">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.1 0l2.8-2.8a5 5 0 0 0-7.1-7.1L11.5 4.4" /><path d="M14 11a5 5 0 0 0-7.1 0l-2.8 2.8a5 5 0 0 0 7.1 7.1l1.3-1.3" /></svg>
+              </span>
+              <span class="step-num">Шаг 2</span>
+              <b>Получите ключ и Base URL</b>
+              <span class="step-text">
+                Сайт покажет ключ сразу после оплаты, на почту придёт письмо с ключом и входом в кабинет.
+              </span>
+            </li>
+            <li class="step">
+              <span class="step-icon" aria-hidden="true">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M8 7l-5 5 5 5" /><path d="M16 7l5 5-5 5" /><path d="M14 4l-4 16" /></svg>
+              </span>
+              <span class="step-num">Шаг 3</span>
+              <b>Подключите приложения</b>
+              <span class="step-text">
+                В Cursor, Codex, Claude Code или другом клиенте указываете наш адрес сервера и ключ.
+                Готовые инструкции — в личном кабинете.
+              </span>
+            </li>
+            <li class="step">
+              <span class="step-icon" aria-hidden="true">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3" /><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z" /></svg>
+              </span>
+              <span class="step-num">Шаг 4</span>
+              <b>Работайте и следите за расходом</b>
+              <span class="step-text">
+                Каждый запрос списывается по тарифу модели. В кабинете — остаток, расход по дням и история.
+              </span>
+            </li>
+          </ol>
 
           <aside v-if="config?.bot_url" class="bot-card">
             <div class="bot-copy">
@@ -33,62 +72,120 @@
       </section>
 
       <section class="container block save">
-        <div class="block-head">
-          <h2>Если вы тратите на API {{ usd(100, 0) }} в месяц</h2>
-        </div>
+        <p class="save-eyebrow">Тарифы и лимиты</p>
+        <h2 class="save-title">Если вы тратите на API {{ usd(100, 0) }} в месяц</h2>
+        <p class="save-lead">
+          Этого достаточно, чтобы получить доступ ко всем возможностям платформы.
+        </p>
+
         <div class="save-grid">
           <article class="save-card was">
-            <span class="label">Было</span>
-            <b>{{ usd(100, 0) }} ≈ {{ rub(spendWas, 0) }} в месяц</b>
+            <div class="save-media">
+              <img src="/save-icon-was.jpg" alt="" loading="lazy">
+            </div>
+            <div class="save-body">
+              <span class="label">Было</span>
+              <b class="save-value">{{ usd(100, 0) }} ≈ {{ rub(spendWas, 0) }}</b>
+              <span class="save-sub">в месяц у других провайдеров</span>
+            </div>
           </article>
           <article class="save-card now">
-            <span class="label">Стало</span>
-            <b>{{ usd(100, 0) }} = {{ rub(spendNow, 0) }} в месяц</b>
+            <div class="save-media">
+              <img src="/save-icon-now.jpg" alt="" loading="lazy">
+            </div>
+            <div class="save-body">
+              <span class="label">Стало</span>
+              <b class="save-value">{{ usd(100, 0) }} = {{ rub(spendNow, 0) }}</b>
+              <span class="save-sub">в месяц в Aimarket</span>
+            </div>
           </article>
           <article class="save-card result">
-            <span class="label">Итог</span>
-            <b>Экономите минимум {{ rub(spendSave, 0) }} ежемесячно</b>
-            <span>при том же доступе к моделям</span>
+            <div class="save-media">
+              <img src="/save-icon-result.jpg" alt="" loading="lazy">
+              <span class="save-pill">−{{ savePct }}%</span>
+            </div>
+            <div class="save-body">
+              <span class="label">Итог</span>
+              <b class="save-value">Экономия {{ rub(spendSave, 0) }}</b>
+              <span class="save-sub">ежемесячно при том же доступе к моделям</span>
+            </div>
           </article>
         </div>
-        <p class="save-note">
-          А ещё у нас нет ограничений: можно пополнить хоть на {{ usd(1000, 0) }} в токены.
-          <template v-if="bonusFrom1000">
-            Кстати, при пополнении от {{ usd(bonusFrom1000.min_usd, 0) }} даём
-            +{{ bonusFrom1000.percent }}% дополнительно — на балансе будет
-            {{ usd(bonusFrom1000.min_usd * (1 + bonusFrom1000.percent / 100), 0) }}.
-          </template>
-        </p>
-        <button type="button" class="btn" @click="scrollToTopup">Пополнить баланс</button>
+
+        <div class="save-footer">
+          <p class="save-note">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9" /><path d="M12 10v6" /><path d="M12 7h.01" /></svg>
+            <span>
+              Нет ограничений: можно пополнить хоть на {{ usd(1000, 0) }} в токены.
+              <template v-if="bonusFrom1000">
+                При пополнении от {{ usd(bonusFrom1000.min_usd, 0) }} даём
+                +{{ bonusFrom1000.percent }}% дополнительно — на балансе будет
+                {{ usd(bonusFrom1000.min_usd * (1 + bonusFrom1000.percent / 100), 0) }}.
+              </template>
+            </span>
+          </p>
+          <button type="button" class="btn save-cta" @click="scrollToTopup">
+            Пополнить баланс <span class="arrow-glyph" aria-hidden="true">→</span>
+          </button>
+        </div>
       </section>
 
       <section class="container block catch">
-        <div class="block-head">
-          <h2>В чём подвох?</h2>
-          <p class="muted">
-            Мы не используем «китайские копии», не подменяем модели и не используем серые схемы.
-            Вы получаете прямой доступ к оригинальным нейросетям (Anthropic, OpenAI и др.).
-          </p>
-        </div>
-        <div class="catch-body">
-          <article class="info">
-            <h3>Секрет цены прост</h3>
-            <p>
-              Мы агрегируем корпоративные квоты и неиспользованные API-токены, которые по условиям
-              контрактов просто сгорают у крупных компаний. Выкупаем эти «остатки» оптом и монетизируем
-              то, что иначе было бы потеряно.
-            </p>
-            <p class="catch-accent">
-              Именно поэтому мы можем отдавать их вам по цене 10% от официального тарифа.
-            </p>
+        <p class="save-eyebrow">В чём подвох?</p>
+        <h2 class="save-title catch-title">Подвоха нет — есть простая экономика</h2>
+        <p class="save-lead">
+          Мы не используем «китайские копии», не подменяем модели и не работаем по серым схемам.
+          Вы получаете прямой доступ к оригинальным нейросетям Anthropic, OpenAI, Google и других.
+        </p>
+
+        <div class="catch-grid">
+          <article class="catch-main">
+            <div class="catch-main-body">
+              <span class="label">Прозрачность</span>
+              <h3>Секрет цены прост</h3>
+              <p>
+                Крупные компании покупают корпоративные квоты на API, и часть токенов по условиям
+                контрактов просто сгорает. Мы выкупаем эти «остатки» оптом и монетизируем то,
+                что иначе было бы потеряно.
+              </p>
+              <p class="catch-accent">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9" /><path d="M12 10v6" /><path d="M12 7h.01" /></svg>
+                <span>Поэтому мы отдаём их вам по цене 10% от официального тарифа.</span>
+              </p>
+            </div>
+            <div class="catch-main-media" aria-hidden="true">
+              <img src="/catch-main.jpg" alt="" loading="lazy">
+            </div>
           </article>
-          <ul class="checks">
-            <li>Оригинальные модели (Opus, Sonnet, Haiku, GPT‑4o)</li>
-            <li>Высокая скорость ответа (собственные быстрые эндпоинты)</li>
-            <li>Прозрачная статистика расходов</li>
+
+          <ul class="catch-features">
+            <li class="catch-feature">
+              <span class="catch-feature-img" aria-hidden="true"><img src="/catch-original.jpg" alt="" loading="lazy"></span>
+              <div>
+                <b>Оригинальные модели</b>
+                <span>Opus, Sonnet, GPT, Gemini — без подмен</span>
+              </div>
+            </li>
+            <li class="catch-feature">
+              <span class="catch-feature-img" aria-hidden="true"><img src="/catch-speed.jpg" alt="" loading="lazy"></span>
+              <div>
+                <b>Высокая скорость ответа</b>
+                <span>Собственные быстрые эндпоинты</span>
+              </div>
+            </li>
+            <li class="catch-feature">
+              <span class="catch-feature-img" aria-hidden="true"><img src="/catch-stats.jpg" alt="" loading="lazy"></span>
+              <div>
+                <b>Прозрачная статистика</b>
+                <span>Расходы и история запросов в кабинете</span>
+              </div>
+            </li>
           </ul>
         </div>
-        <button type="button" class="btn block-cta" @click="scrollToTopup">Пополнить баланс</button>
+
+        <button type="button" class="btn block-cta" @click="scrollToTopup">
+          Пополнить баланс <span class="arrow-glyph" aria-hidden="true">→</span>
+        </button>
       </section>
 
       <section class="container block">
@@ -124,44 +221,6 @@
           </article>
         </div>
         <button type="button" class="btn block-cta" @click="scrollToTopup">Пополнить баланс</button>
-      </section>
-
-      <section class="container how">
-        <div class="how-copy">
-          <h2>Как это работает</h2>
-          <ol class="timeline">
-            <li>
-              <b>Пополняете баланс</b>
-              <span>
-                Сумма в долларах или рублях, курс и точная сумма к оплате — сразу в форме.
-                Оплата картой через ЮKassa. Минимум — {{ usd(minUsd, 0) }}.
-              </span>
-            </li>
-            <li>
-              <b>Получаете ключ и Base URL</b>
-              <span>
-                Сайт покажет ключ сразу после оплаты, на почту придёт письмо с ключом и входом в кабинет.
-              </span>
-            </li>
-            <li>
-              <b>Подключаете приложения</b>
-              <span>
-                В Cursor, Codex, Claude Code или другом клиенте указываете наш адрес сервера и ключ.
-                Готовые инструкции — в личном кабинете.
-              </span>
-            </li>
-            <li>
-              <b>Работаете и следите за расходом</b>
-              <span>
-                Каждый запрос списывается по тарифу модели. В кабинете — остаток, расход по дням и история.
-              </span>
-            </li>
-          </ol>
-          <button type="button" class="btn" @click="scrollToTopup">Пополнить баланс</button>
-        </div>
-        <div class="hero-visual">
-          <img src="/home-hero.jpg" alt="Схема подключения Aimarket к ИИ-моделям">
-        </div>
       </section>
 
       <section v-if="tiers.length" class="container block">
@@ -262,6 +321,7 @@
 
 <script setup>
 import { computed, onMounted, ref } from 'vue'
+import ModelsHero from '../components/ModelsHero.vue'
 import SiteFooter from '../components/SiteFooter.vue'
 import SiteHeader from '../components/SiteHeader.vue'
 import TopupForm from '../components/TopupForm.vue'
@@ -274,11 +334,6 @@ const config = ref(null)
 const botUrl = computed(() => botUrlWithReferral(config.value?.bot_url || ''))
 const price = computed(() => Number(config.value?.usd_price_rub || 0))
 const minUsd = computed(() => Number(config.value?.min_topup_usd || 10))
-const minRub = computed(() => {
-  const fromConfig = Number(config.value?.min_topup_rub || 0)
-  if (fromConfig > 0) return fromConfig
-  return Math.ceil(minUsd.value * (price.value || 10))
-})
 const tiers = computed(() =>
   [...(config.value?.bonuses || [])]
     .map((tier) => ({ min_usd: Number(tier.min_usd), percent: Number(tier.percent) }))
@@ -296,6 +351,7 @@ const rate = computed(() => price.value || 10)
 const spendNow = computed(() => Math.round(100 * rate.value))
 const spendWas = computed(() => Math.round(100 * rate.value * 10))
 const spendSave = computed(() => spendWas.value - spendNow.value)
+const savePct = computed(() => (spendWas.value ? Math.round((spendSave.value / spendWas.value) * 100) : 0))
 
 function scrollToTopup() {
   const el = document.getElementById('topup')
@@ -324,40 +380,93 @@ onMounted(async () => {
 
 <style scoped>
 .hero {
-  padding-top: 28px;
-  padding-bottom: 40px;
+  padding-top: 56px;
+  padding-bottom: 56px;
   display: grid;
-  grid-template-columns: minmax(0, 1.05fr) minmax(0, 0.95fr);
-  gap: 40px;
+  grid-template-columns: minmax(0, 1.3fr) minmax(360px, 0.8fr);
+  gap: 48px;
   align-items: start;
 }
-.eyebrow {
-  margin: 0 0 8px;
-  font-size: 13px;
+.hero-how .eyebrow {
+  display: inline-block;
+  margin: 0 0 14px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.6);
+  font-size: 11px;
   font-weight: 700;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.14em;
   text-transform: uppercase;
   color: var(--muted);
 }
-h1 {
-  margin: 0 0 16px;
-  font-size: clamp(2rem, 4vw, 3.1rem);
-  line-height: 1.08;
-  letter-spacing: -0.04em;
-  max-width: 12ch;
-}
-.lead {
-  margin: 0 0 14px;
-  max-width: 38rem;
-  color: var(--muted-2);
-  font-size: 1.05rem;
-}
-.lead.soft { margin-bottom: 22px; }
-.hook {
+.hero-how h2 {
   margin: 0 0 10px;
-  font-size: 1.15rem;
+  font-size: clamp(1.8rem, 3vw, 2.4rem);
+  line-height: 1.1;
+  letter-spacing: -0.035em;
+}
+.hero-how .lead {
+  margin: 0 0 26px;
+  max-width: 40rem;
+  color: var(--muted-2);
+  font-size: 1rem;
+  line-height: 1.5;
+}
+
+.steps {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+.step {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  padding: 20px 20px 22px;
+  border-radius: 20px;
+  border: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.6);
+  box-shadow: 0 10px 30px rgba(28, 25, 21, 0.05);
+  transition: transform 0.2s ease, box-shadow 0.2s ease, background 0.2s ease;
+}
+.step:hover {
+  transform: translateY(-2px);
+  background: rgba(255, 255, 255, 0.85);
+  box-shadow: 0 16px 40px rgba(28, 25, 21, 0.08);
+}
+.step-icon {
+  display: grid;
+  place-items: center;
+  width: 42px;
+  height: 42px;
+  margin-bottom: 14px;
+  border-radius: 12px;
+  background: #fff;
+  border: 1px solid var(--border);
+  color: var(--text);
+}
+.step-num {
+  font-size: 11px;
   font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-bottom: 6px;
+}
+.step b {
+  font-size: 1rem;
   letter-spacing: -0.02em;
+  line-height: 1.3;
+  margin-bottom: 8px;
+}
+.step-text {
+  color: var(--muted-2);
+  font-size: 0.9rem;
+  line-height: 1.5;
 }
 
 .bot-card {
@@ -393,93 +502,283 @@ h1 {
   top: 16px;
   scroll-margin-top: 20px;
 }
+.hero-form :deep(.card) {
+  border-radius: 24px;
+  box-shadow: 0 30px 70px rgba(28, 25, 21, 0.12);
+}
 
-.catch-body {
+.catch-title { max-width: 22ch; }
+.catch-grid {
   display: grid;
-  grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr);
-  gap: 14px;
+  grid-template-columns: minmax(0, 1.55fr) minmax(0, 1fr);
+  gap: 18px;
   align-items: stretch;
 }
-.catch-body .info h3 { margin: 0 0 10px; }
-.catch-accent {
-  margin: 12px 0 0 !important;
-  color: var(--text) !important;
-  font-weight: 600;
+.catch-main {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(220px, 42%);
+  border-radius: 24px;
+  border: 1px solid var(--border);
+  background: #fff;
+  box-shadow: 0 10px 30px rgba(28, 25, 21, 0.05);
+  overflow: hidden;
 }
-.checks {
+.catch-main-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 26px 26px 28px;
+  min-width: 0;
+}
+.catch-main-body .label {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.catch-main-body h3 {
+  margin: 0;
+  font-size: 1.35rem;
+  letter-spacing: -0.02em;
+  line-height: 1.2;
+}
+.catch-main-body p {
+  margin: 0;
+  color: var(--muted-2);
+  font-size: 0.95rem;
+  line-height: 1.55;
+}
+.catch-accent {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin-top: 6px !important;
+  padding: 12px 14px;
+  border-radius: 14px;
+  background: var(--ok-soft);
+  border: 1px solid #c7e3d4;
+  color: #1f4d39 !important;
+  font-weight: 600;
+  font-size: 0.92rem !important;
+}
+.catch-accent svg { flex: 0 0 auto; margin-top: 2px; color: #2d6a4f; }
+.catch-main-media {
+  position: relative;
+  min-height: 240px;
+  background: #f1ece3;
+}
+.catch-main-media img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: 70% 50%;
+}
+
+.catch-features {
   list-style: none;
   margin: 0;
-  padding: 18px 18px 20px;
-  border: 1px solid var(--border);
-  border-radius: 18px;
-  background: rgba(255, 255, 255, 0.55);
+  padding: 0;
   display: grid;
   gap: 12px;
-  align-content: start;
+  align-content: stretch;
 }
-.checks li {
-  position: relative;
-  padding-left: 22px;
-  font-size: 0.95rem;
-  font-weight: 600;
+.catch-feature {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 12px 18px 12px 12px;
+  border-radius: 20px;
+  border: 1px solid var(--border);
+  background: #fff;
+  box-shadow: 0 10px 30px rgba(28, 25, 21, 0.05);
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+.catch-feature:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 16px 40px rgba(28, 25, 21, 0.09);
+}
+.catch-feature-img {
+  flex: 0 0 auto;
+  width: 76px;
+  height: 76px;
+  border-radius: 16px;
+  overflow: hidden;
+  background: #f4efe6;
+}
+.catch-feature-img img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transform: scale(1.12);
+}
+.catch-feature > div {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+.catch-feature b {
+  font-size: 1rem;
+  letter-spacing: -0.01em;
+  line-height: 1.3;
+}
+.catch-feature span {
+  color: var(--muted);
+  font-size: 0.88rem;
   line-height: 1.4;
-}
-.checks li::before {
-  content: "";
-  position: absolute;
-  left: 0;
-  top: 0.35em;
-  width: 12px;
-  height: 12px;
-  border-radius: 50%;
-  background: var(--ok);
-  box-shadow: inset 0 0 0 3px var(--ok-soft);
 }
 
 .block { padding-bottom: 64px; }
 .block-head { max-width: 640px; margin-bottom: 24px; }
-.block-head h2, .how h2 { margin: 0 0 8px; font-size: 1.7rem; letter-spacing: -0.03em; }
+.block-head h2 { margin: 0 0 8px; font-size: 1.7rem; letter-spacing: -0.03em; }
 .block-head p { margin: 0; }
 .block-cta { margin-top: 22px; }
+
+.save {
+  position: relative;
+}
+.save-eyebrow {
+  display: inline-block;
+  margin: 0 0 14px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.6);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.save-title {
+  margin: 0 0 10px;
+  max-width: 16ch;
+  font-size: clamp(1.8rem, 3vw, 2.4rem);
+  line-height: 1.1;
+  letter-spacing: -0.035em;
+}
+.save-lead {
+  margin: 0 0 28px;
+  max-width: 36rem;
+  color: var(--muted-2);
+  font-size: 1rem;
+  line-height: 1.5;
+}
 
 .save-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 12px;
-  margin-bottom: 16px;
+  gap: 18px;
+  margin-bottom: 26px;
 }
 .save-card {
-  padding: 18px 18px 20px;
-  border-radius: 18px;
+  display: flex;
+  flex-direction: column;
+  border-radius: 24px;
   border: 1px solid var(--border);
-  background: rgba(255, 255, 255, 0.55);
+  background: #fff;
+  box-shadow: 0 10px 30px rgba(28, 25, 21, 0.05);
+  overflow: hidden;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+.save-card:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 18px 44px rgba(28, 25, 21, 0.1);
+}
+.save-media {
+  position: relative;
+  aspect-ratio: 16 / 10;
+  background: #f1ece3;
+}
+.save-media img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  min-height: 100%;
+  object-fit: cover;
+  object-position: center;
+  transition: transform 0.4s ease;
+}
+.save-card.was .save-media img { object-position: 50% 65%; }
+.save-card:hover .save-media img { transform: scale(1.04); }
+.save-pill {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  background: #1f4d39;
+  color: #fff;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  box-shadow: 0 6px 16px rgba(31, 77, 57, 0.25);
+}
+.save-body {
   display: flex;
   flex-direction: column;
   gap: 6px;
+  padding: 18px 22px 22px;
+  min-width: 0;
 }
 .save-card .label {
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 700;
-  letter-spacing: 0.06em;
+  letter-spacing: 0.1em;
   text-transform: uppercase;
   color: var(--muted);
 }
-.save-card b {
-  font-size: 1.15rem;
+.save-value {
+  font-size: 1.35rem;
+  font-weight: 700;
   letter-spacing: -0.02em;
-  line-height: 1.3;
+  line-height: 1.2;
 }
-.save-card span { color: var(--muted-2); font-size: 0.9rem; }
+.save-sub {
+  color: var(--muted-2);
+  font-size: 0.9rem;
+  line-height: 1.45;
+}
+.save-card.was .save-value { color: var(--muted-2); text-decoration: line-through; text-decoration-thickness: 2px; text-decoration-color: rgba(28, 25, 21, 0.35); }
 .save-card.result {
-  background: var(--ok-soft);
   border-color: #c7e3d4;
+  background: var(--ok-soft);
 }
-.save-card.result b { color: #1f4d39; }
+.save-card.result .save-media { background: #e3f3ea; }
+.save-card.result .save-value { color: #1f4d39; }
+.save-card.result .save-sub { color: #2d6a4f; }
+.save-card.result .label { color: #2d6a4f; }
+
+.save-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  flex-wrap: wrap;
+}
 .save-note {
-  margin: 0 0 18px;
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin: 0;
   max-width: 46rem;
   color: var(--muted-2);
-  font-size: 0.98rem;
+  font-size: 0.92rem;
+  line-height: 1.5;
+}
+.save-note svg {
+  flex: 0 0 auto;
+  margin-top: 2px;
+  color: var(--muted);
+}
+.save-cta .arrow-glyph,
+.block-cta .arrow-glyph {
+  font-size: 17px;
+  line-height: 1;
 }
 
 .cards5 {
@@ -503,52 +802,6 @@ h1 {
 }
 .info h3 { margin: 0 0 8px; font-size: 1.02rem; letter-spacing: -0.02em; }
 .info p { margin: 0; color: var(--muted-2); font-size: 0.9rem; line-height: 1.45; }
-
-.how {
-  padding-bottom: 64px;
-  display: grid;
-  grid-template-columns: minmax(0, 1.1fr) minmax(0, 0.9fr);
-  gap: 40px;
-  align-items: center;
-}
-.how h2 { margin-bottom: 18px; }
-.timeline {
-  list-style: none;
-  margin: 0 0 20px;
-  padding: 0;
-  counter-reset: step;
-}
-.timeline li {
-  position: relative;
-  padding: 0 0 20px 44px;
-  counter-increment: step;
-}
-.timeline li::before {
-  content: counter(step);
-  position: absolute;
-  left: 0;
-  top: 0;
-  width: 30px;
-  height: 30px;
-  border-radius: 50%;
-  background: var(--accent);
-  color: var(--bg);
-  font-size: 13px;
-  font-weight: 700;
-  display: grid;
-  place-items: center;
-}
-.timeline li:not(:last-child)::after {
-  content: "";
-  position: absolute;
-  left: 14px;
-  top: 32px;
-  bottom: 2px;
-  width: 2px;
-  background: var(--border-strong);
-}
-.timeline b { display: block; margin-bottom: 4px; }
-.timeline span { color: var(--muted-2); font-size: 0.95rem; line-height: 1.5; }
 
 .tiers {
   display: grid;
@@ -596,27 +849,65 @@ h1 {
   border: 1px solid var(--border);
 }
 
-.hero-visual img {
-  width: 100%;
-  border-radius: 24px;
-  border: 1px solid var(--border);
-  box-shadow: 0 24px 60px rgba(28, 25, 21, 0.12);
-  display: block;
-}
-
 @media (max-width: 1100px) {
   .cards5 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 }
 @media (max-width: 900px) {
-  .hero { grid-template-columns: 1fr; padding-top: 16px; gap: 28px; }
+  .hero { grid-template-columns: 1fr; padding-top: 32px; gap: 28px; }
   .hero-form { position: static; order: -1; }
-  h1 { max-width: none; }
-  .how { grid-template-columns: 1fr; }
-  .hero-visual { order: -1; }
-  .save-grid { grid-template-columns: 1fr; }
-  .catch-body { grid-template-columns: 1fr; }
+  .hero-how .bot-card { margin-top: 20px; }
+  .hero-how h2 { font-size: 1.7rem; }
+  .save-grid { grid-template-columns: 1fr; gap: 10px; margin-bottom: 20px; }
+  .save-title { max-width: none; font-size: clamp(1.55rem, 5vw, 1.85rem); }
+  .save-lead { margin-bottom: 20px; font-size: 0.95rem; }
+  .save-card {
+    flex-direction: row;
+    align-items: stretch;
+  }
+  .save-card:hover {
+    transform: none;
+    box-shadow: 0 10px 30px rgba(28, 25, 21, 0.05);
+  }
+  .save-media {
+    flex: 0 0 108px;
+    width: 108px;
+    aspect-ratio: auto;
+    align-self: stretch;
+    min-height: 108px;
+  }
+  .save-card:hover .save-media img { transform: none; }
+  .save-card.was .save-media img { object-position: 58% 68%; }
+  .save-card.now .save-media img { object-position: 50% 42%; }
+  .save-card.result .save-media img { object-position: 50% 50%; }
+  .save-body {
+    flex: 1;
+    justify-content: center;
+    padding: 16px 18px 16px 14px;
+  }
+  .save-value { font-size: 1.12rem; }
+  .save-sub { font-size: 0.84rem; }
+  .save-pill {
+    top: 8px;
+    right: 8px;
+    padding: 4px 9px;
+    font-size: 11px;
+  }
+  .save-footer { flex-direction: column; align-items: stretch; gap: 16px; }
+  .save-cta { width: 100%; }
+  .catch-grid { grid-template-columns: 1fr; }
+  .catch-title { max-width: none; }
 }
 @media (max-width: 560px) {
   .cards5 { grid-template-columns: 1fr; }
+  .steps { grid-template-columns: 1fr; }
+  .save-media { flex-basis: 92px; width: 92px; min-height: 92px; }
+  .save-body { padding: 14px 16px 14px 12px; gap: 4px; }
+  .save-value { font-size: 1.02rem; }
+  .save-sub { font-size: 0.8rem; line-height: 1.35; }
+  .catch-main { grid-template-columns: 1fr; }
+  .catch-main-media { min-height: 0; aspect-ratio: 16 / 9; order: -1; }
+  .catch-main-media img { object-position: 60% 50%; }
+  .catch-main-body { padding: 20px 20px 22px; }
+  .catch-feature-img { width: 64px; height: 64px; }
 }
 </style>
