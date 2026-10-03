@@ -3,5 +3,14 @@
 </template>
 
 <script setup>
-import { RouterView } from 'vue-router'
+import { watch } from 'vue'
+import { RouterView, useRoute } from 'vue-router'
+import { captureReferralFromUrl } from './utils/referral'
+
+const route = useRoute()
+watch(
+  () => route.fullPath,
+  () => captureReferralFromUrl(window.location.search),
+  { immediate: true },
+)
 </script>

@@ -25,6 +25,7 @@ from app.mailer import enabled as mail_enabled
 from app.money import bonus_tiers, min_topup_rub, min_topup_usd, rub_to_usd, topup_bonus, usd_price_rub
 from app.payments import ensure_web_key, settle_payment
 from app.settings_store import get_setting, public_base_url, support_username
+from app.referrals import attribute_user
 from app.telegram_link import bot_start_url
 from app.usage_stats import usage_period_stats
 from app.web_auth import key_hash, make_session, require_web_user
@@ -44,6 +45,7 @@ class AmountIn(BaseModel):
 
 class CheckoutIn(AmountIn):
     email: str = Field(min_length=3, max_length=200)
+    referral: str = Field(default="", max_length=64)
 
 
 class ReturnIn(BaseModel):
@@ -242,6 +244,8 @@ def checkout(body: CheckoutIn) -> dict:
                 (email,),
             ).fetchone()
             user_id = int(created["id"])
+    if body.referral.strip():
+        attribute_user(user_id, body.referral)
     return _start_payment(user_id, rub, usd, email)
 
 

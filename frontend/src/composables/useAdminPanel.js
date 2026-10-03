@@ -199,6 +199,7 @@ export function useAdminPanel() {
   const userCredits = reactive({})
 
   const referralBot = ref('')
+  const referralSiteBase = ref('')
   const referralGroups = ref([])
   const referralItems = ref([])
   const referralExpandedIds = ref([])
@@ -316,9 +317,14 @@ export function useAdminPanel() {
     loginError.value = ''
   }
 
-  function referralUrl(token) {
+  function referralTelegramUrl(token) {
     if (!referralBot.value) return ''
     return 'https://t.me/' + referralBot.value + '?start=' + encodeURIComponent(token)
+  }
+
+  function referralSiteUrl(token) {
+    if (!referralSiteBase.value) return ''
+    return referralSiteBase.value + '/?ref=' + encodeURIComponent(token)
   }
 
   function referralTopupText(stats) {
@@ -469,6 +475,7 @@ export function useAdminPanel() {
   async function loadReferrals() {
     const data = await api('/api/admin/referrals')
     referralBot.value = data.bot_username || ''
+    referralSiteBase.value = String(data.public_base_url || '').replace(/\/+$/, '')
     referralGroups.value = data.groups || []
     referralItems.value = data.items || []
 
@@ -476,7 +483,7 @@ export function useAdminPanel() {
     referralExpandedIds.value = referralExpandedIds.value.filter((id) => groupIds.has(id))
 
     if (!referralExpandInitialized.value) {
-      referralExpandedIds.value = referralGroups.value.map((group) => group.id)
+      referralExpandedIds.value = []
       referralExpandInitialized.value = true
     }
   }
@@ -777,26 +784,33 @@ export function useAdminPanel() {
     }
   }
 
-  async function copyReferralUrl(item) {
-    const url = referralUrl(item.token)
+  async function copyText(text) {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      await navigator.clipboard.writeText(text)
+      return
+    }
+    const area = document.createElement('textarea')
+    area.value = text
+    area.style.position = 'fixed'
+    area.style.left = '-9999px'
+    document.body.append(area)
+    area.select()
+    if (!document.execCommand('copy')) throw new Error('copy failed')
+    area.remove()
+  }
+
+  async function copyReferralUrl(item, channel = 'tg') {
+    const url = channel === 'site'
+      ? referralSiteUrl(item.token)
+      : referralTelegramUrl(item.token)
     if (!url) return
+    const key = `${item.id}:${channel}`
     try {
-      if (navigator.clipboard && navigator.clipboard.writeText) {
-        await navigator.clipboard.writeText(url)
-      } else {
-        const area = document.createElement('textarea')
-        area.value = url
-        area.style.position = 'fixed'
-        area.style.left = '-9999px'
-        document.body.append(area)
-        area.select()
-        if (!document.execCommand('copy')) throw new Error('copy failed')
-        area.remove()
-      }
-      copiedReferralIds.value = { ...copiedReferralIds.value, [item.id]: true }
+      await copyText(url)
+      copiedReferralIds.value = { ...copiedReferralIds.value, [key]: true }
       setTimeout(() => {
         const next = { ...copiedReferralIds.value }
-        delete next[item.id]
+        delete next[key]
         copiedReferralIds.value = next
       }, 1200)
     } catch {
@@ -893,7 +907,8 @@ export function useAdminPanel() {
     deleteReferral,
     deleteReferralGroup,
     copyReferralUrl,
-    referralUrl,
+    referralTelegramUrl,
+    referralSiteUrl,
     referralTopupText,
     ledgerKindLabel,
     ledgerAmountText,

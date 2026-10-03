@@ -112,6 +112,7 @@ import { computed, ref, watch } from 'vue'
 import { RouterLink } from 'vue-router'
 import { errorText, webApi } from '../api/web'
 import { formatMoneyInput, parseMoneyInput, rub, usd } from '../utils/format'
+import { getReferralToken } from '../utils/referral'
 
 const props = defineProps({
   mode: { type: String, default: 'checkout' },
@@ -264,8 +265,13 @@ async function submit() {
   submitError.value = ''
   const payload = currency.value === 'usd' ? { amount_usd: usdAmount.value } : { amount_rub: rubAmount.value }
   try {
+    const referral = getReferralToken()
     const result = props.mode === 'checkout'
-      ? await webApi.checkout({ ...payload, email: email.value.trim() })
+      ? await webApi.checkout({
+          ...payload,
+          email: email.value.trim(),
+          ...(referral ? { referral } : {}),
+        })
       : await webApi.topup(payload)
     if (typeof window.ym === 'function') {
       window.ym(113324421, 'reachGoal', props.mode === 'checkout' ? 'checkout_start' : 'topup_start', {

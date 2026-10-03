@@ -23,7 +23,7 @@
               <strong>Уведомления о балансе, история, поддержка</strong>
               <span>Всё это — в Telegram-боте</span>
             </div>
-            <a class="btn sm" :href="config.bot_url" target="_blank" rel="noopener">Открыть бота</a>
+            <a class="btn sm" :href="botUrl" target="_blank" rel="noopener">Открыть бота</a>
           </aside>
         </div>
 
@@ -267,9 +267,11 @@ import SiteHeader from '../components/SiteHeader.vue'
 import TopupForm from '../components/TopupForm.vue'
 import { webApi } from '../api/web'
 import { rub, usd } from '../utils/format'
+import { botUrlWithReferral } from '../utils/referral'
 import { useHead } from '../utils/useHead'
 
 const config = ref(null)
+const botUrl = computed(() => botUrlWithReferral(config.value?.bot_url || ''))
 const price = computed(() => Number(config.value?.usd_price_rub || 0))
 const minUsd = computed(() => Number(config.value?.min_topup_usd || 10))
 const minRub = computed(() => {

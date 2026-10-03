@@ -708,6 +708,7 @@ def list_topups() -> dict:
 def list_referrals_admin() -> dict:
     return {
         "bot_username": bot_username(),
+        "public_base_url": public_base_url(),
         "groups": list_groups(),
         "items": list_links(),
     }

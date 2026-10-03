@@ -567,14 +567,34 @@
                     <td class="num">{{ conversion(row.item.payment_conversion, row.item.visits) }}</td>
                     <td class="num">{{ referralTopupText(row.item) }}</td>
                     <td class="referral-copy">
-                      <button
-                        v-if="referralUrl(row.item.token)"
-                        type="button"
-                        class="quiet sm"
-                        @click.stop="copyReferralUrl(row.item)"
-                      >
-                        {{ copiedReferralIds[row.item.id] ? 'Скопировано' : 'Копировать' }}
-                      </button>
+                      <div class="referral-copy-actions">
+                        <button
+                          v-if="referralSiteUrl(row.item.token)"
+                          type="button"
+                          class="quiet sm icon-btn"
+                          title="Скопировать ссылку на сайт"
+                          aria-label="Скопировать ссылку на сайт"
+                          @click.stop="copyReferralUrl(row.item, 'site')"
+                        >
+                          <svg v-if="!copiedReferralIds[`${row.item.id}:site`]" viewBox="0 0 24 24" aria-hidden="true">
+                            <path fill="currentColor" d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20Zm7.4 9h-3.1a15 15 0 0 0-1.3-5.2A8.05 8.05 0 0 1 19.4 11ZM12 4c.9 0 2.2 1.8 2.9 5H9.1C9.8 5.8 11.1 4 12 4ZM4.6 13h3.1c.2 1.9.7 3.7 1.3 5.2A8.05 8.05 0 0 1 4.6 13Zm3.1-2H4.6a8.05 8.05 0 0 1 4.4-5.2A15 15 0 0 0 7.7 11Zm1.4 2h5.8c-.3 1.8-.9 3.5-1.6 4.7-.4.7-.9 1.3-1.3 1.3s-.9-.6-1.3-1.3c-.7-1.2-1.3-2.9-1.6-4.7Zm5.8-2H9.1c.3-1.8.9-3.5 1.6-4.7.4-.7.9-1.3 1.3-1.3s.9.6 1.3 1.3c.7 1.2 1.3 2.9 1.6 4.7Zm.7 7.2c.6-1.5 1.1-3.3 1.3-5.2h3.1a8.05 8.05 0 0 1-4.4 5.2Z"/>
+                          </svg>
+                          <span v-else aria-hidden="true">✓</span>
+                        </button>
+                        <button
+                          v-if="referralTelegramUrl(row.item.token)"
+                          type="button"
+                          class="quiet sm icon-btn"
+                          title="Скопировать ссылку в Telegram"
+                          aria-label="Скопировать ссылку в Telegram"
+                          @click.stop="copyReferralUrl(row.item, 'tg')"
+                        >
+                          <svg v-if="!copiedReferralIds[`${row.item.id}:tg`]" viewBox="0 0 24 24" aria-hidden="true">
+                            <path fill="currentColor" d="M21.7 4.3c.3-.9-.4-1.5-1.2-1.2L2.9 9.8c-.9.3-.9 1.1-.2 1.4l4.7 1.5 1.8 5.6c.2.7 1.1.9 1.6.4l2.6-2.5 4.9 3.6c.7.5 1.6.1 1.8-.7l2.8-14.8ZM8.9 12.7l8.5-5.3c.3-.2.7.2.4.5l-7 6.7-.3 3.1-1.6-5Z"/>
+                          </svg>
+                          <span v-else aria-hidden="true">✓</span>
+                        </button>
+                      </div>
                     </td>
                     <td class="referral-created">{{ shortDate(row.item.created_at) }}</td>
                     <td class="referral-group">
@@ -717,7 +737,8 @@ const {
   deleteReferral,
   deleteReferralGroup,
   copyReferralUrl,
-  referralUrl,
+  referralTelegramUrl,
+  referralSiteUrl,
   referralTopupText,
   ledgerKindLabel,
   ledgerAmountText,
@@ -941,6 +962,19 @@ onMounted(() => {
 .admin-page .tab-referrals td.referral-copy,
 .admin-page .tab-referrals td.referral-delete,
 .admin-page .tab-referrals td.referral-group { width: 1%; white-space: nowrap; text-align: center; vertical-align: middle; }
+.admin-page .referral-copy-actions { display: inline-flex; gap: 4px; align-items: center; justify-content: center; }
+.admin-page button.icon-btn {
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  line-height: 1;
+}
+.admin-page button.icon-btn svg { width: 15px; height: 15px; display: block; }
+.admin-page button.icon-btn span { font-size: 13px; font-weight: 700; color: var(--accent); }
 .admin-page .referral-system { margin-left: 8px; vertical-align: middle; }
 .admin-page .tab-referrals td.referral-created { white-space: nowrap; vertical-align: middle; }
 .admin-page .tab-referrals td.referral-group select { width: auto; min-width: 120px; max-width: 160px; padding: 6px 8px; font-size: 13px; }
