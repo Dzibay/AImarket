@@ -64,6 +64,15 @@ export function tokenUsd(value) {
   return '$' + amount.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: digits })
 }
 
+/** Рубли за 1 млн токенов (мелкие суммы — больше знаков). */
+export function tokenRub(value) {
+  const amount = Number(value)
+  if (!Number.isFinite(amount)) return '—'
+  const abs = Math.abs(amount)
+  const digits = abs >= 100 ? 0 : abs >= 1 ? 2 : abs >= 0.01 ? 4 : 6
+  return amount.toLocaleString('ru-RU', { minimumFractionDigits: 0, maximumFractionDigits: digits }) + ' ₽'
+}
+
 /** Длина контекста: 1,05 млн или 262 тыс. */
 export function contextSize(value) {
   const tokensCount = Number(value) || 0

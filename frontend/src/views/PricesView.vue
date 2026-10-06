@@ -3,11 +3,14 @@
     <SiteHeader />
     <main class="site-main">
       <div class="container wrap">
-        <p class="eyebrow">Скидка 90% от официальных тарифов</p>
+        <p class="eyebrow">Скидка 90% при оплате в рублях</p>
         <h1 class="page-title">Цены на токены</h1>
         <p class="page-lead">
-          Платите только за токены: отдельно за вход (ваш запрос) и за выход (ответ модели).
-          Наша цена — 10% от официальной на OpenRouter. Снимок тарифов от {{ PRICE_AS_OF }}.
+          За 1 миллион токенов. В колонке <b>USD</b> — ориентир по тарифам
+          <a :href="PRICE_SOURCE" target="_blank" rel="noopener">OpenRouter</a> без скидки.
+          В колонке <b>₽</b> — сколько спишется с баланса при курсе сервиса
+          <b>1&nbsp;$&nbsp;=&nbsp;{{ rateLabel }}</b> (это те же −90%).
+          Снимок от {{ PRICE_AS_OF }}.
         </p>
 
         <div class="toolbar">
@@ -47,19 +50,23 @@
                 <tr>
                   <th>Модель</th>
                   <th>Контекст</th>
-                  <th class="num">Вход, за 1 млн</th>
-                  <th class="num">Выход, за 1 млн</th>
+                  <th class="num">Вход, USD</th>
+                  <th class="num">Вход, ₽</th>
+                  <th class="num">Выход, USD</th>
+                  <th class="num">Выход, ₽</th>
                 </tr>
               </thead>
               <tbody>
                 <tr v-for="model in group.models" :id="model.id" :key="model.id" :class="{ hit: model.id === highlight }">
                   <td><code>{{ model.id }}</code></td>
                   <td class="muted">{{ contextSize(model.context) }}</td>
+                  <td class="num"><span class="price-usd">{{ tokenUsd(model.input) }}</span></td>
                   <td class="num">
-                    <span class="price-cell"><b>{{ tokenUsd(ourPrice(model.input)) }}</b><s>{{ tokenUsd(model.input) }}</s></span>
+                    <span class="price-cell"><b>{{ tokenRub(ourRubPerMillion(model.input, usdPriceRub)) }}</b><s>{{ tokenRub(officialRubPerMillion(model.input, usdPriceRub)) }}</s></span>
                   </td>
+                  <td class="num"><span class="price-usd">{{ tokenUsd(model.output) }}</span></td>
                   <td class="num">
-                    <span class="price-cell"><b>{{ tokenUsd(ourPrice(model.output)) }}</b><s>{{ tokenUsd(model.output) }}</s></span>
+                    <span class="price-cell"><b>{{ tokenRub(ourRubPerMillion(model.output, usdPriceRub)) }}</b><s>{{ tokenRub(officialRubPerMillion(model.output, usdPriceRub)) }}</s></span>
                   </td>
                 </tr>
               </tbody>
@@ -68,10 +75,10 @@
         </section>
 
         <p class="footnote">
-          Цены в долларах за 1 миллион токенов. Официальные тарифы —
-          <a :href="PRICE_SOURCE" target="_blank" rel="noopener">OpenRouter</a>,
-          наши считаются как 10% от них и могут обновиться вместе с тарифами поставщиков.
-          Модели генерации изображений в таблицу не входят: у них другая тарификация.
+          USD — справочно, как в каталоге OpenRouter. Баланс ведётся в долларах; списание — 10% от этих тарифов.
+          ₽ — пересчёт для пополнения: умножаем USD на курс сервиса ({{ rateLabel }}/$);
+          жирным — с учётом скидки 90%, зачёркнуто — без неё. Тарифы могут обновиться у поставщиков.
+          Модели генерации изображений в таблицу не входят.
         </p>
       </div>
     </main>
@@ -84,9 +91,19 @@ import { computed, onMounted, ref } from 'vue'
 import BrandLogo from '../components/BrandLogo.vue'
 import SiteFooter from '../components/SiteFooter.vue'
 import SiteHeader from '../components/SiteHeader.vue'
-import { PRICE_AS_OF, PRICE_SOURCE, families, ourPrice } from '../data/tokenPrices'
-import { contextSize, tokenUsd } from '../utils/format'
+import { useWebConfig } from '../composables/useWebConfig'
+import {
+  PRICE_AS_OF,
+  PRICE_SOURCE,
+  families,
+  officialRubPerMillion,
+  ourRubPerMillion,
+} from '../data/tokenPrices'
+import { contextSize, rub, tokenRub, tokenUsd } from '../utils/format'
 import { useHead } from '../utils/useHead'
+
+const { usdPriceRub, loadConfig } = useWebConfig()
+const rateLabel = computed(() => (usdPriceRub.value > 0 ? rub(usdPriceRub.value) : '…'))
 
 const query = ref('')
 const familyId = ref('all')
@@ -113,8 +130,9 @@ function plural(n, one, few, many) {
   return many
 }
 
-onMounted(() => {
+onMounted(async () => {
   useHead('Цены на токены — Aimarket')
+  await loadConfig()
   const id = window.location.hash.replace('#', '')
   if (!id) return
   highlight.value = id
@@ -161,7 +179,9 @@ onMounted(() => {
 .group-head h2 { margin: 0; font-size: 1.15rem; letter-spacing: -0.03em; }
 .group-head p { margin: 0; color: var(--muted); font-size: 13px; }
 .table-wrap { overflow: auto; }
-table { width: 100%; border-collapse: collapse; min-width: 640px; }
+table { width: 100%; border-collapse: collapse; min-width: 820px; }
+.page-lead a { color: var(--accent); font-weight: 600; }
+.price-usd { font-size: 15px; font-variant-numeric: tabular-nums; color: var(--muted-2); }
 th, td { text-align: left; padding: 12px 14px; border-top: 1px solid var(--border); vertical-align: middle; }
 th {
   color: var(--muted);

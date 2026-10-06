@@ -188,7 +188,7 @@
         </button>
       </section>
 
-      <PriceSpotlight />
+      <PriceSpotlight :usd-price-rub="price" />
 
       <section class="container block">
         <div class="block-head">
@@ -329,12 +329,12 @@ import PriceSpotlight from '../components/PriceSpotlight.vue'
 import SiteFooter from '../components/SiteFooter.vue'
 import SiteHeader from '../components/SiteHeader.vue'
 import TopupForm from '../components/TopupForm.vue'
-import { webApi } from '../api/web'
+import { useWebConfig } from '../composables/useWebConfig'
 import { rub, usd } from '../utils/format'
 import { botUrlWithReferral } from '../utils/referral'
 import { useHead } from '../utils/useHead'
 
-const config = ref(null)
+const { config, loadConfig } = useWebConfig()
 const botUrl = computed(() => botUrlWithReferral(config.value?.bot_url || ''))
 const price = computed(() => Number(config.value?.usd_price_rub || 0))
 const minUsd = computed(() => Number(config.value?.min_topup_usd || 10))
@@ -374,11 +374,7 @@ onMounted(async () => {
     document.head.append(meta)
   }
   meta.content = 'Aimarket — один ключ ко всем ИИ со скидкой 90%. Пополнение в рублях, Cursor, Claude Code, Codex.'
-  try {
-    config.value = await webApi.config()
-  } catch {
-    config.value = { sales_open: false, usd_price_rub: 0, min_topup_usd: 10 }
-  }
+  await loadConfig()
 })
 </script>
 

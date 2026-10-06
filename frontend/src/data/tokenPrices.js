@@ -1,5 +1,6 @@
 // Официальные цены OpenRouter за 1 млн токенов, снимок от 6 октября 2026.
-// Наша цена = официальная × PRICE_FACTOR (скидка 90%).
+// Списание с баланса: официальная × PRICE_FACTOR (скидка 90% в USD).
+// На сайте USD — как в каталоге; в ₽ — ourPrice × usd_price_rub из /api/web/config.
 export const PRICE_AS_OF = "6 октября 2026"
 export const PRICE_SOURCE = "https://openrouter.ai/models"
 export const PRICE_FACTOR = 0.1
@@ -107,6 +108,20 @@ export const flagships = [
 
 export function ourPrice(official) {
   return Math.round(Number(official) * PRICE_FACTOR * 1e6) / 1e6
+}
+
+/** Ориентир в рублях без скидки: официальный USD × курс сервиса (usd_price_rub). */
+export function officialRubPerMillion(officialUsd, usdRubRate) {
+  const rate = Number(usdRubRate)
+  if (!(rate > 0)) return Number.NaN
+  return Math.round(Number(officialUsd) * rate * 1e6) / 1e6
+}
+
+/** Списание в рублях за 1 млн токенов при курсе usd_price_rub. */
+export function ourRubPerMillion(officialUsd, usdRubRate) {
+  const rate = Number(usdRubRate)
+  if (!(rate > 0)) return Number.NaN
+  return Math.round(ourPrice(officialUsd) * rate * 1e6) / 1e6
 }
 
 export function findModel(id) {

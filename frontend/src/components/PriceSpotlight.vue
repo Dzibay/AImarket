@@ -3,7 +3,9 @@
     <div class="block-head">
       <p class="eyebrow">Цены</p>
       <h2>Флагманские модели — на 90% дешевле</h2>
-      <p class="lead">За 1 миллион токенов. Зачёркнута официальная цена, рядом — наша.</p>
+      <p class="lead">
+        За 1 млн токенов: USD — как в OpenRouter; ₽ — при курсе {{ rateLabel }}/$ со скидкой 90%.
+      </p>
     </div>
 
     <div class="grid">
@@ -16,16 +18,18 @@
         <dl>
           <div>
             <dt>Вход</dt>
-            <dd>
-              <b>{{ tokenUsd(ourPrice(item.input)) }}</b>
-              <s>{{ tokenUsd(item.input) }}</s>
+            <dd class="usd-ref">{{ tokenUsd(item.input) }}</dd>
+            <dd class="rub-pay">
+              <b>{{ tokenRub(ourRubPerMillion(item.input, usdPriceRub)) }}</b>
+              <s>{{ tokenRub(officialRubPerMillion(item.input, usdPriceRub)) }}</s>
             </dd>
           </div>
           <div>
             <dt>Выход</dt>
-            <dd>
-              <b>{{ tokenUsd(ourPrice(item.output)) }}</b>
-              <s>{{ tokenUsd(item.output) }}</s>
+            <dd class="usd-ref">{{ tokenUsd(item.output) }}</dd>
+            <dd class="rub-pay">
+              <b>{{ tokenRub(ourRubPerMillion(item.output, usdPriceRub)) }}</b>
+              <s>{{ tokenRub(officialRubPerMillion(item.output, usdPriceRub)) }}</s>
             </dd>
           </div>
         </dl>
@@ -37,10 +41,23 @@
 </template>
 
 <script setup>
+import { computed } from 'vue'
 import { RouterLink } from 'vue-router'
 import BrandLogo from './BrandLogo.vue'
-import { families, findModel, flagships, ourPrice } from '../data/tokenPrices'
-import { tokenUsd } from '../utils/format'
+import {
+  families,
+  findModel,
+  flagships,
+  officialRubPerMillion,
+  ourRubPerMillion,
+} from '../data/tokenPrices'
+import { rub, tokenRub, tokenUsd } from '../utils/format'
+
+const props = defineProps({
+  usdPriceRub: { type: Number, default: 0 },
+})
+
+const rateLabel = computed(() => (props.usdPriceRub > 0 ? rub(props.usdPriceRub) : '…'))
 
 const count = families.reduce((sum, family) => sum + family.models.length, 0)
 const cards = flagships.map((item) => {
@@ -106,8 +123,9 @@ const cards = flagships.map((item) => {
 dl { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 0; }
 dt { color: var(--muted); font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.03em; }
 dd { margin: 2px 0 0; display: flex; flex-direction: column; }
-dd b { font-size: 20px; letter-spacing: -0.03em; font-variant-numeric: tabular-nums; }
-dd s { color: var(--muted); font-size: 13px; font-variant-numeric: tabular-nums; }
+dd.usd-ref { color: var(--muted-2); font-size: 13px; font-variant-numeric: tabular-nums; margin-bottom: 4px; }
+dd.rub-pay b { font-size: 20px; letter-spacing: -0.03em; font-variant-numeric: tabular-nums; }
+dd.rub-pay s { color: var(--muted); font-size: 13px; font-variant-numeric: tabular-nums; }
 .more { margin-top: 18px; }
 @media (max-width: 900px) { .grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 560px) { .grid { grid-template-columns: 1fr; } }
