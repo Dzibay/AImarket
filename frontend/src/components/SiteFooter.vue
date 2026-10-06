@@ -3,6 +3,7 @@
     <div class="container footer-inner">
       <span>© Aimarket</span>
       <nav class="footer-links" aria-label="Документы">
+        <RouterLink to="/prices">Цены</RouterLink>
         <RouterLink to="/privacy">Политика конфиденциальности</RouterLink>
         <RouterLink to="/consent">Согласие на обработку данных</RouterLink>
         <RouterLink to="/offer">Публичная оферта</RouterLink>

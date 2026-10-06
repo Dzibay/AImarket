@@ -36,6 +36,10 @@
                   <AppIcon :name="item.icon" :size="17" />
                   <span>{{ item.label }}</span>
                 </a>
+                <RouterLink to="/prices">
+                  <AppIcon name="tag" :size="17" />
+                  <span>Цены</span>
+                </RouterLink>
               </nav>
               <div class="side-foot">
                 <button type="button" class="side-link" :disabled="loading" @click="load">
@@ -168,7 +172,7 @@
                   <h3 class="card-title sm">Как расходуется баланс</h3>
                   <ul class="plain">
                     <li><AppIcon name="spark" :size="15" />Один ключ открывает все модели — модель выбирается в поле <code>model</code>.</li>
-                    <li><AppIcon name="send" :size="15" />Списание за токены по ценам поставщиков, сразу после каждого ответа.</li>
+                    <li><AppIcon name="send" :size="15" />Списание за токены — 10% от официальной цены, сразу после каждого ответа. <RouterLink to="/prices">Все цены</RouterLink>.</li>
                     <li><AppIcon name="wallet" :size="15" />При нулевом балансе запросы останавливаются, ключ остаётся вашим.</li>
                     <li v-if="profile.key.spent_usd != null"><AppIcon name="history" :size="15" />Через этот ключ потрачено <b>{{ usdSmart(profile.key.spent_usd) }}</b>.</li>
                   </ul>
@@ -476,7 +480,7 @@ const faq = computed(() => {
     {
       q: 'Как списываются деньги?',
       a: `<p>Списание идёт в реальном времени: вы отправляете запрос → он уходит поставщику модели → поставщик возвращает ответ и количество токенов → стоимость списывается с баланса.</p>
-          <p>Цены — официальные цены поставщиков (OpenAI, Anthropic и других) без наценки, вы платите только за токены. Каждое списание видно в истории операций с названием модели и объёмом токенов.</p>`,
+          <p>Цена — 10% от официального тарифа модели на OpenRouter: отдельно за входные и выходные токены. Полная таблица — на странице <a href="/prices">«Цены»</a>. Каждое списание видно в истории операций с названием модели и объёмом токенов.</p>`,
     },
     {
       q: 'Какие модели доступны и как выбрать нужную?',
@@ -793,6 +797,7 @@ onBeforeUnmount(() => {
 .plain li { display: flex; gap: 10px; align-items: flex-start; color: var(--muted-2); line-height: 1.45; }
 .plain .icon { margin-top: 3px; color: var(--muted); }
 .plain code { font-size: 12.5px; background: #fff; border: 1px solid var(--border); padding: 0 5px; border-radius: 5px; }
+.plain a { text-decoration: underline; text-underline-offset: 3px; font-weight: 600; }
 .reissue .btn { margin-top: 4px; }
 .reissue p { margin: 0 0 10px; }
 

@@ -188,6 +188,8 @@
         </button>
       </section>
 
+      <PriceSpotlight />
+
       <section class="container block">
         <div class="block-head">
           <h2>После оплаты вы получите</h2>
@@ -254,9 +256,9 @@
           <details>
             <summary>Почему курс 1$ = {{ rub(price || 10, 0) }} — это выгодно?</summary>
             <p>
-              Вы пополняете баланс в рублях, а списание идёт в долларах по тарифам самих провайдеров.
-              Курс пополнения фиксирован сайтом и не зависит от курса ЦБ. Вы заранее видите, сколько
-              долларов зачислится на баланс.
+              Вы пополняете баланс в рублях, а списание идёт в долларах: 10% от официальной цены модели.
+              Курс пополнения фиксирован сайтом и не зависит от курса ЦБ. Все тарифы — на странице
+              <RouterLink to="/prices">«Цены»</RouterLink>.
             </p>
           </details>
           <details>
@@ -321,7 +323,9 @@
 
 <script setup>
 import { computed, onMounted, ref } from 'vue'
+import { RouterLink } from 'vue-router'
 import ModelsHero from '../components/ModelsHero.vue'
+import PriceSpotlight from '../components/PriceSpotlight.vue'
 import SiteFooter from '../components/SiteFooter.vue'
 import SiteHeader from '../components/SiteHeader.vue'
 import TopupForm from '../components/TopupForm.vue'

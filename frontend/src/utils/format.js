@@ -55,6 +55,24 @@ export function tokens(value) {
   return Number(value || 0).toLocaleString('ru-RU')
 }
 
+/** Цена за 1 млн токенов: $10, $0.75, $0.00134. */
+export function tokenUsd(value) {
+  const amount = Number(value)
+  if (!Number.isFinite(amount)) return '—'
+  const abs = Math.abs(amount)
+  const digits = abs >= 1 ? 2 : abs >= 0.1 ? 4 : 6
+  return '$' + amount.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: digits })
+}
+
+/** Длина контекста: 1,05 млн или 262 тыс. */
+export function contextSize(value) {
+  const tokensCount = Number(value) || 0
+  if (tokensCount >= 1_000_000) {
+    return `${(tokensCount / 1_000_000).toLocaleString('ru-RU', { maximumFractionDigits: 2 })} млн`
+  }
+  return `${Math.round(tokensCount / 1000).toLocaleString('ru-RU')} тыс.`
+}
+
 /**
  * Разбор суммы из поля ввода.
  * USD: «10,000.50» — запятые тысяч, точка дробная.

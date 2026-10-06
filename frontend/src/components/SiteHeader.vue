@@ -6,6 +6,7 @@
         <span>Aimarket</span>
       </RouterLink>
       <nav class="nav">
+        <RouterLink to="/prices" class="nav-link">Цены</RouterLink>
         <template v-if="isLoggedIn">
           <RouterLink to="/cabinet" class="btn quiet sm">Личный кабинет</RouterLink>
           <button type="button" class="link" @click="logout">Выйти</button>
@@ -52,6 +53,8 @@ function logout() {
   box-shadow: 0 8px 24px rgba(28, 25, 21, 0.08);
 }
 .nav { display: flex; align-items: center; gap: 14px; }
+.nav-link { font-size: 14px; font-weight: 600; color: var(--muted-2); }
+.nav-link.router-link-active { color: var(--text); }
 .link {
   background: none;
   border: 0;
