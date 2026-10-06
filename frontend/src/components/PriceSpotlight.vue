@@ -4,7 +4,7 @@
       <p class="eyebrow">Цены</p>
       <h2>Флагманские модели — на 90% дешевле</h2>
       <p class="lead">
-        За 1 млн токенов: USD — как в OpenRouter; ₽ — при курсе {{ rateLabel }}/$ со скидкой 90%.
+        За 1 млн токенов: USD — как в OpenRouter; ₽ — тот же тариф × курс {{ rateLabel }}/$.
       </p>
     </div>
 
@@ -21,7 +21,7 @@
             <dd class="usd-ref">{{ tokenUsd(item.input) }}</dd>
             <dd class="rub-pay">
               <b>{{ tokenRub(ourRubPerMillion(item.input, usdPriceRub)) }}</b>
-              <s>{{ tokenRub(officialRubPerMillion(item.input, usdPriceRub)) }}</s>
+              <s>{{ tokenRub(referenceRubPerMillion(item.input, usdPriceRub)) }}</s>
             </dd>
           </div>
           <div>
@@ -29,7 +29,7 @@
             <dd class="usd-ref">{{ tokenUsd(item.output) }}</dd>
             <dd class="rub-pay">
               <b>{{ tokenRub(ourRubPerMillion(item.output, usdPriceRub)) }}</b>
-              <s>{{ tokenRub(officialRubPerMillion(item.output, usdPriceRub)) }}</s>
+              <s>{{ tokenRub(referenceRubPerMillion(item.output, usdPriceRub)) }}</s>
             </dd>
           </div>
         </dl>
@@ -48,8 +48,8 @@ import {
   families,
   findModel,
   flagships,
-  officialRubPerMillion,
   ourRubPerMillion,
+  referenceRubPerMillion,
 } from '../data/tokenPrices'
 import { rub, tokenRub, tokenUsd } from '../utils/format'
 

@@ -3,14 +3,15 @@
     <SiteHeader />
     <main class="site-main">
       <div class="container wrap">
-        <p class="eyebrow">Скидка 90% при оплате в рублях</p>
+        <p class="eyebrow">Тарифы сервиса</p>
         <h1 class="page-title">Цены на токены</h1>
         <p class="page-lead">
-          За 1 миллион токенов. В колонке <b>USD</b> — ориентир по тарифам
-          <a :href="PRICE_SOURCE" target="_blank" rel="noopener">OpenRouter</a> без скидки.
-          В колонке <b>₽</b> — сколько спишется с баланса при курсе сервиса
-          <b>1&nbsp;$&nbsp;=&nbsp;{{ rateLabel }}</b> (это те же −90%).
-          Снимок от {{ PRICE_AS_OF }}.
+          Стоимость за один миллион токенов — отдельно за вход в модель и за ответ.
+          <b>USD</b> — справочный тариф в долларах.
+          <b>₽</b> — тот же тариф в рублях по курсу пополнения
+          (<b>1&nbsp;$&nbsp;=&nbsp;{{ rateLabel }}</b>).
+          Зачёркнутая сумма — для сравнения, если бы курс был в {{ RUB_REFERENCE_RATE_MULT }} раз выше.
+          Обновлено {{ PRICE_AS_OF }}.
         </p>
 
         <div class="toolbar">
@@ -62,11 +63,11 @@
                   <td class="muted">{{ contextSize(model.context) }}</td>
                   <td class="num"><span class="price-usd">{{ tokenUsd(model.input) }}</span></td>
                   <td class="num">
-                    <span class="price-cell"><b>{{ tokenRub(ourRubPerMillion(model.input, usdPriceRub)) }}</b><s>{{ tokenRub(officialRubPerMillion(model.input, usdPriceRub)) }}</s></span>
+                    <span class="price-cell"><b>{{ tokenRub(ourRubPerMillion(model.input, usdPriceRub)) }}</b><s>{{ tokenRub(referenceRubPerMillion(model.input, usdPriceRub)) }}</s></span>
                   </td>
                   <td class="num"><span class="price-usd">{{ tokenUsd(model.output) }}</span></td>
                   <td class="num">
-                    <span class="price-cell"><b>{{ tokenRub(ourRubPerMillion(model.output, usdPriceRub)) }}</b><s>{{ tokenRub(officialRubPerMillion(model.output, usdPriceRub)) }}</s></span>
+                    <span class="price-cell"><b>{{ tokenRub(ourRubPerMillion(model.output, usdPriceRub)) }}</b><s>{{ tokenRub(referenceRubPerMillion(model.output, usdPriceRub)) }}</s></span>
                   </td>
                 </tr>
               </tbody>
@@ -75,10 +76,9 @@
         </section>
 
         <p class="footnote">
-          USD — справочно, как в каталоге OpenRouter. Баланс ведётся в долларах; списание — 10% от этих тарифов.
-          ₽ — пересчёт для пополнения: умножаем USD на курс сервиса ({{ rateLabel }}/$);
-          жирным — с учётом скидки 90%, зачёркнуто — без неё. Тарифы могут обновиться у поставщиков.
-          Модели генерации изображений в таблицу не входят.
+          Баланс ведётся в долларах; с баланса списывается 10% от USD-тарифа в таблице.
+          Рубли — пересчёт для удобства при пополнении, курс как на главной ({{ rateLabel }}/$).
+          Цены могут меняться. Модели генерации изображений в таблицу не входят.
         </p>
       </div>
     </main>
@@ -94,10 +94,10 @@ import SiteHeader from '../components/SiteHeader.vue'
 import { useWebConfig } from '../composables/useWebConfig'
 import {
   PRICE_AS_OF,
-  PRICE_SOURCE,
+  RUB_REFERENCE_RATE_MULT,
   families,
-  officialRubPerMillion,
   ourRubPerMillion,
+  referenceRubPerMillion,
 } from '../data/tokenPrices'
 import { contextSize, rub, tokenRub, tokenUsd } from '../utils/format'
 import { useHead } from '../utils/useHead'
@@ -180,7 +180,6 @@ onMounted(async () => {
 .group-head p { margin: 0; color: var(--muted); font-size: 13px; }
 .table-wrap { overflow: auto; }
 table { width: 100%; border-collapse: collapse; min-width: 820px; }
-.page-lead a { color: var(--accent); font-weight: 600; }
 .price-usd { font-size: 15px; font-variant-numeric: tabular-nums; color: var(--muted-2); }
 th, td { text-align: left; padding: 12px 14px; border-top: 1px solid var(--border); vertical-align: middle; }
 th {
@@ -195,7 +194,6 @@ td code { font-size: 13.5px; font-weight: 600; background: none; }
 tr.hit td { background: var(--warn-soft); }
 .empty { padding: 28px; color: var(--muted); text-align: center; }
 .footnote { margin: 8px 0 0; color: var(--muted); font-size: 13px; max-width: 760px; }
-.footnote a { text-decoration: underline; text-underline-offset: 3px; }
 .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
 .price-cell { display: inline-flex; flex-direction: column; align-items: flex-end; gap: 1px; }
 .price-cell b { font-size: 15px; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
