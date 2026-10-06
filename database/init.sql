@@ -149,6 +149,19 @@ CREATE INDEX IF NOT EXISTS idx_referral_links_group ON referral_links (group_id)
 -- Системный токен для переходов с сайта в бота (кнопка «Открыть бота»).
 INSERT INTO referral_links (token) VALUES ('web') ON CONFLICT (token) DO NOTHING;
 
+-- Установка одной командой: хэш токена из ссылки /i/{token}, программа, система и действие.
+CREATE TABLE IF NOT EXISTS install_tokens (
+    token_hash TEXT PRIMARY KEY,
+    user_id    BIGINT NOT NULL REFERENCES users (id),
+    app        TEXT NOT NULL,
+    os         TEXT NOT NULL,
+    action     TEXT NOT NULL DEFAULT 'setup',
+    expires_at TIMESTAMPTZ NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_install_tokens_expires ON install_tokens (expires_at);
+
 -- Настройки админки: корневой ключ, цена, продавец, текст оферты.
 CREATE TABLE IF NOT EXISTS app_settings (
     key   TEXT PRIMARY KEY,

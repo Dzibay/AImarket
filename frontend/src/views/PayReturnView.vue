@@ -33,8 +33,8 @@
             <RouterLink to="/cabinet" class="btn quiet">В личный кабинет</RouterLink>
           </div>
           <p class="muted small">
-            В кабинете есть пошаговая инструкция и готовые установщики для Cursor, Codex, Claude Code и других
-            программ — ключ и адрес API они пропишут сами.
+            Для Cursor, Codex, Claude Code и других программ в кабинете есть готовая команда — вставьте её,
+            и ключ с адресом API пропишутся сами.
           </p>
         </template>
 

@@ -88,6 +88,22 @@ async def get_key_history(
     return await _request("GET", f"/api/users/{telegram_id}/key/history{params}")
 
 
+async def install_command(telegram_id: int, app: str, os: str, action: str = "setup") -> dict:
+    return await _request(
+        "POST",
+        f"/api/users/{telegram_id}/install",
+        {"app": app, "os": os, "action": action},
+    )
+
+
+async def install_command(telegram_id: int, app: str, os: str, action: str = "setup") -> dict:
+    return await _request(
+        "POST",
+        f"/api/users/{telegram_id}/install",
+        {"app": app, "os": os, "action": action},
+    )
+
+
 async def reissue_key(telegram_id: int) -> dict:
     return await _request("POST", f"/api/users/{telegram_id}/keys/reissue")
 

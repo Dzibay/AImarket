@@ -6,6 +6,7 @@ from pydantic import BaseModel, Field
 from app.billing import BillingError, describe_key, issue_key, reissue_key, sync_user, upstream_base
 from app.datetime_util import iso_utc
 from app.history import HISTORY_PAGE as _HISTORY_PAGE, history_payload
+from app.installer import InstallError, create_install_command
 from app.usage_stats import usage_period_stats
 from app.notifications import get_preferences, preferences_row, toggle_preference
 from app.payments import settle_payment
@@ -36,6 +37,12 @@ class TopupIn(BaseModel):
 
 class ReferralIn(BaseModel):
     token: str = Field(min_length=1, max_length=64)
+
+
+class InstallIn(BaseModel):
+    app: str = Field(min_length=1, max_length=32)
+    os: str = Field(min_length=1, max_length=16)
+    action: str = Field(default="setup", max_length=16)
 
 
 def raise_billing(exc: BillingError) -> None:
@@ -353,6 +360,19 @@ def key_history(
             for item in items[:limit]
         ],
     }
+
+
+@router.post("/users/{telegram_id}/install")
+def install_command(telegram_id: int, body: InstallIn) -> dict:
+    with pool.connection() as conn:
+        row = _user_or_404(conn, telegram_id)
+        _require_active(row)
+        user_id = int(row["id"])
+    try:
+        return create_install_command(user_id, body.app, body.os, body.action)
+    except InstallError as exc:
+        status = {"unknown": 400, "blocked": 403, "no-key": 409, "no-site": 503}.get(exc.code, 502)
+        raise HTTPException(status_code=status, detail=exc.code) from exc
 
 
 @router.post("/users/{telegram_id}/keys")

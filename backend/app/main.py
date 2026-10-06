@@ -4,8 +4,8 @@ import threading
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException
-from fastapi.responses import FileResponse
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import FileResponse, PlainTextResponse, RedirectResponse
 
 from app.api.admin import router as admin_router
 from app.api.products import router as products_router
@@ -17,6 +17,7 @@ from app.billing import sync_all
 from app.reminders import send_offer_reminders
 from app.config import settings
 from app.db import ensure_schema, pool
+from app.installer import bootstrap_script
 from app.referrals import ensure_system_links
 from app.settings_store import bootstrap_settings
 
@@ -25,8 +26,18 @@ log = logging.getLogger("app.main")
 _stop = threading.Event()
 _WEB = Path(__file__).resolve().parent / "web"
 _SETUP_DIR = _WEB / "downloads" / "setup"
-_SETUP_NAME = re.compile(
-    r"aimarket-[a-z0-9-]+-(windows|macos)-(ru|en)\.zip|setup-aimarket-[a-z0-9-]+-(ru|en)\.sh"
+_SETUP_NAME = re.compile(r"aimarket-[a-z0-9-]+-(windows|macos)\.zip|setup-aimarket-[a-z0-9-]+\.sh")
+# Старые ссылки с языком в имени (из писем, закладок и бота) ведут на общий файл.
+_LEGACY_SETUP_NAME = re.compile(r"(aimarket-[a-z0-9-]+-(?:windows|macos)|setup-aimarket-[a-z0-9-]+)-(?:ru|en)(\.zip|\.sh)")
+_INSTALL_TOKEN = re.compile(r"[A-Za-z0-9_-]{16,64}")
+_INSTALL_EXPIRED_PS = (
+    "Write-Host 'aimarket: this setup command has expired. Get a new one on the setup page.' -ForegroundColor Red\n"
+    "Write-Host 'aimarket: команда установки устарела. Скопируйте новую на странице подключения.' -ForegroundColor Red\n"
+)
+_INSTALL_EXPIRED_SH = (
+    "printf '%s\\n' 'aimarket: this setup command has expired. Get a new one on the setup page.' >&2\n"
+    "printf '%s\\n' 'aimarket: команда установки устарела. Скопируйте новую на странице подключения.' >&2\n"
+    "exit 1\n"
 )
 def _sync_loop() -> None:
     _stop.wait(5)
@@ -74,8 +85,22 @@ def health() -> dict:
     return {"status": "ok"}
 
 
-@app.get("/downloads/setup/{name}")
-def download_setup(name: str) -> FileResponse:
+@app.get("/i/{token}")
+def install_script(token: str, request: Request) -> PlainTextResponse:
+    found = bootstrap_script(token) if _INSTALL_TOKEN.fullmatch(token) else None
+    headers = {"Cache-Control": "no-store"}
+    if found is None:
+        powershell = "powershell" in request.headers.get("user-agent", "").lower()
+        body = _INSTALL_EXPIRED_PS if powershell else _INSTALL_EXPIRED_SH
+        return PlainTextResponse(body, headers=headers)
+    return PlainTextResponse(found[1], headers=headers)
+
+
+@app.get("/downloads/setup/{name}", response_model=None)
+def download_setup(name: str) -> FileResponse | RedirectResponse:
+    legacy = _LEGACY_SETUP_NAME.fullmatch(name)
+    if legacy is not None:
+        return RedirectResponse(f"/downloads/setup/{legacy.group(1)}{legacy.group(2)}", status_code=301)
     if _SETUP_NAME.fullmatch(name) is None:
         raise HTTPException(status_code=404, detail="not found")
     path = _SETUP_DIR / name

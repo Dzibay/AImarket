@@ -34,6 +34,8 @@ export const webApi = {
   topup: (payload) => request('/api/web/topups', { method: 'POST', body: JSON.stringify(payload) }),
   checkTopup: (id) => request(`/api/web/topups/${id}/check`, { method: 'POST' }),
   reissueKey: () => request('/api/web/keys/reissue', { method: 'POST' }),
+  installCommand: (app, os, action = 'setup') =>
+    request('/api/web/install', { method: 'POST', body: JSON.stringify({ app, os, action }) }),
 }
 
 export const ERRORS = {

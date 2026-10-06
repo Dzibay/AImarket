@@ -21,6 +21,7 @@ from app.billing import BillingError, describe_key, reissue_key, sync_user, upst
 from app.datetime_util import iso_utc
 from app.db import pool
 from app.history import HISTORY_PAGE, history_payload
+from app.installer import InstallError, create_install_command
 from app.mailer import enabled as mail_enabled
 from app.money import bonus_tiers, min_topup_rub, min_topup_usd, rub_to_usd, topup_bonus, usd_price_rub
 from app.payments import ensure_web_key, settle_payment
@@ -59,6 +60,12 @@ class LoginIn(BaseModel):
 
 class LinkLoginIn(BaseModel):
     token: str = Field(min_length=10, max_length=200)
+
+
+class InstallIn(BaseModel):
+    app: str = Field(min_length=1, max_length=32)
+    os: str = Field(min_length=1, max_length=16)
+    action: str = Field(default="setup", max_length=16)
 
 
 def _config_payload() -> dict:
@@ -398,6 +405,15 @@ def check_topup(topup_id: int, user_id: int = Depends(require_web_user)) -> dict
         if result in {"credited", "already"}:
             status = "paid"
     return {"status": status, "amount_usd": float(topup["amount_usd"]), "profile": _profile(user_id)}
+
+
+@router.post("/web/install")
+def install_command(body: InstallIn, user_id: int = Depends(require_web_user)) -> dict:
+    try:
+        return create_install_command(user_id, body.app, body.os, body.action)
+    except InstallError as exc:
+        status = {"unknown": 400, "blocked": 403, "no-key": 409, "no-site": 503}.get(exc.code, 502)
+        raise HTTPException(status_code=status, detail=exc.code) from exc
 
 
 @router.post("/web/keys/reissue")

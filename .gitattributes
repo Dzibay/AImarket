@@ -1,2 +1,9 @@
 # Auto detect text files and perform LF normalization
 * text=auto
+
+*.sh text eol=lf
+*.command text eol=lf
+*.cmd text eol=crlf
+*.zip binary
+# Setup scripts verify SHA-256 of these files byte for byte.
+installer/src/codex-image-tool/** -text

@@ -4,8 +4,7 @@
       <div>
         <h2 class="card-title">Подключение к приложению</h2>
         <p class="muted small">
-          Выберите программу и систему — покажем короткие шаги и дадим готовый установщик.
-          Ключ из кабинета вставляется в программу, адрес API у всех один.
+          Выберите программу и систему, скопируйте команду и вставьте её — всё настроится само.
         </p>
       </div>
     </div>
@@ -42,96 +41,135 @@
       <div v-if="os" class="steps-wrap">
         <div class="steps-head">
           <h3>{{ current.title }} — {{ osTitle }}</h3>
-          <label class="lang">
-            <span class="muted small">Язык установщика</span>
-            <select v-model="lang">
-              <option value="ru">Русский</option>
-              <option value="en">English</option>
-            </select>
-          </label>
         </div>
 
-        <p v-if="app === 'cdesk'" class="note">
-          Скрипт подключает сторонний сервис в Claude Desktop. Он не выходит из аккаунта и не меняет чаты —
-          перед запуском сохраняется копия локальных чатов.
-        </p>
-        <p v-if="app === 'cursor'" class="note">
-          Скрипт сохраняет копию настроек Cursor и меняет только ключ, адрес API и список моделей GPT и Grok.
-          Чаты остаются. Claude через эту настройку не подключается.
+        <p class="note">{{ intro }}</p>
+
+        <template v-if="secret">
+          <ol class="steps">
+            <li v-for="(step, index) in steps" :key="index" v-html="step" />
+          </ol>
+
+          <div class="command">
+            <code v-if="command">{{ command }}</code>
+            <span v-else-if="commandError" class="muted small">
+              {{ commandError }}<br>Установите через архив — раздел «Без командной строки» ниже.
+            </span>
+            <span v-else class="muted small">Готовим команду…</span>
+          </div>
+          <div class="guide-actions">
+            <button type="button" class="btn" :disabled="!command" @click="copyCommand">
+              {{ copied === 'command' ? 'Команда скопирована' : 'Скопировать команду' }}
+            </button>
+            <span class="muted small">Действует 15 минут. В ней ваш ключ — не пересылайте её.</span>
+          </div>
+          <p v-if="closeHint" class="muted small hint">{{ closeHint }}</p>
+        </template>
+        <p v-else class="muted small">
+          Сначала пополните баланс — после первой оплаты выпустится ключ, и здесь появится команда для установки.
         </p>
 
-        <ol class="steps">
-          <li v-for="(step, index) in steps" :key="index" v-html="step" />
-        </ol>
+        <details v-if="secret" class="network" :open="Boolean(commandError)">
+          <summary>Без командной строки</summary>
+          <ol class="steps">
+            <li v-for="(step, index) in archiveSteps" :key="index" v-html="step" />
+          </ol>
+          <div class="guide-actions">
+            <button type="button" class="btn quiet" @click="copyKey">
+              {{ copiedKey ? 'Ключ скопирован' : 'Скопировать мой ключ' }}
+            </button>
+            <a class="btn quiet" :href="downloadUrl" download>Скачать установщик</a>
+          </div>
+        </details>
 
-        <div class="guide-actions">
-          <a class="btn" :href="downloadUrl" download>Скачать установщик</a>
-          <button v-if="secret" type="button" class="btn quiet" @click="copyKey">
-            {{ copiedKey ? 'Ключ скопирован' : 'Скопировать мой ключ' }}
-          </button>
-          <span v-else class="muted small">Ключ появится после пополнения — тогда его можно будет скопировать здесь.</span>
-        </div>
-        <p class="muted small file">Файл: <code>{{ fileName }}</code></p>
+        <details v-if="canCommand" class="network">
+          <summary>Если ответы обрываются</summary>
+          <p>
+            Ошибки <code>ECONNRESET</code>, таймауты и обрыв ответа обычно из-за сети.
+            Настройте программу заново через запасной адрес — команда запускается так же, как первая.
+          </p>
+          <div class="guide-actions spaced">
+            <button type="button" class="btn quiet" @click="loadExtra('setup-reserve')">Команда с запасным адресом</button>
+          </div>
+          <template v-if="extra.action === 'setup-reserve'">
+            <div v-if="extra.command || extra.error" class="command">
+              <code v-if="extra.command">{{ extra.command }}</code>
+              <span v-else class="muted small">{{ extra.error }}</span>
+            </div>
+            <div v-if="extra.command" class="guide-actions">
+              <button type="button" class="btn quiet" @click="copyValue(extra.command, 'extra')">
+                {{ copied === 'extra' ? 'Скопировано' : 'Скопировать' }}
+              </button>
+            </div>
+          </template>
+          <p class="muted small">Не помогло — попробуйте другой VPN или выключите его.</p>
+        </details>
+
+        <details v-if="canCommand && current.restore" class="network">
+          <summary>Как отключить aimarket</summary>
+          <p>Эта команда вернёт настройки {{ current.title }}, которые были до установки.</p>
+          <div class="guide-actions spaced">
+            <button type="button" class="btn quiet" @click="loadExtra('restore')">Команда для отключения</button>
+          </div>
+          <template v-if="extra.action === 'restore'">
+            <div v-if="extra.command || extra.error" class="command">
+              <code v-if="extra.command">{{ extra.command }}</code>
+              <span v-else class="muted small">{{ extra.error }}</span>
+            </div>
+            <div v-if="extra.command" class="guide-actions">
+              <button type="button" class="btn quiet" @click="copyValue(extra.command, 'extra')">
+                {{ copied === 'extra' ? 'Скопировано' : 'Скопировать' }}
+              </button>
+            </div>
+          </template>
+        </details>
       </div>
     </template>
 
     <div v-else-if="app === 'other'" class="steps-wrap">
       <h3>Другое приложение</h3>
       <p class="muted small">
-        В настройках найдите пункт «провайдер», «OpenAI-compatible API» или «Custom endpoint» и вставьте значения ниже.
+        В настройках программы найдите «OpenAI-compatible», «Custom provider» или «Custom endpoint» и заполните три поля.
       </p>
       <dl class="kv">
-        <dt>Провайдер</dt>
-        <dd>OpenAI-compatible</dd>
-        <dt>Base URL</dt>
+        <dt>Адрес (Base URL)</dt>
         <dd>
           <code>{{ baseUrl }}</code>
           <button type="button" class="mini" @click="copyValue(baseUrl, 'base')">{{ copied === 'base' ? '✓' : 'копировать' }}</button>
         </dd>
-        <dt>API key</dt>
+        <dt>Ключ (API key)</dt>
         <dd>
           <template v-if="secret">
-            Ваш ключ из раздела выше
+            ваш ключ
             <button type="button" class="mini" @click="copyKey">{{ copiedKey ? '✓' : 'копировать' }}</button>
           </template>
-          <span v-else class="muted">появится после пополнения</span>
+          <span v-else class="muted">появится после первого пополнения</span>
         </dd>
         <dt>Модель</dt>
         <dd>
           <code>{{ DEFAULT_MODEL }}</code>
           <button type="button" class="mini" @click="copyValue(DEFAULT_MODEL, 'model')">{{ copied === 'model' ? '✓' : 'копировать' }}</button>
-          <span class="muted small"> — или любая другая из списка моделей</span>
+          <span class="muted small"> — или любая другая из каталога</span>
         </dd>
       </dl>
-      <p class="note">
-        Если поле просит полный адрес Chat Completions, укажите <code>{{ chatUrl }}</code>.
-        Для Claude (Anthropic Messages API) адрес без <code>/v1</code>: <code>{{ anthropicUrl }}</code>.
-        Список доступных моделей: <code>GET {{ modelsUrl }}</code>.
-      </p>
+      <details class="network">
+        <summary>Если не подходит</summary>
+        <dl class="kv compact">
+          <dt>Поле просит полный адрес</dt>
+          <dd><code>{{ chatUrl }}</code></dd>
+          <dt>Модели Claude (Anthropic API)</dt>
+          <dd><code>{{ anthropicUrl }}</code></dd>
+          <dt>Ответы обрываются — запасной адрес</dt>
+          <dd><code>{{ RESERVE_OPENAI }}</code>, для Claude — <code>{{ RESERVE_CLAUDE }}</code></dd>
+        </dl>
+      </details>
     </div>
-
-    <details v-if="app" class="network">
-      <summary>Если соединение обрывается</summary>
-      <p>
-        Сбросы <code>ECONNRESET</code>, таймауты и обрыв потока обычно идут из сети. Запустите установщик снова и
-        выберите пункт <code>3</code> — запасной адрес. Вручную:
-      </p>
-      <dl class="kv compact">
-        <dt>OpenAI-совместимые программы</dt>
-        <dd><code>{{ RESERVE_OPENAI }}</code></dd>
-        <dt>Claude и Anthropic</dt>
-        <dd><code>{{ RESERVE_CLAUDE }}</code></dd>
-      </dl>
-      <p class="muted small">
-        Если не помогло, попробуйте VPN, который не рвёт поток. Одна программа может работать, а другая нет —
-        протоколы разные.
-      </p>
-    </details>
   </section>
 </template>
 
 <script setup>
-import { computed, ref } from 'vue'
+import { computed, reactive, ref, watch } from 'vue'
+import { errorText, webApi } from '../api/web'
 import { copyText } from '../utils/format'
 
 const props = defineProps({
@@ -139,32 +177,38 @@ const props = defineProps({
   baseUrl: { type: String, default: 'https://router.cheap/v1' },
 })
 
-const DEFAULT_MODEL = 'gpt-5.6-sol'
+const DEFAULT_MODEL = 'gpt-6-astra'
 const RESERVE_OPENAI = 'https://direct.router-cheap.com/v1'
 const RESERVE_CLAUDE = 'https://direct.router-cheap.com'
 
-// Совпадает со списком в боте (bot/app/guide.py) и с файлами в /downloads/setup.
+// Совпадает со списком в боте (bot/app/guide.py) и в сборщике installer/build.py.
 const APPS = [
-  { id: 'codex', title: 'Codex', file: 'codex', linux: true },
-  { id: 'ccode', title: 'Claude Code', file: 'claude-code', linux: true },
-  { id: 'cdesk', title: 'Claude Desktop', file: 'claude-desktop', linux: false },
-  { id: 'ocode', title: 'OpenCode', file: 'opencode', linux: true },
-  { id: 'hermes', title: 'Hermes', file: 'hermes', linux: true },
-  { id: 'grok', title: 'Grok Build', file: 'grok-build', linux: true },
-  { id: 'cursor', title: 'Cursor', file: 'cursor', linux: true },
-  { id: 'other', title: 'Другое приложение', file: '', linux: false },
+  { id: 'codex', title: 'Codex', file: 'codex', linux: true, restore: true },
+  { id: 'ccode', title: 'Claude Code', file: 'claude-code', linux: true, restore: true },
+  { id: 'cdesk', title: 'Claude Desktop', file: 'claude-desktop', linux: false, restore: true },
+  { id: 'ocode', title: 'OpenCode', file: 'opencode', linux: true, restore: false },
+  { id: 'hermes', title: 'Hermes', file: 'hermes', linux: true, restore: true },
+  { id: 'grok', title: 'Grok Build', file: 'grok-build', linux: true, restore: true },
+  { id: 'cursor', title: 'Cursor', file: 'cursor', linux: true, restore: true },
+  { id: 'other', title: 'Другое приложение', file: '', linux: false, restore: false },
 ]
 const OS = [
   { id: 'win', title: 'Windows', folder: 'windows' },
   { id: 'mac', title: 'macOS', folder: 'macos' },
   { id: 'lin', title: 'Linux', folder: 'linux' },
 ]
+// Сервер держит команду 15 минут; берём новую чуть раньше.
+const COMMAND_TTL_MS = 14 * 60 * 1000
 
 const app = ref('')
 const os = ref(guessOs())
-const lang = ref('ru')
 const copiedKey = ref(false)
 const copied = ref('')
+const command = ref('')
+const commandError = ref('')
+const extra = reactive({ action: '', command: '', error: '' })
+let commandAt = 0
+let commandRequest = 0
 
 const current = computed(() => APPS.find((item) => item.id === app.value) || null)
 const systems = computed(() => (current.value?.linux ? OS : OS.slice(0, 2)))
@@ -172,38 +216,100 @@ const osTitle = computed(() => OS.find((item) => item.id === os.value)?.title ||
 
 const normalizedBase = computed(() => (props.baseUrl || 'https://router.cheap/v1').replace(/\/+$/, ''))
 const chatUrl = computed(() => `${normalizedBase.value}/chat/completions`)
-const modelsUrl = computed(() => `${normalizedBase.value}/models`)
 const anthropicUrl = computed(() => normalizedBase.value.replace(/\/v1$/, ''))
+
+const folder = computed(() => OS.find((item) => item.id === os.value)?.folder || '')
+const canCommand = computed(() => Boolean(props.secret && current.value?.file && folder.value))
 
 const fileName = computed(() => {
   if (!current.value || !os.value) return ''
-  if (os.value === 'lin') return `setup-aimarket-${current.value.file}-${lang.value}.sh`
-  const folder = OS.find((item) => item.id === os.value)?.folder || 'windows'
-  return `aimarket-${current.value.file}-${folder}-${lang.value}.zip`
+  if (os.value === 'lin') return `setup-aimarket-${current.value.file}.sh`
+  return `aimarket-${current.value.file}-${folder.value}.zip`
 })
 const downloadUrl = computed(() => (fileName.value ? `/downloads/setup/${fileName.value}` : '#'))
 
-const runCommand = computed(() => {
-  if (os.value === 'win') return 'start.cmd'
-  if (os.value === 'mac') return 'start.command'
-  return `bash ${fileName.value}`
+const NOTES = {
+  cursor: 'Чаты и настройки Cursor сохранятся. Подключаются модели GPT и Grok — Claude в Cursor так не работает.',
+  cdesk: 'Аккаунт и чаты Claude Desktop не трогаются, перед настройкой сохраняется их копия.',
+}
+const CLOSE_HINTS = {
+  cursor: 'Cursor можно не закрывать — установщик предложит это сам. Только не запускайте команду в терминале внутри Cursor.',
+  cdesk: 'Claude Desktop можно не закрывать — установщик предложит это сам.',
+}
+
+const intro = computed(() => [`${current.value?.title} должен быть уже установлен.`, NOTES[app.value]].filter(Boolean).join(' '))
+const closeHint = computed(() => CLOSE_HINTS[app.value] || '')
+
+const terminalStep = computed(() => {
+  if (os.value === 'win') return 'Нажмите <b>Win + R</b>, вставьте команду (<b>Ctrl + V</b>) и нажмите <b>Enter</b>.'
+  if (os.value === 'mac') {
+    return 'Откройте <b>Терминал</b> (<b>⌘ + Пробел</b>, наберите «Терминал»), вставьте команду (<b>⌘ + V</b>) и нажмите <b>Enter</b>.'
+  }
+  return 'Откройте терминал, вставьте команду (<b>Ctrl + Shift + V</b>) и нажмите <b>Enter</b>.'
 })
 
 const steps = computed(() => {
   if (!current.value || !os.value) return []
-  const title = current.value.title
-  const list = [`Убедитесь, что <b>${title}</b> уже установлен на этом компьютере.`]
-  if (app.value === 'cdesk') list.push('Полностью закройте Claude Desktop, включая фоновый процесс.')
-  if (app.value === 'cursor') list.push('Полностью закройте Cursor, включая иконку в трее.')
-  if (os.value === 'lin') list.push('Скачайте файл кнопкой ниже и не переименовывайте его.')
-  else list.push('Скачайте архив кнопкой ниже и распакуйте его.')
-  list.push(`Запустите <code>${runCommand.value}</code>.`)
-  if (os.value === 'mac') list.push('Если macOS не даёт открыть файл — правый клик → «Открыть», затем подтвердите.')
-  list.push('В меню установщика введите <code>1</code> — это подключение к API.')
-  list.push('Когда попросят ключ — вставьте ваш ключ доступа (кнопка «Скопировать мой ключ» ниже).')
-  list.push(`Перезапустите ${title} и отправьте пробный запрос. Списание появится в истории операций.`)
+  return [
+    'Нажмите «Скопировать команду» под этим списком.',
+    terminalStep.value,
+    `Дождитесь надписи «Готово» и перезапустите ${current.value.title}. Списание за пробный запрос появится в истории операций.`,
+  ]
+})
+
+const archiveSteps = computed(() => {
+  if (!current.value || !os.value) return []
+  const run = os.value === 'lin'
+    ? `Запустите в терминале <code>bash ${fileName.value}</code> из папки с файлом.`
+    : `Распакуйте архив и откройте файл <code>${os.value === 'win' ? 'start.cmd' : 'start.command'}</code>.`
+  const list = ['Нажмите «Скопировать мой ключ».', 'Нажмите «Скачать установщик».', run]
+  if (os.value === 'mac') list.push('Если macOS не открывает файл: правый клик по нему → «Открыть» → «Открыть».')
+  list.push(`Установщик покажет найденный ключ — нажмите <b>Enter</b>. Потом перезапустите ${current.value.title}.`)
   return list
 })
+
+watch([app, os, () => props.secret], () => {
+  extra.action = ''
+  extra.command = ''
+  extra.error = ''
+  loadCommand()
+}, { immediate: true })
+
+async function fetchCommand(action) {
+  const result = await webApi.installCommand(current.value.file, folder.value, action)
+  return result.command
+}
+
+async function loadCommand() {
+  command.value = ''
+  commandError.value = ''
+  if (!canCommand.value) return
+  const request = ++commandRequest
+  try {
+    const value = await fetchCommand('setup')
+    if (request !== commandRequest) return
+    command.value = value
+    commandAt = Date.now()
+  } catch (error) {
+    if (request === commandRequest) commandError.value = errorText(error)
+  }
+}
+
+async function copyCommand() {
+  if (Date.now() - commandAt > COMMAND_TTL_MS) await loadCommand()
+  if (command.value) await copyValue(command.value, 'command')
+}
+
+async function loadExtra(action) {
+  extra.action = action
+  extra.command = ''
+  extra.error = ''
+  try {
+    extra.command = await fetchCommand(action)
+  } catch (error) {
+    extra.error = errorText(error)
+  }
+}
 
 function selectApp(id) {
   app.value = id
@@ -287,15 +393,6 @@ async function copyValue(value, id) {
   margin-bottom: 10px;
 }
 .steps-wrap h3 { margin: 0; font-size: 1.05rem; letter-spacing: -0.02em; }
-.lang { display: flex; align-items: center; gap: 8px; }
-.lang select {
-  border: 1px solid var(--border-strong);
-  border-radius: 8px;
-  padding: 6px 10px;
-  background: #fff;
-  font: inherit;
-  font-size: 14px;
-}
 .steps { margin: 10px 0 16px; padding-left: 22px; font-size: 15px; }
 .steps li { margin-bottom: 8px; }
 .steps :deep(code), .kv code, .note code, .network code {
@@ -307,7 +404,26 @@ async function copyValue(value, id) {
   overflow-wrap: anywhere;
 }
 .guide-actions { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
-.file { margin: 10px 0 0; }
+.guide-actions.spaced { margin: 10px 0; }
+.command {
+  margin: 0 0 12px;
+  padding: 12px 14px;
+  border-radius: 8px;
+  border: 1px solid var(--border-strong);
+  background: #fff;
+}
+.command code {
+  display: block;
+  padding: 0;
+  border: 0;
+  background: none;
+  font-size: 13px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+  user-select: all;
+}
+.network .steps { margin-top: 10px; }
+.hint { margin: 10px 0 0; }
 
 .note {
   margin: 10px 0;

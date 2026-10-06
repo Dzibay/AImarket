@@ -23,7 +23,16 @@ from aiogram.types import (
     ReplyKeyboardRemove,
 )
 
-from app.guide import apps_screen, known_app, os_screen, other_screen, steps_screen
+from app.guide import (
+    apps_screen,
+    archive_screen,
+    install_target,
+    known_app,
+    os_screen,
+    other_screen,
+    reserve_screen,
+    steps_screen,
+)
 from app.backend import (
     BackendError,
     accept_offer,
@@ -32,6 +41,7 @@ from app.backend import (
     get_history,
     get_key_history,
     get_user,
+    install_command,
     toggle_notification,
     issue_key,
     list_products,
@@ -1425,7 +1435,7 @@ async def guide_pick(query: CallbackQuery, state: FSMContext) -> None:
             text, rows = screen
         await _show_callback(query, "catalog", text, _markup(rows))
         return
-    if len(parts) == 4 and parts[1] == "s":
+    if len(parts) == 4 and parts[1] in ("s", "f"):
         origin = ""
         try:
             profile = await get_user(query.from_user.id)
@@ -1438,14 +1448,38 @@ async def guide_pick(query: CallbackQuery, state: FSMContext) -> None:
             token = str(key.get("secret") or "")
         except BackendError:
             token = ""
-        screen = steps_screen(parts[2], parts[3], origin, token)
+        if parts[1] == "f" and token:
+            screen = archive_screen(parts[2], parts[3], origin, token)
+        else:
+            command = await _install_command(query.from_user.id, parts[2], parts[3], "setup") if token else ""
+            screen = steps_screen(parts[2], parts[3], origin, token, command)
         if screen is None:
             await query.answer("Такой инструкции нет.", show_alert=True)
             return
         text, rows = screen
         await _show_callback(query, "catalog", text, _markup(rows))
         return
+    if len(parts) == 4 and parts[1] == "r":
+        command = await _install_command(query.from_user.id, parts[2], parts[3], "setup-reserve")
+        screen = reserve_screen(parts[2], parts[3], command) if command else None
+        if screen is None:
+            await query.answer("Не удалось получить команду. Попробуйте ещё раз.", show_alert=True)
+            return
+        text, rows = screen
+        await _show_callback(query, "catalog", text, _markup(rows))
+        return
     await query.answer("Такой инструкции нет.", show_alert=True)
+
+
+async def _install_command(telegram_id: int, app_id: str, os_id: str, action: str) -> str:
+    target = install_target(app_id, os_id)
+    if target is None:
+        return ""
+    try:
+        result = await install_command(telegram_id, target[0], target[1], action)
+    except BackendError:
+        return ""
+    return str(result.get("command") or "")
 
 
 @router.callback_query(F.data == "topup")
