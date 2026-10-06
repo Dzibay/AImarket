@@ -1,23 +1,28 @@
 <template>
   <section class="card guide">
     <div class="guide-head">
-      <div>
+      <div class="guide-head-top">
         <h2 class="card-title">Подключение к приложению</h2>
-        <p class="muted small">
-          Для Codex, Claude Code и других — одна команда. Для Cursor — короткая инструкция в настройках приложения.
-        </p>
+        <div
+          v-if="current && current.id !== 'other' && !current.manual"
+          class="segmented os-switch"
+          role="tablist"
+          aria-label="Система"
+        >
+          <button
+            v-for="item in systems"
+            :key="item.id"
+            type="button"
+            role="tab"
+            :class="{ on: os === item.id }"
+            :aria-selected="os === item.id"
+            @click="os = item.id"
+          ><AppIcon :name="item.icon" :size="14" />{{ item.title }}</button>
+        </div>
       </div>
-      <div v-if="current && current.id !== 'other' && !current.manual" class="segmented os-switch" role="tablist" aria-label="Система">
-        <button
-          v-for="item in systems"
-          :key="item.id"
-          type="button"
-          role="tab"
-          :class="{ on: os === item.id }"
-          :aria-selected="os === item.id"
-          @click="os = item.id"
-        ><AppIcon :name="item.icon" :size="14" />{{ item.title }}</button>
-      </div>
+      <p class="muted small guide-head-lead">
+        Для Codex, Claude Code и других — одна команда. Для Cursor — короткая инструкция в настройках приложения.
+      </p>
     </div>
 
     <div class="tabs" role="tablist" aria-label="Программа">
@@ -400,17 +405,17 @@ function copyKey() {
 
 <style scoped>
 .guide { padding: 22px 24px 20px; }
-.guide-head {
+.guide-head { margin-bottom: 8px; }
+.guide-head-top {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
-  gap: 12px;
+  gap: 12px 16px;
   flex-wrap: wrap;
-  margin-bottom: 8px;
 }
-.card-title { margin: 0 0 4px; font-size: 1.2rem; letter-spacing: -0.03em; }
-.guide-head p { margin: 0; }
-.os-switch { flex: 0 0 auto; }
+.card-title { margin: 0; font-size: 1.2rem; letter-spacing: -0.03em; flex: 1 1 auto; min-width: 0; }
+.guide-head-lead { margin: 6px 0 0; max-width: 52rem; }
+.os-switch { flex: 0 0 auto; margin-left: auto; }
 .tabs { margin: 6px -24px 0; padding: 0 24px; }
 .panel { padding-top: 18px; }
 
