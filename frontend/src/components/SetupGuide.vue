@@ -4,10 +4,10 @@
       <div>
         <h2 class="card-title">Подключение к приложению</h2>
         <p class="muted small">
-          Выберите программу, скопируйте команду и вставьте её — ключ и адрес пропишутся сами.
+          Для Codex, Claude Code и других — одна команда. Для Cursor — короткая инструкция в настройках приложения.
         </p>
       </div>
-      <div v-if="current && current.id !== 'other'" class="segmented os-switch" role="tablist" aria-label="Система">
+      <div v-if="current && current.id !== 'other' && !current.manual" class="segmented os-switch" role="tablist" aria-label="Система">
         <button
           v-for="item in systems"
           :key="item.id"
@@ -33,7 +33,68 @@
     </div>
 
     <Transition name="fade" mode="out-in">
-      <div v-if="current && current.id !== 'other'" :key="`${app}-${os}`" class="panel">
+      <div v-if="current?.manual" key="manual-cursor" class="panel">
+        <p class="muted small manual-lead">
+          Автоустановщик для Cursor отключён — так стабильнее. Пропишите ключ и адрес в <b>Settings → Models → OpenAI API</b>.
+        </p>
+        <div class="fields three">
+          <CopyField label="Base URL (Override)" :value="normalizedBase" toast="Адрес скопирован" />
+          <CopyField v-if="secret" label="API-ключ" :value="secret" masked toast="Ключ скопирован" />
+          <div v-else class="copy-placeholder">
+            <span class="copy-label">API-ключ</span>
+            <span class="muted small">появится после первого пополнения</span>
+          </div>
+          <CopyField label="Модель по умолчанию" :value="DEFAULT_MODEL" toast="Модель скопирована" />
+        </div>
+        <template v-if="secret">
+          <ol class="steps">
+            <li v-for="(step, index) in cursorSteps" :key="index">
+              <span class="step-dot">{{ index + 1 }}</span>
+              <span v-html="step" />
+            </li>
+          </ol>
+          <div class="guide-actions">
+            <button type="button" class="btn sm" @click="copyKey"><AppIcon name="key" :size="16" />Скопировать ключ</button>
+          </div>
+          <p class="note">{{ cursorNote }}</p>
+        </template>
+        <div v-else class="notice">
+          Сначала пополните баланс — после первой оплаты выпустится ключ, и здесь появятся шаги.
+        </div>
+        <div v-if="secret" class="extras">
+          <details class="extra">
+            <summary><AppIcon name="help" :size="16" /><span>DeepSeek, GLM и другие модели</span><AppIcon name="chevron" :size="16" class="chev" /></summary>
+            <div class="extra-body">
+              <p>
+                Нажмите <b>Add model</b> в Settings → Models и введите id <b>точно</b> как в
+                <router-link to="/prices">каталоге</router-link>, например <code>deepseek-v4-pro</code>.
+                Переключатель <b>Use OpenAI API Key</b> должен быть включён.
+              </p>
+            </div>
+          </details>
+          <details class="extra">
+            <summary><AppIcon name="refresh" :size="16" /><span>Как отключить aimarket</span><AppIcon name="chevron" :size="16" class="chev" /></summary>
+            <div class="extra-body">
+              <p>
+                Выключите <b>Use OpenAI API Key</b> и <b>Override OpenAI Base URL</b>, удалите ключ из поля,
+                перезапустите Cursor и выберите встроенные модели Cursor.
+              </p>
+            </div>
+          </details>
+          <details class="extra">
+            <summary><AppIcon name="alert" :size="16" /><span>Если «Model name is not valid»</span><AppIcon name="chevron" :size="16" class="chev" /></summary>
+            <div class="extra-body">
+              <p>
+                Обычно выключен <b>Use OpenAI API Key</b> или модель добавлена дважды: для
+                <code>{{ DEFAULT_MODEL }}</code> и других GPT/Grok используйте встроенный пункт в списке Models,
+                а не custom с тем же id.
+              </p>
+            </div>
+          </details>
+        </div>
+      </div>
+
+      <div v-else-if="current && current.id !== 'other'" :key="`${app}-${os}`" class="panel">
         <div class="fields">
           <CopyField label="Base URL" :value="normalizedBase" toast="Адрес скопирован" />
           <CopyField v-if="secret" label="API-ключ" :value="secret" masked toast="Ключ скопирован" />
@@ -180,7 +241,7 @@ const RESERVE_CLAUDE = 'https://direct.router-cheap.com'
 
 // Совпадает со списком в боте (bot/app/guide.py) и в сборщике installer/build.py.
 const APPS = [
-  { id: 'cursor', title: 'Cursor', file: 'cursor', linux: true, restore: true },
+  { id: 'cursor', title: 'Cursor', file: '', linux: false, restore: false, manual: true },
   { id: 'ccode', title: 'Claude Code', file: 'claude-code', linux: true, restore: true },
   { id: 'codex', title: 'Codex', file: 'codex', linux: true, restore: true },
   { id: 'cdesk', title: 'Claude Desktop', file: 'claude-desktop', linux: false, restore: true },
@@ -195,13 +256,19 @@ const OS = [
   { id: 'lin', title: 'Linux', folder: 'linux', icon: 'linux' },
 ]
 const NOTES = {
-  cursor: 'Чаты и настройки Cursor сохранятся. Подключаются модели GPT и Grok — Claude в Cursor так не работает.',
   cdesk: 'Аккаунт и чаты Claude Desktop не трогаются, перед настройкой сохраняется их копия.',
 }
 const CLOSE_HINTS = {
-  cursor: 'Cursor можно не закрывать — установщик предложит это сам. Только не запускайте команду в терминале внутри Cursor.',
   cdesk: 'Claude Desktop можно не закрывать — установщик предложит это сам.',
 }
+const cursorSteps = [
+  'Откройте <b>Cursor → Settings → Models</b> (Ctrl + ,).',
+  'В блоке <b>OpenAI API Key</b> вставьте ключ и включите <b>Use OpenAI API Key</b> (должно быть «Secret saved»).',
+  'Включите <b>Override OpenAI Base URL</b> и вставьте адрес из поля выше.',
+  `Для <code>${DEFAULT_MODEL}</code> и других GPT/Grok: <b>не добавляйте</b> их как custom — включите встроенную модель в списке Models.`,
+  'Новый чат → выберите модель → пробный запрос. Списание появится в истории операций.',
+]
+const cursorNote = 'Claude и Gemini через этот Base URL в Cursor не работают — только GPT, Grok и добавленные OpenAI-compatible модели.'
 // Сервер держит команду 15 минут; берём новую чуть раньше.
 const COMMAND_TTL_MS = 14 * 60 * 1000
 const APP_STORAGE = 'aimarket-guide-app'
@@ -221,7 +288,7 @@ const normalizedBase = computed(() => (props.baseUrl || 'https://router.cheap/v1
 const chatUrl = computed(() => `${normalizedBase.value}/chat/completions`)
 const anthropicUrl = computed(() => normalizedBase.value.replace(/\/v1$/, ''))
 const folder = computed(() => OS.find((item) => item.id === os.value)?.folder || '')
-const canCommand = computed(() => Boolean(props.secret && current.value?.file && folder.value))
+const canCommand = computed(() => Boolean(props.secret && current.value?.file && folder.value && !current.value?.manual))
 
 const fileName = computed(() => {
   if (!current.value?.file) return ''
@@ -307,6 +374,7 @@ function selectApp(id) {
   app.value = id
   const item = APPS.find((entry) => entry.id === id)
   if (item && !item.linux && os.value === 'lin') os.value = 'win'
+  if (item?.manual && os.value === 'lin') os.value = 'win'
   try { localStorage.setItem(APP_STORAGE, id) } catch { /* ignore */ }
 }
 
@@ -393,6 +461,7 @@ function copyKey() {
 }
 .notice { margin-top: 4px; }
 .other-lead { margin: 0 0 14px; }
+.manual-lead { margin: 0 0 14px; }
 
 .extras { margin-top: 18px; border-top: 1px solid var(--border); }
 .extra { border-bottom: 1px solid var(--border); }

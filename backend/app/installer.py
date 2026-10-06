@@ -22,7 +22,6 @@ APPS = {
     "opencode": "OpenCode",
     "hermes": "Hermes",
     "grok-build": "Grok Build",
-    "cursor": "Cursor",
 }
 SYSTEMS = {"windows", "macos", "linux"}
 ACTIONS = {"setup", "setup-reserve", "restore"}

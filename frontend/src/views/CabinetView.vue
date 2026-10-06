@@ -453,7 +453,7 @@ const onboarding = computed(() => {
       steps: [
         { id: 'pay', index: 1, title: 'Пополните баланс', text: 'Любая сумма от минимальной. Карта или СБП, зачисление мгновенное.', target: 'topup', action: 'К пополнению', primary: true },
         { id: 'key', index: 2, title: 'Получите ключ', text: 'Появится в разделе «Ключ доступа» и придёт на почту.' },
-        { id: 'setup', index: 3, title: 'Подключите приложение', text: 'Одна команда для Cursor, Codex, Claude Code и других — она всё настроит сама.', target: 'setup', action: 'Посмотреть' },
+        { id: 'setup', index: 3, title: 'Подключите приложение', text: 'Codex и Claude Code — одной командой. Cursor — пошагово в Settings → Models.', target: 'setup', action: 'Посмотреть' },
       ],
     }
   }

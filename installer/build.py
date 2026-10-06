@@ -19,7 +19,7 @@ SRC = ROOT / "src"
 OUT = ROOT.parent / "backend" / "app" / "web" / "downloads" / "setup"
 
 # РЎРѕРІРїР°РґР°РµС‚ СЃРѕ СЃРїРёСЃРєРѕРј РІ bot/app/guide.py Рё frontend/src/components/SetupGuide.vue.
-APPS = ["codex", "claude-code", "claude-desktop", "opencode", "hermes", "grok-build", "cursor"]
+APPS = ["codex", "claude-code", "claude-desktop", "opencode", "hermes", "grok-build"]
 NO_LINUX = {"claude-desktop"}
 
 # Р¤РёРєСЃРёСЂРѕРІР°РЅРЅР°СЏ РґР°С‚Р° РІРЅСѓС‚СЂРё zip: РїРµСЂРµСЃР±РѕСЂРєР° Р±РµР· РїСЂР°РІРѕРє РґР°С‘С‚ С‚РѕС‚ Р¶Рµ С„Р°Р№Р» Рё С‡РёСЃС‚С‹Р№ git diff.

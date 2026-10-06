@@ -3350,6 +3350,16 @@ function stringArray(value, label) {
   if (!Array.isArray(value) || !value.every(item => typeof item === "string")) throw new TypeError(`Cursor setting '${label}' must be an array of strings`);
   return [...value];
 }
+function isCursorBuiltinModel(id) {
+  const name = String(id).trim().toLowerCase();
+  if (!name) return false;
+  if (/^(claude-|gemini-|composer-|cursor-)/.test(name)) return true;
+  if (/^gpt-[456]/.test(name)) return true;
+  if (/^grok-\d/.test(name)) return true;
+  if (/^kimi-k\d/.test(name)) return true;
+  if (/^o[1-9]([.\-]|$)/.test(name)) return true;
+  return false;
+}
 async function upsert(database, key, value) {
   const updated = await run(database, "UPDATE ItemTable SET value = ? WHERE key = ?", [value, key]);
   if (updated.changes === 0) await run(database, "INSERT INTO ItemTable(key, value) VALUES(?, ?)", [key, value]);
@@ -3427,12 +3437,15 @@ async function main() {
     const originalAdded = new Set(stringArray(state.original.application.userAddedModels.exists ? state.original.application.userAddedModels.value : undefined, "managed original userAddedModels"));
     const originalEnabled = new Set(stringArray(state.original.application.modelOverrideEnabled.exists ? state.original.application.modelOverrideEnabled.value : undefined, "managed original modelOverrideEnabled"));
     const keep = (value, originals) => !previousManaged.has(value) || currentManaged.has(value) || originals.has(value);
-    const added = stringArray(application.aiSettings.userAddedModels, "aiSettings.userAddedModels").filter(value => keep(value, originalAdded));
-    const enabled = stringArray(application.aiSettings.modelOverrideEnabled, "aiSettings.modelOverrideEnabled").filter(value => keep(value, originalEnabled));
+    const added = stringArray(application.aiSettings.userAddedModels, "aiSettings.userAddedModels").filter(value => keep(value, originalAdded) && !/\s/.test(value) && !isCursorBuiltinModel(value));
+    const enabled = stringArray(application.aiSettings.modelOverrideEnabled, "aiSettings.modelOverrideEnabled").filter(value => keep(value, originalEnabled) && !/\s/.test(value) && (!previousManaged.has(value) || isCursorBuiltinModel(value)));
     const disabled = stringArray(application.aiSettings.modelOverrideDisabled, "aiSettings.modelOverrideDisabled").filter(value => !currentManaged.has(value));
     for (const model of uniqueModels) {
+      if (isCursorBuiltinModel(model)) {
+        if (!enabled.includes(model)) enabled.push(model);
+        continue;
+      }
       if (!added.includes(model)) added.push(model);
-      if (!enabled.includes(model)) enabled.push(model);
     }
     application.openAIBaseUrl = endpoint;
     application.useOpenAIKey = true;

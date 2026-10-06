@@ -17,7 +17,7 @@ APPS: list[tuple[str, str, str, bool]] = [
     ("ocode", "OpenCode", "opencode", True),
     ("hermes", "Hermes", "hermes", True),
     ("grok", "Grok Build", "grok-build", True),
-    ("cursor", "Cursor", "cursor", True),
+    ("cursor", "Cursor", "", False),
     ("other", "Другое приложение", "", False),
 ]
 
@@ -31,11 +31,9 @@ _APPS = {item[0]: item for item in APPS}
 _OS = {item[0]: item for item in OS}
 
 _NOTES = {
-    "cursor": "Чаты и настройки Cursor сохранятся. Подключаются модели GPT и Grok — Claude в Cursor так не работает.",
     "cdesk": "Аккаунт и чаты Claude Desktop не трогаются, перед настройкой сохраняется их копия.",
 }
 _CLOSE_HINT = {
-    "cursor": "Cursor можно не закрывать — установщик предложит это сам. Только не запускайте команду в терминале внутри Cursor.",
     "cdesk": "Claude Desktop можно не закрывать — установщик предложит это сам.",
 }
 
@@ -50,8 +48,8 @@ _NETWORK = (
 def apps_screen() -> tuple[str, list[list[tuple]]]:
     text = (
         "<b>Подключение программы</b>\n\n"
-        "Выберите программу и систему. Мы дадим одну команду — "
-        "вставьте её, и всё настроится само."
+        "Выберите программу. Для Cursor — инструкция в настройках; "
+        "для остальных — одна команда, вставьте её, и всё настроится само."
     )
     rows: list[list[tuple]] = []
     pair: list[tuple] = []
@@ -86,13 +84,61 @@ def os_screen(app_id: str) -> tuple[str, list[list[tuple]]] | None:
 
 def install_target(app_id: str, os_id: str) -> tuple[str, str] | None:
     """(файл программы, папка системы) для запроса команды установки."""
+    if app_id == "cursor":
+        return None
     app = _APPS.get(app_id)
     system = _OS.get(os_id)
     if app is None or system is None or app_id == "other":
         return None
     if os_id == "lin" and not app[3]:
         return None
-    return app[2], system[2]
+    file_id = app[2]
+    if not file_id:
+        return None
+    return file_id, system[2]
+
+
+def cursor_manual_screen(token: str = "") -> tuple[str, list[list[tuple]]]:
+    """Cursor настраивается вручную в Settings → Models → OpenAI API."""
+    parts = [
+        "<b>Cursor — настройка вручную</b>",
+        "",
+        "Автоустановщик для Cursor отключён: надёжнее прописать ключ и адрес в настройках Cursor.",
+        "",
+        "1. Откройте <b>Cursor → Settings → Models</b> (Ctrl + ,).",
+        "2. Блок <b>OpenAI API Key</b>: вставьте ваш токен.",
+        "3. Переключатель <b>Use OpenAI API Key</b> — <b>включён</b> (должно быть «Secret saved»).",
+        f"4. <b>Override OpenAI Base URL</b> — <b>включён</b>, адрес:\n<code>{escape(BASE_URL)}</code>",
+        "",
+        "<b>Модели</b>",
+        f"• GPT/Grok (например <code>{DEFAULT_MODEL}</code>): <b>не добавляйте</b> их как custom, если уже есть в списке Cursor — просто включите встроенную модель.",
+        "• DeepSeek, GLM и др.: кнопка <b>Add model</b>, id <b>точно</b> как в каталоге (например <code>deepseek-v4-pro</code>).",
+        "",
+        "5. Новый чат → выберите модель и отправьте пробный запрос.",
+        "",
+        "<blockquote expandable><b>Claude и Gemini</b>\n"
+        "Через Override OpenAI Base URL в Cursor не подключаются — только GPT/Grok и добавленные OpenAI-compatible модели.</blockquote>",
+        "<blockquote expandable><b>Отключить aimarket</b>\n"
+        "Выключите <b>Use OpenAI API Key</b> и <b>Override OpenAI Base URL</b>, удалите свой ключ из поля, перезапустите Cursor.</blockquote>",
+        "<blockquote expandable><b>Если «Model name is not valid»</b>\n"
+        "Проверьте, что <b>Use OpenAI API Key</b> включён. Для GPT/Grok не дублируйте id как custom-модель.</blockquote>",
+    ]
+    if not token:
+        parts.extend([
+            "",
+            "<i>Сначала пополните баланс — после первой оплаты выпустится токен.</i>",
+        ])
+    rows: list[list[tuple]] = []
+    if token:
+        rows.append([
+            ("copy", "Скопировать адрес", BASE_URL, True),
+            ("copy", "Скопировать мой токен", token, True),
+        ])
+        rows.append([("copy", "Скопировать модель", DEFAULT_MODEL, True)])
+    else:
+        rows.append([("cb", "Пополнить баланс", "topup")])
+    rows.append([("cb", "← Назад", "guide")])
+    return "\n".join(parts), rows
 
 
 def steps_screen(

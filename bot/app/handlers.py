@@ -26,6 +26,7 @@ from aiogram.types import (
 from app.guide import (
     apps_screen,
     archive_screen,
+    cursor_manual_screen,
     install_target,
     known_app,
     os_screen,
@@ -1427,6 +1428,14 @@ async def guide_pick(query: CallbackQuery, state: FSMContext) -> None:
         app_id = parts[2]
         if app_id == "other":
             text, rows = other_screen()
+        elif app_id == "cursor":
+            token = ""
+            try:
+                key = await read_key(query.from_user.id)
+                token = str(key.get("secret") or "")
+            except BackendError:
+                token = ""
+            text, rows = cursor_manual_screen(token)
         else:
             screen = os_screen(app_id)
             if screen is None:
