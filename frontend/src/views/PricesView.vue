@@ -3,15 +3,10 @@
     <SiteHeader />
     <main class="site-main">
       <div class="container wrap">
-        <p class="eyebrow">Тарифы сервиса</p>
         <h1 class="page-title">Цены на токены</h1>
-        <p class="page-lead">
-          Стоимость за один миллион токенов — отдельно за вход в модель и за ответ.
-          <b>USD</b> — справочный тариф в долларах.
-          <b>₽</b> — тот же тариф в рублях по курсу пополнения
-          (<b>1&nbsp;$&nbsp;=&nbsp;{{ rateLabel }}</b>).
-          Зачёркнутая сумма — для сравнения, если бы курс был в {{ RUB_REFERENCE_RATE_MULT }} раз выше.
-          Обновлено {{ PRICE_AS_OF }}.
+        <p class="service-rate">
+          Курс сервисного доллара при пополнении:
+          <strong>1&nbsp;$&nbsp;=&nbsp;{{ rateLabel }}</strong>
         </p>
 
         <div class="toolbar">
@@ -93,8 +88,6 @@ import SiteFooter from '../components/SiteFooter.vue'
 import SiteHeader from '../components/SiteHeader.vue'
 import { useWebConfig } from '../composables/useWebConfig'
 import {
-  PRICE_AS_OF,
-  RUB_REFERENCE_RATE_MULT,
   families,
   ourRubPerMillion,
   referenceRubPerMillion,
@@ -144,20 +137,18 @@ onMounted(async () => {
 
 <style scoped>
 .wrap { padding-top: 36px; padding-bottom: 72px; }
-.eyebrow {
-  display: inline-block;
-  margin: 0 0 12px;
-  padding: 5px 12px;
-  border-radius: 999px;
-  background: var(--ok-soft);
-  border: 1px solid #c7e3d4;
-  color: #1f4d39;
-  font-size: 12px;
-  font-weight: 700;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
+.page-title { margin-bottom: 10px; }
+.service-rate {
+  margin: 0 0 22px;
+  max-width: 520px;
+  color: var(--muted-2);
+  font-size: 1rem;
 }
-.page-lead { max-width: 680px; }
+.service-rate strong {
+  color: var(--text);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
 .toolbar { display: flex; flex-direction: column; gap: 12px; margin-bottom: 18px; }
 .search .input { max-width: 460px; }
 .families { flex-wrap: wrap; }
