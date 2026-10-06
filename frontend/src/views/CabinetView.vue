@@ -4,8 +4,13 @@
     <main class="site-main">
       <div class="container wrap">
         <template v-if="loading && !profile">
-          <h1 class="page-title">Личный кабинет</h1>
-          <p class="page-lead">Загружаем данные…</p>
+          <div class="layout">
+            <aside class="side"><div class="side-inner skeleton-nav"><span v-for="n in 6" :key="n" class="skeleton" /></div></aside>
+            <div class="content">
+              <div class="skeleton-hero skeleton" />
+              <div class="stats"><div v-for="n in 3" :key="n" class="card stat"><span class="skeleton" style="width: 40%" /><span class="skeleton tall" style="width: 60%" /></div></div>
+            </div>
+          </div>
         </template>
 
         <template v-else-if="loadError && !profile">
@@ -17,271 +22,322 @@
           </div>
         </template>
 
-        <template v-else-if="profile">
-          <div class="head">
-            <div>
-              <h1 class="page-title">Личный кабинет</h1>
-              <p class="page-lead">
-                <template v-if="profile.email">{{ profile.email }} · </template>
-                аккаунт с {{ shortDate(profile.created_at) }}
-              </p>
-            </div>
-            <button type="button" class="btn quiet sm" :disabled="loading" @click="load">
-              {{ loading ? 'Обновляем…' : 'Обновить' }}
-            </button>
-          </div>
-
-          <nav class="section-nav" aria-label="Разделы кабинета">
-            <a v-for="item in sections" :key="item.id" :href="`#${item.id}`" @click.prevent="scrollTo(item.id)">{{ item.label }}</a>
-          </nav>
-
-          <div v-if="profile.blocked" class="notice bad">
-            Доступ заблокирован<template v-if="profile.blocked_reason">: {{ profile.blocked_reason }}</template>.
-            Напишите в поддержку<template v-if="supportLabel"> — <a :href="supportHref" target="_blank" rel="noopener">{{ supportLabel }}</a></template>.
-          </div>
-
-          <section v-else-if="onboarding" class="card onboarding">
-            <div class="onb-head">
-              <h2 class="card-title">{{ onboarding.title }}</h2>
-              <p class="muted">{{ onboarding.lead }}</p>
-            </div>
-            <ol class="onb-steps">
-              <li v-for="step in onboarding.steps" :key="step.id" :class="{ done: step.done }">
-                <span class="onb-mark">{{ step.done ? '✓' : step.index }}</span>
-                <div>
-                  <b>{{ step.title }}</b>
-                  <p class="muted small">{{ step.text }}</p>
-                  <button v-if="step.target && !step.done" type="button" class="btn sm" :class="{ quiet: !step.primary }" @click="scrollTo(step.target)">
-                    {{ step.action }}
-                  </button>
-                </div>
-              </li>
-            </ol>
-          </section>
-
-          <section id="overview" class="anchor">
-            <div class="stats">
-              <div class="card stat">
-                <span class="muted small">Баланс</span>
-                <b>{{ usd(profile.balance_usd) }}</b>
-                <span class="muted small">≈ {{ rub(profile.balance_usd * profile.usd_price_rub) }}</span>
-              </div>
-              <div class="card stat">
-                <span class="muted small">Потрачено сегодня</span>
-                <b>{{ usdSmart(profile.spent_today_usd) }}</b>
-              </div>
-              <div class="card stat">
-                <span class="muted small">За месяц</span>
-                <b>{{ usdSmart(profile.spent_month_usd) }}</b>
-              </div>
-              <div class="card stat">
-                <span class="muted small">Последний запрос</span>
-                <b class="date">{{ dateTime(profile.last_request_at) }}</b>
+        <div v-else-if="profile" class="layout">
+          <aside class="side">
+            <div class="side-inner">
+              <nav class="side-nav" aria-label="Разделы кабинета">
+                <a
+                  v-for="item in sections"
+                  :key="item.id"
+                  :href="`#${item.id}`"
+                  :class="{ on: active === item.id }"
+                  @click.prevent="scrollTo(item.id)"
+                >
+                  <AppIcon :name="item.icon" :size="17" />
+                  <span>{{ item.label }}</span>
+                </a>
+              </nav>
+              <div class="side-foot">
+                <button type="button" class="side-link" :disabled="loading" @click="load">
+                  <AppIcon name="refresh" :size="15" :class="{ spin: loading }" />
+                  {{ loading ? 'Обновляем…' : 'Обновить данные' }}
+                </button>
+                <a v-if="supportLabel" class="side-link" :href="supportHref" target="_blank" rel="noopener">
+                  <AppIcon :name="profile.support_username ? 'telegram' : 'mail'" :size="15" />
+                  Поддержка
+                </a>
               </div>
             </div>
-            <p v-if="lowBalance" class="notice">
-              Баланс почти закончился: при нуле запросы начнут возвращать ошибку. Пополните заранее —
-              <a href="#topup" @click.prevent="scrollTo('topup')">перейти к пополнению</a>.
-            </p>
-          </section>
+          </aside>
 
-          <section id="key" class="anchor">
-            <h2 class="section-title">Ключ доступа</h2>
-            <div class="grid">
-              <div class="col">
-                <KeyCard
-                  v-if="profile.key"
-                  :secret="profile.key.secret"
-                  :base-url="profile.api_base_url"
-                  title="Ваш ключ"
-                />
-                <div v-else class="card">
-                  <h2 class="card-title">Ключ доступа</h2>
-                  <p class="muted">
-                    <template v-if="profile.balance_usd > 0">
-                      Ключ выпускается — нажмите «Обновить» через минуту. Если он так и не появился, напишите в поддержку.
-                    </template>
-                    <template v-else>
-                      Ключ появится автоматически после первого пополнения баланса — его сразу можно будет
-                      вставить в приложение и использовать для входа на сайт.
-                    </template>
-                  </p>
-                  <p v-if="profile.key_error" class="error-text">{{ keyErrorText(profile.key_error) }}</p>
-                </div>
-              </div>
-              <div class="col">
-                <div class="card soft usage">
-                  <h2 class="card-title">Как расходуется баланс</h2>
-                  <ul class="plain">
-                    <li>Один ключ открывает все модели — модель выбирается в поле <code>model</code> запроса.</li>
-                    <li>Списание идёт за токены по ценам поставщиков, сразу после каждого ответа.</li>
-                    <li>Ключ действует, пока на балансе есть средства; при нуле запросы останавливаются.</li>
-                    <li v-if="profile.key && profile.key.spent_usd != null">
-                      Через этот ключ потрачено <b>{{ usdSmart(profile.key.spent_usd) }}</b>.
-                    </li>
-                  </ul>
-                </div>
-                <div v-if="profile.key" class="card reissue">
-                  <h2 class="card-title">Перевыпуск ключа</h2>
-                  <p class="muted small">
-                    Если ключ попал к посторонним — выпустите новый. Старый сразу перестанет работать и для API,
-                    и для входа на сайт, баланс сохранится. После перевыпуска обновите ключ в приложениях и
-                    сохраните новый.
-                  </p>
-                  <p v-if="reissueError" class="error-text">{{ reissueError }}</p>
-                  <button type="button" class="btn danger sm" :disabled="reissuing" @click="reissue">
-                    {{ reissuing ? 'Выпускаем…' : 'Перевыпустить ключ' }}
-                  </button>
-                </div>
+          <div class="content">
+            <div class="head">
+              <div>
+                <h1 class="page-title">Личный кабинет</h1>
+                <p class="page-lead">
+                  <template v-if="profile.email">{{ profile.email }} · </template>
+                  аккаунт с {{ shortDate(profile.created_at) }}
+                </p>
               </div>
             </div>
-          </section>
 
-          <section id="setup" class="anchor">
-            <h2 class="section-title">Подключение</h2>
-            <SetupGuide :secret="profile.key?.secret || ''" :base-url="profile.api_base_url" />
-          </section>
+            <div v-if="profile.blocked" class="notice bad">
+              Доступ заблокирован<template v-if="profile.blocked_reason">: {{ profile.blocked_reason }}</template>.
+              Напишите в поддержку<template v-if="supportLabel"> — <a :href="supportHref" target="_blank" rel="noopener">{{ supportLabel }}</a></template>.
+            </div>
 
-          <section id="topup" class="anchor">
-            <h2 class="section-title">Пополнение</h2>
-            <div class="grid">
-              <div class="col">
-                <TopupForm v-if="!profile.blocked" mode="topup" :config="profile" />
-                <div v-else class="card"><p class="muted">Пополнение недоступно: аккаунт заблокирован.</p></div>
-              </div>
-              <div class="col">
-                <div class="card week">
-                  <h2 class="card-title">Расход за 7 дней</h2>
+            <section id="overview" class="anchor">
+              <div class="hero card">
+                <div class="hero-main">
+                  <span class="hero-label">Баланс</span>
+                  <b class="hero-balance">{{ usd(profile.balance_usd) }}</b>
+                  <span class="hero-rub">≈ {{ rub(profile.balance_usd * profile.usd_price_rub) }} · 1 $ = {{ rub(profile.usd_price_rub) }}</span>
+                  <div class="hero-chips">
+                    <span class="chip" :class="status.kind"><i />{{ status.text }}</span>
+                    <span v-if="daysLeft" class="chip">При текущем темпе хватит на {{ daysLeft }}</span>
+                  </div>
+                  <div class="hero-actions">
+                    <button type="button" class="btn light" @click="scrollTo('topup')"><AppIcon name="wallet" :size="16" />Пополнить</button>
+                    <button type="button" class="btn ghost" @click="scrollTo('setup')"><AppIcon name="plug" :size="16" />Подключить приложение</button>
+                  </div>
+                </div>
+                <div class="hero-chart">
+                  <div class="hero-chart-head">
+                    <span>Расход за 7 дней</span>
+                    <b>{{ usdSmart(weekTotal) }}</b>
+                  </div>
                   <div class="chart">
                     <div
-                      v-for="day in profile.spent_week_usd"
+                      v-for="day in weekDays"
                       :key="day.date"
                       class="bar-wrap"
                       :title="`${day.label}: ${usdSmart(day.usd)}`"
                     >
+                      <span class="bar-value">{{ day.usd ? usdSmart(day.usd) : '' }}</span>
                       <i :class="{ empty: !day.usd, today: day.is_today }" :style="{ height: barHeight(day.usd) }" />
-                      <span>{{ day.label.slice(0, 5) }}</span>
+                      <span class="bar-label">{{ day.label.slice(6) || day.label.slice(0, 5) }}</span>
                     </div>
                   </div>
-                  <p class="muted small chart-note">
-                    Всего за неделю: <b>{{ usdSmart(weekTotal) }}</b>.
-                    <template v-if="weekTotal > 0 && profile.balance_usd > 0">
-                      Такого темпа хватит примерно на {{ daysLeft }}.
-                    </template>
-                  </p>
                 </div>
               </div>
-            </div>
-          </section>
 
-          <section id="history" class="anchor">
-            <h2 class="section-title">История операций</h2>
-            <section class="card history">
-              <div class="history-head">
-                <p class="muted small history-lead">
-                  Пополнения — зелёным, списания за запросы — с названием модели и объёмом токенов (вход / выход).
+              <div class="stats">
+                <div class="card stat">
+                  <span class="muted small">Потрачено сегодня</span>
+                  <b>{{ usdSmart(profile.spent_today_usd) }}</b>
+                </div>
+                <div class="card stat">
+                  <span class="muted small">За этот месяц</span>
+                  <b>{{ usdSmart(profile.spent_month_usd) }}</b>
+                </div>
+                <div class="card stat">
+                  <span class="muted small">Последний запрос</span>
+                  <b class="date">{{ lastRequest }}</b>
+                </div>
+              </div>
+
+              <p v-if="lowBalance" class="notice">
+                Баланс почти закончился: при нуле запросы начнут возвращать ошибку.
+                <a href="#topup" @click.prevent="scrollTo('topup')">Пополнить заранее</a>.
+              </p>
+
+              <section v-if="onboarding" class="card onboarding">
+                <div class="onb-head">
+                  <h2 class="card-title">{{ onboarding.title }}</h2>
+                  <p class="muted small">{{ onboarding.lead }}</p>
+                </div>
+                <ol class="onb-steps">
+                  <li v-for="step in onboarding.steps" :key="step.id">
+                    <span class="step-dot">{{ step.index }}</span>
+                    <div>
+                      <b>{{ step.title }}</b>
+                      <p class="muted small">{{ step.text }}</p>
+                      <button v-if="step.target" type="button" class="btn sm" :class="{ quiet: !step.primary }" @click="scrollTo(step.target)">
+                        {{ step.action }}
+                      </button>
+                    </div>
+                  </li>
+                </ol>
+              </section>
+            </section>
+
+            <section id="key" class="anchor">
+              <h2 class="section-title">Ключ доступа</h2>
+              <KeyCard
+                v-if="profile.key"
+                :secret="profile.key.secret"
+                :base-url="profile.api_base_url"
+                title="Ваш ключ"
+              />
+              <div v-else class="card">
+                <h2 class="card-title">Ключ доступа</h2>
+                <p class="muted">
+                  <template v-if="profile.balance_usd > 0">
+                    Ключ выпускается — нажмите «Обновить данные» через минуту. Если он так и не появился, напишите в поддержку.
+                  </template>
+                  <template v-else>
+                    Ключ появится автоматически после первого пополнения баланса — его сразу можно будет
+                    вставить в приложение и использовать для входа на сайт.
+                  </template>
                 </p>
-                <div class="filters">
+                <p v-if="profile.key_error" class="error-text">{{ keyErrorText(profile.key_error) }}</p>
+              </div>
+
+              <div v-if="profile.key" class="grid key-grid">
+                <div class="card soft facts">
+                  <h3 class="card-title sm">Как расходуется баланс</h3>
+                  <ul class="plain">
+                    <li><AppIcon name="spark" :size="15" />Один ключ открывает все модели — модель выбирается в поле <code>model</code>.</li>
+                    <li><AppIcon name="send" :size="15" />Списание за токены по ценам поставщиков, сразу после каждого ответа.</li>
+                    <li><AppIcon name="wallet" :size="15" />При нулевом балансе запросы останавливаются, ключ остаётся вашим.</li>
+                    <li v-if="profile.key.spent_usd != null"><AppIcon name="history" :size="15" />Через этот ключ потрачено <b>{{ usdSmart(profile.key.spent_usd) }}</b>.</li>
+                  </ul>
+                </div>
+                <div class="card reissue">
+                  <h3 class="card-title sm">Перевыпуск ключа</h3>
+                  <p class="muted small">
+                    Если ключ попал к посторонним — выпустите новый. Старый сразу перестанет работать и для API, и для
+                    входа на сайт, баланс сохранится. После перевыпуска обновите ключ в приложениях.
+                  </p>
+                  <p v-if="reissueError" class="error-text">{{ reissueError }}</p>
+                  <button type="button" class="btn danger sm" :disabled="reissuing" @click="reissue">
+                    <AppIcon name="refresh" :size="15" />{{ reissuing ? 'Выпускаем…' : 'Перевыпустить ключ' }}
+                  </button>
+                </div>
+              </div>
+            </section>
+
+            <section id="setup" class="anchor">
+              <h2 class="section-title">Подключение</h2>
+              <SetupGuide :secret="profile.key?.secret || ''" :base-url="profile.api_base_url" />
+            </section>
+
+            <section id="topup" class="anchor">
+              <h2 class="section-title">Пополнение</h2>
+              <div class="grid topup-grid">
+                <TopupForm v-if="!profile.blocked" mode="topup" :config="profile" />
+                <div v-else class="card"><p class="muted">Пополнение недоступно: аккаунт заблокирован.</p></div>
+                <div class="col">
+                  <div class="card soft bonus">
+                    <h3 class="card-title sm">Бонусы к пополнению</h3>
+                    <template v-if="tiers.length">
+                      <ul class="tiers">
+                        <li v-for="tier in tiers" :key="tier.min_usd">
+                          <span>от {{ usd(tier.min_usd, 0) }}</span>
+                          <b>+{{ tier.percent }}%</b>
+                        </li>
+                      </ul>
+                      <p class="muted small">Бонус зачисляется вместе с платежом и тратится как обычный баланс.</p>
+                    </template>
+                    <p v-else class="muted small">Сейчас бонусных порогов нет — зачисляется ровно оплаченная сумма.</p>
+                  </div>
+                  <div class="card soft pay-facts">
+                    <ul class="plain">
+                      <li><AppIcon name="shield" :size="15" />Оплата через ЮKassa: карта или СБП, 3-D Secure.</li>
+                      <li><AppIcon name="spark" :size="15" />Зачисление автоматическое, обычно в течение минуты.</li>
+                      <li><AppIcon name="history" :size="15" />Все пополнения видны в истории операций.</li>
+                    </ul>
+                  </div>
+                </div>
+              </div>
+            </section>
+
+            <section id="history" class="anchor">
+              <div class="section-head">
+                <h2 class="section-title">История операций</h2>
+                <div class="segmented" role="tablist" aria-label="Фильтр">
                   <button
                     v-for="item in filters"
                     :key="item.id"
                     type="button"
+                    role="tab"
                     :class="{ on: filter === item.id }"
+                    :aria-selected="filter === item.id"
                     @click="setFilter(item.id)"
                   >{{ item.label }}</button>
                 </div>
               </div>
-              <div class="table-wrap">
-                <table>
-                  <thead>
-                    <tr>
-                      <th>Когда</th>
-                      <th>Операция</th>
-                      <th class="num">Токены</th>
-                      <th class="num">Сумма</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    <tr v-if="historyLoading && !history.length">
-                      <td colspan="4" class="empty">Загружаем…</td>
-                    </tr>
-                    <tr v-else-if="!history.length">
-                      <td colspan="4" class="empty">
-                        <template v-if="filter === 'spend'">Запросов ещё не было — подключите приложение и отправьте первый.</template>
-                        <template v-else-if="filter === 'income'">Пополнений ещё не было.</template>
-                        <template v-else>Пока пусто</template>
-                      </td>
-                    </tr>
-                    <tr v-for="(row, index) in history" :key="index">
-                      <td class="nowrap">{{ dateTime(row.created_at) }}</td>
-                      <td>
-                        <template v-if="row.entry_type === 'income'">
-                          {{ row.label }}<span v-if="row.note" class="muted small"> · {{ row.note }}</span>
-                        </template>
-                        <template v-else>{{ row.model }}</template>
-                      </td>
-                      <td class="num muted small">
-                        <template v-if="row.entry_type === 'spend' && (row.prompt_tokens || row.completion_tokens)">
-                          {{ tokens(row.prompt_tokens) }} / {{ tokens(row.completion_tokens) }}
-                        </template>
-                        <template v-else>—</template>
-                      </td>
-                      <td class="num" :class="row.entry_type === 'income' ? 'plus' : 'minus'">
-                        {{ row.entry_type === 'income' ? '+' : '−' }}{{ usdSmart(row.amount_usd) }}
-                        <span v-if="row.entry_type === 'income' && row.amount_rub" class="muted small">· {{ rub(row.amount_rub) }}</span>
-                      </td>
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
-              <div v-if="hasMore" class="more">
-                <button type="button" class="btn quiet sm" :disabled="historyLoading" @click="loadMore">
-                  {{ historyLoading ? 'Загружаем…' : 'Показать ещё' }}
-                </button>
+              <div class="card history">
+                <div class="table-wrap">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Когда</th>
+                        <th>Операция</th>
+                        <th class="num">Токены (вход / выход)</th>
+                        <th class="num">Сумма</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <template v-if="historyLoading && !history.length">
+                        <tr v-for="n in 5" :key="n" class="skeleton-row">
+                          <td><span class="skeleton" style="width: 90px" /></td>
+                          <td><span class="skeleton" style="width: 160px" /></td>
+                          <td class="num"><span class="skeleton" style="width: 80px" /></td>
+                          <td class="num"><span class="skeleton" style="width: 60px" /></td>
+                        </tr>
+                      </template>
+                      <tr v-else-if="!history.length">
+                        <td colspan="4" class="empty">
+                          <template v-if="filter === 'spend'">Запросов ещё не было — подключите приложение и отправьте первый.</template>
+                          <template v-else-if="filter === 'income'">Пополнений ещё не было.</template>
+                          <template v-else>Пока пусто</template>
+                        </td>
+                      </tr>
+                      <tr v-for="(row, index) in history" :key="index">
+                        <td class="nowrap muted">{{ dateTime(row.created_at) }}</td>
+                        <td>
+                          <span class="op">
+                            <span class="op-icon" :class="row.entry_type === 'income' ? 'in' : 'out'">
+                              <AppIcon :name="row.entry_type === 'income' ? 'arrow-down' : 'arrow-up'" :size="13" />
+                            </span>
+                            <template v-if="row.entry_type === 'income'">
+                              <span>{{ row.label }}<span v-if="row.note" class="muted small"> · {{ row.note }}</span></span>
+                            </template>
+                            <code v-else class="model">{{ row.model }}</code>
+                          </span>
+                        </td>
+                        <td class="num muted small">
+                          <template v-if="row.entry_type === 'spend' && (row.prompt_tokens || row.completion_tokens)">
+                            {{ tokens(row.prompt_tokens) }} / {{ tokens(row.completion_tokens) }}
+                          </template>
+                          <template v-else>—</template>
+                        </td>
+                        <td class="num" :class="row.entry_type === 'income' ? 'plus' : 'minus'">
+                          {{ row.entry_type === 'income' ? '+' : '−' }}{{ usdSmart(row.amount_usd) }}
+                          <span v-if="row.entry_type === 'income' && row.amount_rub" class="muted small rub">{{ rub(row.amount_rub) }}</span>
+                        </td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+                <div v-if="hasMore" class="more">
+                  <button type="button" class="btn quiet sm" :disabled="historyLoading" @click="loadMore">
+                    {{ historyLoading ? 'Загружаем…' : 'Показать ещё' }}
+                  </button>
+                </div>
               </div>
             </section>
-          </section>
 
-          <section id="help" class="anchor">
-            <h2 class="section-title">Помощь</h2>
-            <div class="grid help-grid">
-              <div class="col">
+            <section id="help" class="anchor">
+              <h2 class="section-title">Помощь</h2>
+              <div class="grid help-grid">
                 <div class="card faq">
                   <details v-for="item in faq" :key="item.q">
-                    <summary>{{ item.q }}</summary>
+                    <summary><span>{{ item.q }}</span><AppIcon name="chevron" :size="16" class="chev" /></summary>
                     <div class="faq-body" v-html="item.a" />
                   </details>
                 </div>
-              </div>
-              <div class="col">
                 <div class="card soft support">
-                  <h2 class="card-title">Поддержка</h2>
+                  <h3 class="card-title sm">Поддержка</h3>
                   <p class="muted small">
                     Не получается подключить приложение, не зачислился платёж или потерялся ключ — напишите нам.
-                    Укажите почту, на которую оплачивали, и дату платежа: так мы найдём аккаунт быстрее.
+                    Укажите почту, на которую оплачивали, и дату платежа.
                   </p>
-                  <ul class="plain contacts">
-                    <li v-if="profile.support_username">
-                      Telegram: <a :href="`https://t.me/${profile.support_username}`" target="_blank" rel="noopener">@{{ profile.support_username }}</a>
-                    </li>
-                    <li v-if="profile.support_email">
-                      Почта: <a :href="`mailto:${profile.support_email}`">{{ profile.support_email }}</a>
-                    </li>
-                    <li v-if="!profile.support_username && !profile.support_email" class="muted">Контакты поддержки скоро появятся.</li>
-                  </ul>
+                  <div class="contacts">
+                    <a v-if="profile.support_username" class="contact" :href="`https://t.me/${profile.support_username}`" target="_blank" rel="noopener">
+                      <AppIcon name="telegram" :size="16" /><span>@{{ profile.support_username }}</span><AppIcon name="external" :size="14" class="ext" />
+                    </a>
+                    <a v-if="profile.support_email" class="contact" :href="`mailto:${profile.support_email}`">
+                      <AppIcon name="mail" :size="16" /><span>{{ profile.support_email }}</span>
+                    </a>
+                    <a v-if="profile.bot_url" class="contact" :href="profile.bot_url" target="_blank" rel="noopener">
+                      <AppIcon name="send" :size="16" /><span>Telegram-бот</span><AppIcon name="external" :size="14" class="ext" />
+                    </a>
+                    <span v-if="!profile.support_username && !profile.support_email" class="muted small">Контакты поддержки скоро появятся.</span>
+                  </div>
                   <p v-if="profile.bot_url" class="muted small">
-                    Есть и <a :href="profile.bot_url" target="_blank" rel="noopener">Telegram-бот</a> с теми же возможностями.
-                    Учтите: аккаунты сайта и бота раздельные — баланс, пополненный здесь, в боте не отображается.
+                    Аккаунты сайта и бота раздельные — баланс, пополненный здесь, в боте не отображается.
                   </p>
                   <p class="muted small docs">
-                    Документы: <RouterLink to="/offer">оферта</RouterLink> · <RouterLink to="/privacy">политика</RouterLink> ·
-                    <RouterLink to="/consent">согласие</RouterLink>
+                    <RouterLink to="/offer">Оферта</RouterLink> · <RouterLink to="/privacy">Политика</RouterLink> ·
+                    <RouterLink to="/consent">Согласие</RouterLink>
                   </p>
                 </div>
               </div>
-            </div>
-          </section>
-        </template>
+            </section>
+          </div>
+        </div>
       </div>
     </main>
     <SiteFooter />
@@ -289,15 +345,17 @@
 </template>
 
 <script setup>
-import { computed, onMounted, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 import { RouterLink, useRouter } from 'vue-router'
 import KeyCard from '../components/KeyCard.vue'
 import SetupGuide from '../components/SetupGuide.vue'
 import SiteFooter from '../components/SiteFooter.vue'
 import SiteHeader from '../components/SiteHeader.vue'
 import TopupForm from '../components/TopupForm.vue'
+import AppIcon from '../components/ui/AppIcon.vue'
 import { errorText, webApi } from '../api/web'
 import { useSession } from '../composables/useSession'
+import { toast } from '../composables/useToast'
 import { dateTime, rub, tokens, usd, usdSmart } from '../utils/format'
 import { useHead } from '../utils/useHead'
 
@@ -310,14 +368,17 @@ const loading = ref(false)
 const loadError = ref('')
 const reissuing = ref(false)
 const reissueError = ref('')
+const active = ref('overview')
+let watching = false
+let ticking = false
 
 const sections = [
-  { id: 'overview', label: 'Обзор' },
-  { id: 'key', label: 'Ключ' },
-  { id: 'setup', label: 'Подключение' },
-  { id: 'topup', label: 'Пополнение' },
-  { id: 'history', label: 'История' },
-  { id: 'help', label: 'Помощь' },
+  { id: 'overview', label: 'Обзор', icon: 'home' },
+  { id: 'key', label: 'Ключ', icon: 'key' },
+  { id: 'setup', label: 'Подключение', icon: 'plug' },
+  { id: 'topup', label: 'Пополнение', icon: 'wallet' },
+  { id: 'history', label: 'История', icon: 'history' },
+  { id: 'help', label: 'Помощь', icon: 'help' },
 ]
 
 const filters = [
@@ -344,7 +405,7 @@ const weekMax = computed(() => Math.max(0, ...weekDays.value.map((d) => Number(d
 const weekTotal = computed(() => weekDays.value.reduce((sum, d) => sum + (Number(d.usd) || 0), 0))
 const daysLeft = computed(() => {
   const perDay = weekTotal.value / Math.max(1, weekDays.value.length)
-  if (!perDay) return ''
+  if (!perDay || !(profile.value?.balance_usd > 0)) return ''
   const days = Math.floor((profile.value?.balance_usd || 0) / perDay)
   if (days < 1) return 'меньше дня'
   if (days > 365) return 'год и больше'
@@ -354,19 +415,41 @@ const lowBalance = computed(() => {
   const balance = Number(profile.value?.balance_usd || 0)
   return profile.value?.key && balance > 0 && balance < 1
 })
+const status = computed(() => {
+  const p = profile.value || {}
+  if (p.blocked) return { kind: 'bad', text: 'Доступ заблокирован' }
+  if (!p.key) return p.balance_usd > 0 ? { kind: 'warn', text: 'Ключ выпускается' } : { kind: 'warn', text: 'Ключ появится после пополнения' }
+  if (p.balance_usd <= 0) return { kind: 'bad', text: 'Баланс исчерпан' }
+  if (lowBalance.value) return { kind: 'warn', text: 'Баланс на исходе' }
+  return { kind: 'ok', text: 'Ключ активен' }
+})
+const lastRequest = computed(() => {
+  const value = profile.value?.last_request_at
+  if (!value) return 'ещё не было'
+  const diff = Date.now() - new Date(value).getTime()
+  if (diff < 60_000) return 'только что'
+  if (diff < 3_600_000) return `${Math.floor(diff / 60_000)} мин назад`
+  if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)} ч назад`
+  return dateTime(value)
+})
+const tiers = computed(() =>
+  [...(profile.value?.bonuses || [])]
+    .map((tier) => ({ min_usd: Number(tier.min_usd), percent: Number(tier.percent) }))
+    .filter((tier) => tier.min_usd > 0 && tier.percent > 0)
+    .sort((a, b) => a.min_usd - b.min_usd),
+)
 
 const onboarding = computed(() => {
   const p = profile.value
-  if (!p || p.last_request_at) return null
-  const hasKey = Boolean(p.key)
-  if (!hasKey && p.balance_usd <= 0) {
+  if (!p || p.last_request_at || p.blocked) return null
+  if (!p.key && p.balance_usd <= 0) {
     return {
       title: 'Начните с пополнения',
-      lead: 'Ключ доступа выпускается автоматически сразу после первой оплаты — затем останется вставить его в приложение.',
+      lead: 'Ключ доступа выпускается автоматически сразу после первой оплаты — затем останется подключить приложение.',
       steps: [
-        { id: 'pay', index: 1, title: 'Пополните баланс', text: 'Любая сумма от минимальной. Оплата картой или СБП, зачисление мгновенное.', target: 'topup', action: 'К пополнению', primary: true },
+        { id: 'pay', index: 1, title: 'Пополните баланс', text: 'Любая сумма от минимальной. Карта или СБП, зачисление мгновенное.', target: 'topup', action: 'К пополнению', primary: true },
         { id: 'key', index: 2, title: 'Получите ключ', text: 'Появится в разделе «Ключ доступа» и придёт на почту.' },
-        { id: 'setup', index: 3, title: 'Подключите приложение', text: 'Для Cursor, Codex, Claude Code и других — одна команда в разделе «Подключение», она всё настроит сама.', target: 'setup', action: 'Посмотреть инструкцию' },
+        { id: 'setup', index: 3, title: 'Подключите приложение', text: 'Одна команда для Cursor, Codex, Claude Code и других — она всё настроит сама.', target: 'setup', action: 'Посмотреть' },
       ],
     }
   }
@@ -374,9 +457,9 @@ const onboarding = computed(() => {
     title: 'Три шага до первого запроса',
     lead: 'Запросов через ваш ключ ещё не было. Вот что нужно сделать, чтобы всё заработало.',
     steps: [
-      { id: 'save', index: 1, title: 'Сохраните ключ', text: 'Это и пароль от кабинета, и API-ключ. Положите его в менеджер паролей или заметки.', target: 'key', action: 'Показать ключ', done: false, primary: true },
-      { id: 'setup', index: 2, title: 'Подключите приложение', text: 'Выберите программу и систему, скопируйте команду и вставьте её — ключ и адрес API пропишутся сами.', target: 'setup', action: 'Открыть инструкцию' },
-      { id: 'go', index: 3, title: 'Отправьте пробный запрос', text: 'Списание появится в истории операций через несколько секунд — значит, всё работает.', target: 'history', action: 'История' },
+      { id: 'save', index: 1, title: 'Сохраните ключ', text: 'Это и пароль от кабинета, и API-ключ. Положите его в менеджер паролей.', target: 'key', action: 'Показать ключ', primary: true },
+      { id: 'setup', index: 2, title: 'Подключите приложение', text: 'Выберите программу, скопируйте команду и вставьте её — остальное произойдёт само.', target: 'setup', action: 'Открыть инструкцию' },
+      { id: 'go', index: 3, title: 'Отправьте пробный запрос', text: 'Списание появится в истории через несколько секунд — значит, всё работает.', target: 'history', action: 'История' },
     ],
   }
 })
@@ -386,9 +469,8 @@ const faq = computed(() => {
   const base = (p.api_base_url || 'https://router.cheap/v1').replace(/\/+$/, '')
   const support = supportLabel.value ? `<a href="${supportHref.value}" target="_blank" rel="noopener">${supportLabel.value}</a>` : 'поддержку'
   const minUsd = Number(p.min_topup_usd || 0)
-  const tiers = Array.isArray(p.bonuses) ? p.bonuses : []
-  const bonusLine = tiers.length
-    ? `<p>Бонусы к пополнению: ${tiers.map((t) => `от ${usd(t.min_usd, 0)} — +${t.percent}%`).join(', ')}. Бонус зачисляется вместе с платежом и тратится как обычный баланс.</p>`
+  const bonusLine = tiers.value.length
+    ? `<p>Бонусы к пополнению: ${tiers.value.map((t) => `от ${usd(t.min_usd, 0)} — +${t.percent}%`).join(', ')}. Бонус зачисляется вместе с платежом и тратится как обычный баланс.</p>`
     : ''
   return [
     {
@@ -449,7 +531,7 @@ function plural(n, one, few, many) {
 function barHeight(value) {
   const amount = Number(value) || 0
   if (!amount || !weekMax.value) return '4px'
-  return `${Math.max(6, Math.round((amount / weekMax.value) * 110))}px`
+  return `${Math.max(6, Math.round((amount / weekMax.value) * 96))}px`
 }
 
 function shortDate(value) {
@@ -469,11 +551,42 @@ function scrollTo(id) {
   if (window.history?.replaceState) window.history.replaceState(null, '', `#${id}`)
 }
 
+// Подсветка раздела в меню: активен последний раздел, чей верх прошёл треть экрана.
+function updateActive() {
+  ticking = false
+  const limit = window.innerHeight * 0.33
+  let currentId = sections[0].id
+  for (const item of sections) {
+    const node = document.getElementById(item.id)
+    if (node && node.getBoundingClientRect().top <= limit) currentId = item.id
+  }
+  if (window.innerHeight + window.scrollY >= document.documentElement.scrollHeight - 2) {
+    currentId = sections[sections.length - 1].id
+  }
+  active.value = currentId
+}
+
+function onScroll() {
+  if (ticking) return
+  ticking = true
+  requestAnimationFrame(updateActive)
+}
+
+function watchSections() {
+  if (watching) return
+  watching = true
+  window.addEventListener('scroll', onScroll, { passive: true })
+  window.addEventListener('resize', onScroll)
+  updateActive()
+}
+
 async function load() {
   loading.value = true
   loadError.value = ''
   try {
     profile.value = await webApi.me()
+    await nextTick()
+    watchSections()
   } catch (error) {
     if (error.status === 401) {
       router.replace('/login')
@@ -521,6 +634,7 @@ async function reissue() {
   try {
     const result = await webApi.reissueKey()
     profile.value = result.profile
+    toast('Новый ключ выпущен — сохраните его')
     scrollTo('key')
   } catch (error) {
     reissueError.value = errorText(error)
@@ -541,194 +655,226 @@ onMounted(async () => {
     requestAnimationFrame(() => scrollTo(hash))
   }
 })
+
+onBeforeUnmount(() => {
+  window.removeEventListener('scroll', onScroll)
+  window.removeEventListener('resize', onScroll)
+})
 </script>
 
 <style scoped>
-.wrap { padding-top: 32px; padding-bottom: 72px; }
-.head {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 16px;
-  flex-wrap: wrap;
+.wrap { padding-top: 24px; padding-bottom: 72px; }
+.layout {
+  display: grid;
+  grid-template-columns: 208px minmax(0, 1fr);
+  gap: 32px;
+  align-items: start;
 }
-.head .page-lead { margin-bottom: 12px; }
+.content { min-width: 0; }
 .actions { display: flex; gap: 12px; flex-wrap: wrap; margin-top: 16px; }
 .notice { margin-bottom: 18px; }
 .notice a { text-decoration: underline; text-underline-offset: 3px; }
 
-.section-nav {
-  position: sticky;
-  top: 0;
-  z-index: 5;
+/* Боковая навигация */
+.side { position: sticky; top: 16px; }
+.side-inner { display: flex; flex-direction: column; gap: 18px; }
+.side-nav { display: flex; flex-direction: column; gap: 2px; }
+.side-nav a {
   display: flex;
-  gap: 4px;
-  overflow-x: auto;
-  margin: 0 -24px 22px;
-  padding: 10px 24px;
-  background: rgba(244, 241, 234, 0.92);
-  backdrop-filter: blur(8px);
-  border-bottom: 1px solid var(--border);
-  scrollbar-width: none;
-}
-.section-nav::-webkit-scrollbar { display: none; }
-.section-nav a {
-  flex: 0 0 auto;
-  padding: 7px 14px;
-  border-radius: 999px;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 12px;
+  border-radius: 10px;
+  color: var(--muted-2);
   font-size: 14px;
   font-weight: 600;
-  color: var(--muted-2);
-  white-space: nowrap;
+  transition: background 0.15s ease, color 0.15s ease;
 }
-.section-nav a:hover { background: #fff; color: var(--text); }
-
-.anchor { scroll-margin-top: 72px; margin-bottom: 36px; }
-.section-title { margin: 0 0 14px; font-size: 1.35rem; letter-spacing: -0.03em; }
-.card-title { margin: 0 0 10px; font-size: 1.15rem; letter-spacing: -0.03em; }
-
-.onboarding { margin-bottom: 28px; padding: 24px; border-color: var(--border-strong); }
-.onb-head p { margin: 0 0 16px; }
-.onb-steps {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 16px;
-}
-.onb-steps li { display: flex; gap: 12px; align-items: flex-start; }
-.onb-steps li.done { opacity: 0.6; }
-.onb-steps b { display: block; margin-bottom: 4px; }
-.onb-steps p { margin: 0 0 10px; }
-.onb-mark {
-  flex: 0 0 32px;
-  height: 32px;
+.side-nav a .icon { color: var(--muted); transition: color 0.15s ease; }
+.side-nav a:hover { background: rgba(255, 255, 255, 0.7); color: var(--text); }
+.side-nav a.on { background: var(--accent); color: var(--bg); }
+.side-nav a.on .icon, .side-nav a:hover .icon { color: inherit; }
+.side-foot { display: flex; flex-direction: column; gap: 4px; padding: 0 12px; border-top: 1px solid var(--border-strong); padding-top: 14px; }
+.side-link {
   display: inline-flex;
   align-items: center;
-  justify-content: center;
-  border-radius: 50%;
-  background: var(--accent);
-  color: var(--bg);
-  font-weight: 700;
-  font-size: 14px;
-}
-
-.stats {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 12px;
-  margin-bottom: 14px;
-}
-.stat { padding: 16px 18px; }
-.stat span { display: block; }
-.stat b { display: block; margin: 4px 0 2px; font-size: 26px; letter-spacing: -0.03em; overflow-wrap: anywhere; }
-.stat b.date { font-size: 17px; margin-top: 8px; }
-
-.grid {
-  display: grid;
-  grid-template-columns: minmax(0, 1.1fr) minmax(0, 0.9fr);
-  gap: 20px;
-}
-.col { display: flex; flex-direction: column; gap: 20px; }
-.reissue .btn { margin-top: 6px; }
-.plain { margin: 0; padding-left: 18px; font-size: 15px; }
-.plain li { margin-bottom: 6px; }
-.usage code { font-size: 13px; background: #fff; border: 1px solid var(--border); padding: 1px 6px; border-radius: 6px; }
-
-.chart {
-  display: flex;
-  align-items: flex-end;
   gap: 8px;
-  height: 150px;
-  padding-top: 8px;
-}
-.bar-wrap {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 6px;
-  height: 100%;
-}
-.bar-wrap i {
-  display: block;
-  width: 100%;
-  border-radius: 6px 6px 0 0;
-  background: linear-gradient(180deg, #3a342c 0%, var(--accent) 100%);
-}
-.bar-wrap i.empty { background: #e7e0d6; }
-.bar-wrap i.today:not(.empty) { background: linear-gradient(180deg, #7a7267 0%, #5c564c 100%); }
-.bar-wrap span { font-size: 11px; color: var(--muted); }
-.chart-note { margin: 12px 0 0; }
-
-.history-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  flex-wrap: wrap;
-  margin-bottom: 14px;
-}
-.history-lead { margin: 0; flex: 1 1 320px; }
-.filters { display: flex; gap: 6px; flex-wrap: wrap; }
-.filters button {
-  border: 1px solid var(--border-strong);
-  border-radius: 999px;
-  padding: 6px 14px;
-  background: #fff;
-  color: var(--text);
+  padding: 4px 0;
+  border: 0;
+  background: none;
+  color: var(--muted);
   font: inherit;
   font-size: 13px;
-  font-weight: 600;
   cursor: pointer;
+  text-align: left;
 }
-.filters button.on { background: var(--accent); color: var(--bg); border-color: var(--accent); }
-.table-wrap {
-  overflow: auto;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  background: #fff;
+.side-link:hover { color: var(--text); }
+.side-link:disabled { cursor: default; }
+.spin { animation: spin 0.9s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.head { margin-bottom: 18px; }
+.head .page-lead { margin-bottom: 0; }
+.anchor { scroll-margin-top: 20px; margin-bottom: 40px; }
+.section-title { margin: 0 0 14px; font-size: 1.35rem; letter-spacing: -0.03em; }
+.section-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 14px; }
+.section-head .section-title { margin: 0; }
+.card-title { margin: 0 0 10px; font-size: 1.15rem; letter-spacing: -0.03em; }
+.card-title.sm { font-size: 1rem; }
+
+/* Обзор */
+.hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1.1fr) minmax(0, 0.9fr);
+  gap: 24px;
+  padding: 26px 28px;
+  background: var(--accent);
+  color: var(--bg);
+  border-color: var(--accent);
+  box-shadow: 0 20px 44px rgba(28, 25, 21, 0.22);
 }
-table { width: 100%; border-collapse: collapse; min-width: 560px; }
-th, td { text-align: left; padding: 11px 14px; border-bottom: 1px solid #eee6dc; vertical-align: middle; }
-th {
-  background: var(--surface-soft);
-  color: var(--muted);
-  font-size: 12px;
+.hero-label { display: block; color: rgba(244, 241, 234, 0.6); font-size: 12px; font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase; }
+.hero-balance { display: block; margin: 4px 0 2px; font-size: clamp(2rem, 4vw, 2.8rem); line-height: 1.05; letter-spacing: -0.04em; font-variant-numeric: tabular-nums; }
+.hero-rub { display: block; color: rgba(244, 241, 234, 0.65); font-size: 14px; }
+.hero-chips { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 16px; }
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 5px 11px;
+  border-radius: 999px;
+  background: rgba(244, 241, 234, 0.1);
+  border: 1px solid rgba(244, 241, 234, 0.14);
+  font-size: 12.5px;
   font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.03em;
 }
+.chip i { width: 7px; height: 7px; border-radius: 50%; background: rgba(244, 241, 234, 0.5); }
+.chip.ok i { background: #6fcf97; box-shadow: 0 0 0 3px rgba(111, 207, 151, 0.2); }
+.chip.warn i { background: #f2c94c; box-shadow: 0 0 0 3px rgba(242, 201, 76, 0.2); }
+.chip.bad i { background: #eb7a7a; box-shadow: 0 0 0 3px rgba(235, 122, 122, 0.2); }
+.hero-actions { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 20px; }
+.btn.light { background: var(--bg); color: var(--text); box-shadow: none; min-height: 42px; padding: 0 18px; font-size: 14px; }
+.btn.light:hover { background: #fff; }
+.btn.ghost { background: transparent; color: var(--bg); border: 1px solid rgba(244, 241, 234, 0.3); box-shadow: none; min-height: 42px; padding: 0 18px; font-size: 14px; }
+.btn.ghost:hover { background: rgba(244, 241, 234, 0.08); }
+
+.hero-chart { display: flex; flex-direction: column; min-width: 0; }
+.hero-chart-head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; color: rgba(244, 241, 234, 0.65); font-size: 13px; }
+.hero-chart-head b { color: var(--bg); font-size: 16px; }
+.chart { display: flex; align-items: flex-end; gap: 8px; height: 140px; margin-top: auto; padding-top: 10px; }
+.bar-wrap { flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; gap: 6px; height: 100%; }
+.bar-wrap i { display: block; width: 100%; max-width: 44px; border-radius: 6px 6px 3px 3px; background: rgba(244, 241, 234, 0.32); transition: background 0.15s ease, transform 0.15s ease; }
+.bar-wrap:hover i { background: rgba(244, 241, 234, 0.55); }
+.bar-wrap i.empty { background: rgba(244, 241, 234, 0.1); }
+.bar-wrap i.today:not(.empty) { background: var(--bg); }
+.bar-value { font-size: 10.5px; color: rgba(244, 241, 234, 0.55); white-space: nowrap; opacity: 0; transition: opacity 0.15s ease; font-variant-numeric: tabular-nums; }
+.bar-wrap:hover .bar-value { opacity: 1; }
+.bar-label { font-size: 11px; color: rgba(244, 241, 234, 0.55); text-transform: lowercase; }
+
+.stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin-top: 12px; }
+.stat { padding: 14px 18px; box-shadow: none; }
+.stat span { display: block; }
+.stat b { display: block; margin-top: 4px; font-size: 22px; letter-spacing: -0.03em; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.stat b.date { font-size: 16px; margin-top: 8px; }
+.stats + .notice { margin-top: 14px; margin-bottom: 0; }
+
+.onboarding { margin-top: 16px; padding: 22px 24px; border-color: var(--border-strong); }
+.onb-head p { margin: 0 0 16px; }
+.onb-steps { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
+.onb-steps li { display: flex; gap: 12px; align-items: flex-start; }
+.onb-steps b { display: block; margin-bottom: 4px; font-size: 15px; }
+.onb-steps p { margin: 0 0 10px; }
+
+/* Ключ */
+.grid { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, 0.9fr); gap: 16px; }
+.key-grid { margin-top: 16px; }
+.col { display: flex; flex-direction: column; gap: 16px; }
+.plain { list-style: none; margin: 0; padding: 0; font-size: 14px; display: grid; gap: 9px; }
+.plain li { display: flex; gap: 10px; align-items: flex-start; color: var(--muted-2); line-height: 1.45; }
+.plain .icon { margin-top: 3px; color: var(--muted); }
+.plain code { font-size: 12.5px; background: #fff; border: 1px solid var(--border); padding: 0 5px; border-radius: 5px; }
+.reissue .btn { margin-top: 4px; }
+.reissue p { margin: 0 0 10px; }
+
+/* Пополнение */
+.topup-grid { grid-template-columns: minmax(0, 1.2fr) minmax(0, 0.8fr); align-items: start; }
+.tiers { list-style: none; margin: 0 0 10px; padding: 0; display: grid; gap: 6px; }
+.tiers li { display: flex; justify-content: space-between; align-items: center; padding: 8px 12px; border-radius: 8px; background: #fff; border: 1px solid var(--border); font-size: 14px; }
+.tiers b { color: var(--ok); }
+.bonus p { margin: 0; }
+
+/* История */
+.history { padding: 0; overflow: hidden; box-shadow: none; }
+.table-wrap { overflow: auto; }
+table { width: 100%; border-collapse: collapse; min-width: 600px; }
+th, td { text-align: left; padding: 11px 16px; border-bottom: 1px solid #eee6dc; vertical-align: middle; font-size: 14px; }
+th { background: var(--surface-soft); color: var(--muted); font-size: 11.5px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; }
 tbody tr:last-child td { border-bottom: 0; }
-td.num, th.num { text-align: right; white-space: nowrap; }
+tbody tr:hover td { background: #fcfaf6; }
+td.num, th.num { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
 td.nowrap { white-space: nowrap; }
-td.empty { text-align: center; color: var(--muted); padding: 28px 14px; }
+td.empty { text-align: center; color: var(--muted); padding: 32px 14px; }
 td.plus { color: var(--ok); font-weight: 600; }
 td.minus { font-weight: 600; }
-.more { display: flex; justify-content: center; margin-top: 14px; }
+td .rub { display: block; font-weight: 400; }
+.op { display: inline-flex; align-items: center; gap: 10px; }
+.op-icon { width: 24px; height: 24px; display: inline-flex; align-items: center; justify-content: center; border-radius: 50%; flex: 0 0 24px; }
+.op-icon.in { background: var(--ok-soft); color: var(--ok); }
+.op-icon.out { background: var(--surface-soft); color: var(--muted-2); border: 1px solid var(--border); }
+.model { font-size: 13px; background: var(--surface-soft); border: 1px solid var(--border); padding: 1px 7px; border-radius: 6px; }
+.more { display: flex; justify-content: center; padding: 12px; border-top: 1px solid var(--border); }
+.skeleton-row td { padding-top: 15px; padding-bottom: 15px; }
+.skeleton-row .num .skeleton { margin-left: auto; }
 
-.faq { padding: 8px 24px; }
-.faq details { border-bottom: 1px solid var(--border); padding: 14px 0; }
+/* Помощь */
+.help-grid { grid-template-columns: minmax(0, 1.3fr) minmax(0, 0.7fr); align-items: start; }
+.faq { padding: 4px 22px; }
+.faq details { border-bottom: 1px solid var(--border); }
 .faq details:last-child { border-bottom: 0; }
-.faq summary { cursor: pointer; font-weight: 600; font-size: 15px; }
-.faq-body { margin-top: 10px; font-size: 15px; color: var(--muted-2); }
+.faq summary { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 14px 0; cursor: pointer; list-style: none; font-weight: 600; font-size: 15px; }
+.faq summary::-webkit-details-marker { display: none; }
+.faq .chev { color: var(--muted); transition: transform 0.18s ease; flex: 0 0 auto; }
+.faq details[open] .chev { transform: rotate(180deg); }
+.faq-body { padding: 0 0 16px; font-size: 14.5px; color: var(--muted-2); }
 .faq-body :deep(p) { margin: 0 0 8px; }
 .faq-body :deep(ol), .faq-body :deep(ul) { margin: 0 0 8px; padding-left: 20px; }
 .faq-body :deep(li) { margin-bottom: 4px; }
 .faq-body :deep(code) { font-size: 13px; background: var(--surface-soft); border: 1px solid var(--border); padding: 1px 6px; border-radius: 6px; overflow-wrap: anywhere; }
-.faq-body :deep(a), .support a, .notice a { text-decoration: underline; text-underline-offset: 3px; }
-.contacts { list-style: none; padding: 0; margin: 10px 0 14px; font-size: 15px; }
-.contacts li { margin-bottom: 6px; }
+.faq-body :deep(a), .notice a { text-decoration: underline; text-underline-offset: 3px; }
+.contacts { display: flex; flex-direction: column; gap: 6px; margin: 12px 0; }
+.contact { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 10px; background: #fff; border: 1px solid var(--border); font-size: 14px; font-weight: 600; transition: border-color 0.15s ease; }
+.contact:hover { border-color: var(--border-strong); }
+.contact span { flex: 1; overflow-wrap: anywhere; }
+.contact .ext { color: var(--muted); }
+.support p { margin: 0 0 8px; }
 .support .docs { margin: 10px 0 0; }
+.support .docs a { text-decoration: underline; text-underline-offset: 3px; }
 
-@media (max-width: 960px) {
-  .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .grid { grid-template-columns: 1fr; }
+/* Скелетоны при загрузке */
+.skeleton { display: block; height: 12px; border-radius: 6px; background: linear-gradient(90deg, #ebe5da 0%, #f5f1ea 50%, #ebe5da 100%); background-size: 200% 100%; animation: shimmer 1.4s linear infinite; }
+.skeleton.tall { height: 22px; margin-top: 10px; }
+.skeleton-nav { gap: 10px; padding: 4px 12px; }
+.skeleton-nav .skeleton { height: 16px; width: 70%; }
+.skeleton-hero { height: 220px; border-radius: var(--radius); }
+@keyframes shimmer { to { background-position: -200% 0; } }
+
+@media (max-width: 1040px) {
+  .layout { grid-template-columns: 1fr; gap: 0; }
+  .side { position: sticky; top: 0; z-index: 5; margin: 0 -24px 18px; padding: 8px 24px; background: rgba(244, 241, 234, 0.92); backdrop-filter: blur(8px); border-bottom: 1px solid var(--border); }
+  .side-inner { flex-direction: row; align-items: center; gap: 8px; }
+  .side-nav { flex-direction: row; gap: 4px; overflow-x: auto; scrollbar-width: none; }
+  .side-nav::-webkit-scrollbar { display: none; }
+  .side-nav a { padding: 7px 12px; border-radius: 999px; white-space: nowrap; }
+  .side-foot { display: none; }
+  .anchor { scroll-margin-top: 64px; }
+}
+@media (max-width: 860px) {
+  .hero { grid-template-columns: 1fr; }
+  .grid, .topup-grid, .help-grid { grid-template-columns: 1fr; }
   .onb-steps { grid-template-columns: 1fr; }
 }
-@media (max-width: 520px) {
+@media (max-width: 560px) {
   .stats { grid-template-columns: 1fr; }
+  .hero { padding: 22px 20px; }
 }
 </style>
