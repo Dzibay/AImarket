@@ -240,13 +240,15 @@ function Assert-ClaudeDesktopHttpOk {
 }
 
 function Get-ClaudeDesktopProcesses {
-    return @(Get-Process -ErrorAction SilentlyContinue | Where-Object {
+    # Результат разворачивается в поток, поэтому на месте вызова всегда @(...):
+    # иначе при единственном процессе вернётся объект без .Count (StrictMode).
+    Get-Process -ErrorAction SilentlyContinue | Where-Object {
         $_.ProcessName -eq "Claude" -or $_.ProcessName -like "Claude Helper*"
-    })
+    }
 }
 
 function Assert-ClaudeDesktopClosed {
-    $running = Get-ClaudeDesktopProcesses
+    $running = @(Get-ClaudeDesktopProcesses)
     if ($running.Count -eq 0) { return }
     if ($DryRun -or -not (Test-CanPromptForApiKey)) { throw (T "close") }
     $answer = (Read-Host (T "runningPrompt")).Trim()
@@ -256,13 +258,13 @@ function Assert-ClaudeDesktopClosed {
         try { if ($process.MainWindowHandle -ne [IntPtr]::Zero) { [void]$process.CloseMainWindow() } } catch {}
     }
     for ($i = 0; $i -lt 10; $i++) {
-        if ((Get-ClaudeDesktopProcesses).Count -eq 0) { return }
+        if (@(Get-ClaudeDesktopProcesses).Count -eq 0) { return }
         Start-Sleep -Seconds 1
     }
     # Claude Desktop keeps running in the tray after its window closes.
-    Get-ClaudeDesktopProcesses | Stop-Process -ErrorAction SilentlyContinue
+    @(Get-ClaudeDesktopProcesses) | Stop-Process -ErrorAction SilentlyContinue
     for ($i = 0; $i -lt 10; $i++) {
-        if ((Get-ClaudeDesktopProcesses).Count -eq 0) { return }
+        if (@(Get-ClaudeDesktopProcesses).Count -eq 0) { return }
         Start-Sleep -Seconds 1
     }
     throw (T "close")
