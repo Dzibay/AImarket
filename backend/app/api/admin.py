@@ -33,6 +33,17 @@ from app.support import (
     post_staff_message,
     waiting_count,
 )
+from app.finance import (
+    CATEGORIES,
+    CATEGORY_LABELS,
+    KIND_LABELS,
+    KINDS,
+    build_summary,
+    create_entry,
+    delete_entry,
+    list_entries,
+    set_opening_cash_rub,
+)
 from app.telegram_link import bot_username
 from app.upstream import UpstreamError, upstream
 
@@ -104,6 +115,19 @@ class ReferralGroupAssignIn(BaseModel):
 
 class SupportReplyIn(BaseModel):
     body: str = Field(min_length=1, max_length=4000)
+
+
+class FinanceEntryIn(BaseModel):
+    kind: str = Field(min_length=1, max_length=32)
+    category: str = Field(default="other", max_length=64)
+    amount_rub: float = Field(gt=0, le=100_000_000)
+    amount_usd: float = Field(default=0, ge=0, le=1_000_000)
+    note: str = Field(default="", max_length=500)
+    occurred_at: str = Field(default="", max_length=40)
+
+
+class FinanceOpeningIn(BaseModel):
+    opening_cash_rub: float = Field(ge=0, le=100_000_000)
 
 
 _LEDGER_KINDS = {"topup", "credit", "spend", "adjust"}
@@ -874,3 +898,58 @@ def support_reply(kind: str, thread_id: int, body: SupportReplyIn) -> dict:
         code = str(exc) if str(exc) in {"message", "long"} else "message"
         raise HTTPException(status_code=400, detail=code) from None
     return {"message": message}
+
+
+@router.get("/finance", dependencies=[Depends(require_admin)])
+def finance_summary() -> dict:
+    return build_summary()
+
+
+@router.get("/finance/entries", dependencies=[Depends(require_admin)])
+def finance_entries(kind: str = Query(default="")) -> dict:
+    filter_kind = kind.strip() if kind.strip() in KINDS else None
+    return {
+        "items": list_entries(filter_kind),
+        "kinds": [{"value": k, "label": KIND_LABELS[k]} for k in KINDS],
+        "categories": {
+            k: [{"value": c, "label": CATEGORY_LABELS.get(c, c)} for c in CATEGORIES[k]]
+            for k in KINDS
+        },
+    }
+
+
+@router.post("/finance/entries", dependencies=[Depends(require_admin)])
+def finance_create(body: FinanceEntryIn) -> dict:
+    occurred = None
+    raw = body.occurred_at.strip()
+    if raw:
+        try:
+            occurred = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail="occurred_at") from exc
+    try:
+        entry = create_entry(
+            kind=body.kind.strip(),
+            category=body.category.strip(),
+            amount_rub=Decimal(str(body.amount_rub)),
+            amount_usd=Decimal(str(body.amount_usd or 0)),
+            note=body.note,
+            occurred_at=occurred,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"entry": entry, "summary": build_summary()}
+
+
+@router.delete("/finance/entries/{entry_id}", dependencies=[Depends(require_admin)])
+def finance_delete(entry_id: int) -> dict:
+    if not delete_entry(entry_id):
+        raise HTTPException(status_code=404, detail="entry")
+    return {"ok": True, "summary": build_summary()}
+
+
+@router.put("/finance/opening", dependencies=[Depends(require_admin)])
+def finance_opening(body: FinanceOpeningIn) -> dict:
+    amount = set_opening_cash_rub(Decimal(str(body.opening_cash_rub)))
+    return {"opening_cash_rub": float(amount), "summary": build_summary()}
+

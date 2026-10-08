@@ -217,3 +217,25 @@ VALUES
     ('claude', 'Claude', 'Токены для запросов к Claude. Цена за 1000 токенов.', 180),
     ('gemini', 'Gemini', 'Токены для запросов к Gemini. Цена за 1000 токенов.', 80)
 ON CONFLICT (slug) DO NOTHING;
+
+-- Компания: ручная бухгалтерия (доходы/расходы/резервы/выводы). ЮKassa topups считаются отдельно.
+CREATE TABLE IF NOT EXISTS finance_entries (
+    id          BIGSERIAL PRIMARY KEY,
+    kind        TEXT NOT NULL CHECK (kind IN (
+        'income', 'expense', 'reserve', 'reserve_release', 'withdrawal', 'deposit'
+    )),
+    category    TEXT NOT NULL DEFAULT 'other',
+    amount_rub  NUMERIC(14, 2) NOT NULL CHECK (amount_rub > 0),
+    amount_usd  NUMERIC(12, 4) NOT NULL DEFAULT 0 CHECK (amount_usd >= 0),
+    note        TEXT NOT NULL DEFAULT '',
+    occurred_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_finance_entries_kind_time
+    ON finance_entries (kind, occurred_at DESC);
+CREATE INDEX IF NOT EXISTS idx_finance_entries_time
+    ON finance_entries (occurred_at DESC);
+
+INSERT INTO app_settings (key, value) VALUES ('finance_opening_cash_rub', '0')
+ON CONFLICT (key) DO NOTHING;

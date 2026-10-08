@@ -323,6 +323,205 @@
           </div>
         </section>
 
+        <section v-show="activeTab === 'finance'" class="panel tab-finance">
+          <div class="panel-head finance-head">
+            <div>
+              <h2>Финансы</h2>
+              <p class="muted finance-sub">
+                Касса, обязательства клиентам, резервы и сумма к выводу
+              </p>
+            </div>
+            <button type="button" class="quiet sm" :disabled="financeSaving" @click="loadFinance">
+              Обновить
+            </button>
+          </div>
+
+          <div v-if="financeSummary" class="finance-kpis">
+            <div class="finance-kpi emphasis" :class="financeSummary.available_rub >= 0 ? 'ok' : 'bad'">
+              <span>Доступно к выводу</span>
+              <b>{{ rub(financeSummary.available_rub) }}</b>
+              <small v-if="financeSummary.rate">≈ {{ usd(financeSummary.available_usd) }}</small>
+            </div>
+            <div class="finance-kpi">
+              <span>Касса (книга)</span>
+              <b>{{ rub(financeSummary.cash_book_rub) }}</b>
+            </div>
+            <div class="finance-kpi">
+              <span>Обязательства</span>
+              <b>{{ rub(financeSummary.obligations_rub) }}</b>
+              <small>клиенты {{ usd(financeSummary.customer_liability_usd) }} + резервы</small>
+            </div>
+            <div class="finance-kpi">
+              <span>Резервы</span>
+              <b>{{ rub(financeSummary.reserves_net_rub) }}</b>
+            </div>
+            <div class="finance-kpi">
+              <span>ЮKassa оплачено</span>
+              <b>{{ rub(financeSummary.topups?.rub || 0) }}</b>
+              <small>{{ financeSummary.topups?.count || 0 }} платежей · {{ usd(financeSummary.topups?.usd || 0) }}</small>
+            </div>
+            <div class="finance-kpi">
+              <span>Маржа (оценка)</span>
+              <b>{{ usd(financeSummary.gross_margin_usd) }}</b>
+              <small>оплаты − расход квот − бонусы</small>
+            </div>
+            <div class="finance-kpi">
+              <span>Баланс поставщика</span>
+              <b>{{ usd(financeSummary.supplier_balance_usd) }}</b>
+            </div>
+            <div class="finance-kpi">
+              <span>Курс</span>
+              <b>{{ Number(financeSummary.rate || 0).toFixed(2) }} ₽/$</b>
+            </div>
+          </div>
+
+          <div v-if="financeSummary" class="finance-grid">
+            <div class="finance-card">
+              <h3>Разбор кассы</h3>
+              <ul class="finance-breakdown">
+                <li
+                  v-for="(row, idx) in financeSummary.breakdown || []"
+                  :key="idx"
+                  :class="{ emphasis: row.emphasis, ok: row.tone === 'ok', bad: row.tone === 'bad' }"
+                >
+                  <span class="sign">{{ row.sign }}</span>
+                  <span class="label">{{ row.label }}</span>
+                  <b>{{ rub(row.rub) }}</b>
+                </li>
+              </ul>
+              <p class="muted small finance-hint">
+                К выводу = касса − обязательства клиентам (балансы × курс) − резервы.
+                Комиссии ЮKassa и налоги вносите как расходы или резервы.
+              </p>
+            </div>
+
+            <div class="finance-card">
+              <h3>Стартовый остаток</h3>
+              <p class="muted small">Деньги на счёте до учёта в системе (или сверка кассы).</p>
+              <div class="finance-opening">
+                <input v-model="financeOpeningDraft" inputmode="decimal" placeholder="0">
+                <button type="button" :disabled="financeSaving" @click="saveFinanceOpening">Сохранить</button>
+              </div>
+            </div>
+
+            <div class="finance-card wide">
+              <h3>Новая проводка</h3>
+              <div class="finance-form">
+                <div class="field">
+                  <label for="fin-kind">Тип</label>
+                  <select
+                    id="fin-kind"
+                    v-model="financeForm.kind"
+                    @change="financeForm.category = (financeCategoryOptions[0] && financeCategoryOptions[0].value) || 'other'"
+                  >
+                    <option v-for="opt in financeKindOptions" :key="opt.value" :value="opt.value">
+                      {{ opt.label }}
+                    </option>
+                  </select>
+                </div>
+                <div class="field">
+                  <label for="fin-cat">Категория</label>
+                  <select id="fin-cat" v-model="financeForm.category">
+                    <option v-for="opt in financeCategoryOptions" :key="opt.value" :value="opt.value">
+                      {{ opt.label }}
+                    </option>
+                  </select>
+                </div>
+                <div class="field">
+                  <label for="fin-rub">Сумма ₽</label>
+                  <input id="fin-rub" v-model="financeForm.amount_rub" inputmode="decimal" placeholder="1000">
+                </div>
+                <div class="field">
+                  <label for="fin-usd">Сумма $ <span class="muted">(опц.)</span></label>
+                  <input id="fin-usd" v-model="financeForm.amount_usd" inputmode="decimal" placeholder="0">
+                </div>
+                <div class="field grow">
+                  <label for="fin-note">Комментарий</label>
+                  <input id="fin-note" v-model="financeForm.note" placeholder="Например: комиссия за октябрь">
+                </div>
+                <div class="field">
+                  <label for="fin-date">Дата</label>
+                  <input id="fin-date" v-model="financeForm.occurred_at" type="datetime-local">
+                </div>
+                <button type="button" :disabled="financeSaving" @click="addFinanceEntry">Добавить</button>
+              </div>
+              <p v-if="financeError" class="error">{{ financeError }}</p>
+            </div>
+          </div>
+
+          <div class="finance-list">
+            <div class="finance-list-head">
+              <h3>Журнал проводок</h3>
+              <div class="finance-filters">
+                <button
+                  type="button"
+                  class="quiet sm"
+                  :class="{ on: !financeFilter }"
+                  @click="financeFilter = ''"
+                >
+                  Все
+                </button>
+                <button
+                  v-for="opt in financeKindOptions"
+                  :key="opt.value"
+                  type="button"
+                  class="quiet sm"
+                  :class="{ on: financeFilter === opt.value }"
+                  @click="financeFilter = opt.value"
+                >
+                  {{ opt.label }}
+                </button>
+              </div>
+            </div>
+            <div class="table-wrap">
+              <table class="finance-table">
+                <thead>
+                  <tr>
+                    <th>Когда</th>
+                    <th>Тип</th>
+                    <th>Категория</th>
+                    <th>Комментарий</th>
+                    <th class="num">Сумма</th>
+                    <th class="actions" aria-label="Действия"></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-if="!filteredFinanceEntries.length" class="empty">
+                    <td colspan="6">Пока нет ручных проводок</td>
+                  </tr>
+                  <tr v-for="item in filteredFinanceEntries" :key="item.id">
+                    <td class="nowrap muted">{{ formatRecentAt(item.occurred_at) }}</td>
+                    <td>
+                      <span class="kind-badge" :class="financeKindClass(item.kind)">
+                        {{ item.kind_label }}
+                      </span>
+                    </td>
+                    <td>{{ item.category_label }}</td>
+                    <td class="finance-note-cell">{{ item.note || '—' }}</td>
+                    <td class="num">
+                      <div class="ledger-amt">
+                        <span class="ledger-usd">{{ rub(item.amount_rub) }}</span>
+                        <span v-if="item.amount_usd" class="ledger-rub">{{ usd(item.amount_usd) }}</span>
+                      </div>
+                    </td>
+                    <td class="actions">
+                      <button
+                        type="button"
+                        class="icon-btn danger-ghost"
+                        title="Удалить"
+                        aria-label="Удалить"
+                        @click="deleteFinanceEntry(item.id)"
+                      >
+                        <AppIcon name="trash" :size="15" />
+                      </button>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+
         <section v-show="activeTab === 'payments'" class="panel">
           <div class="panel-head"><h2>Платежи</h2></div>
           <div class="table-wrap">
@@ -907,6 +1106,20 @@ const {
   ledgerError,
   ledgerUserOptions,
   ledgerKindOptions,
+  financeSummary,
+  filteredFinanceEntries,
+  financeFilter,
+  financeError,
+  financeSaving,
+  financeOpeningDraft,
+  financeForm,
+  financeKindOptions,
+  financeCategoryOptions,
+  loadFinance,
+  saveFinanceOpening,
+  addFinanceEntry,
+  deleteFinanceEntry,
+  financeKindClass,
   topups,
   users,
   filteredUsers,
@@ -1536,6 +1749,204 @@ onMounted(() => {
   color: var(--danger);
   border-color: #e3b4b4;
   transform: none;
+}
+
+.admin-page .tab-finance .finance-head {
+  align-items: flex-start;
+  margin-bottom: 18px;
+}
+.admin-page .finance-sub { margin: 4px 0 0; }
+.admin-page .finance-kpis {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  margin-bottom: 16px;
+}
+.admin-page .finance-kpi {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-soft);
+}
+.admin-page .finance-kpi span {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+.admin-page .finance-kpi b {
+  font-size: 20px;
+  letter-spacing: -0.03em;
+  overflow-wrap: anywhere;
+}
+.admin-page .finance-kpi small {
+  color: var(--muted);
+  font-size: 12px;
+}
+.admin-page .finance-kpi.emphasis.ok {
+  background: var(--ok-soft);
+  border-color: #c7e3d4;
+}
+.admin-page .finance-kpi.emphasis.ok b { color: var(--ok); }
+.admin-page .finance-kpi.emphasis.bad {
+  background: var(--danger-soft);
+  border-color: #e3b4b4;
+}
+.admin-page .finance-kpi.emphasis.bad b { color: var(--danger); }
+.admin-page .finance-grid {
+  display: grid;
+  grid-template-columns: 1.2fr 0.8fr;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+.admin-page .finance-card {
+  padding: 16px 18px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-soft);
+}
+.admin-page .finance-card.wide { grid-column: 1 / -1; }
+.admin-page .finance-card h3 {
+  margin: 0 0 10px;
+  font-size: 14px;
+  font-weight: 650;
+}
+.admin-page .finance-breakdown {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 6px;
+}
+.admin-page .finance-breakdown li {
+  display: grid;
+  grid-template-columns: 18px 1fr auto;
+  gap: 8px;
+  align-items: baseline;
+  font-size: 13px;
+}
+.admin-page .finance-breakdown .sign { color: var(--muted); }
+.admin-page .finance-breakdown.emphasis,
+.admin-page .finance-breakdown li.emphasis {
+  margin-top: 4px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+  font-weight: 650;
+}
+.admin-page .finance-breakdown li.ok b { color: var(--ok); }
+.admin-page .finance-breakdown li.bad b { color: var(--danger); }
+.admin-page .finance-hint { margin: 12px 0 0; }
+.admin-page .finance-opening {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-top: 10px;
+}
+.admin-page .finance-opening input {
+  max-width: 180px;
+}
+.admin-page .finance-form {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr)) auto;
+  gap: 10px;
+  align-items: end;
+}
+.admin-page .finance-form .field { min-width: 0; }
+.admin-page .finance-form .field.grow { grid-column: span 2; }
+.admin-page .finance-form label { margin: 0 0 6px; }
+.admin-page .finance-form button { height: 42px; }
+.admin-page .finance-list {
+  padding: 16px 18px 18px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: #fff;
+}
+.admin-page .finance-list-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+.admin-page .finance-list-head h3 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 650;
+}
+.admin-page .finance-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.admin-page .finance-filters button.on {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
+}
+.admin-page .finance-table {
+  width: 100%;
+  min-width: 720px;
+  table-layout: fixed;
+  border-collapse: collapse;
+}
+.admin-page .finance-table th,
+.admin-page .finance-table td {
+  padding: 11px 12px;
+  vertical-align: middle;
+}
+.admin-page .finance-note-cell {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--muted);
+  font-size: 13px;
+}
+.admin-page .kind-badge.fin-income {
+  background: var(--ok-soft);
+  color: var(--ok);
+  border-color: #c7e3d4;
+}
+.admin-page .kind-badge.fin-expense {
+  background: var(--danger-soft);
+  color: var(--danger);
+  border-color: #e3b4b4;
+}
+.admin-page .kind-badge.fin-reserve {
+  background: var(--warn-soft);
+  color: var(--warn);
+  border-color: #ecdca8;
+}
+.admin-page .kind-badge.fin-release {
+  background: #eef4ff;
+  color: #2f4f8c;
+  border-color: #d5e0f5;
+}
+.admin-page .kind-badge.fin-withdrawal {
+  background: #f4f1ea;
+  color: var(--text);
+  border-color: var(--border);
+}
+.admin-page .kind-badge.fin-deposit {
+  background: #e9f4fb;
+  color: #2a6f97;
+  border-color: #c9e0ef;
+}
+@media (max-width: 1100px) {
+  .admin-page .finance-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .admin-page .finance-grid { grid-template-columns: 1fr; }
+  .admin-page .finance-form { grid-template-columns: 1fr 1fr; }
+  .admin-page .finance-form .field.grow,
+  .admin-page .finance-form button { grid-column: 1 / -1; }
+}
+@media (max-width: 640px) {
+  .admin-page .finance-kpis { grid-template-columns: 1fr; }
+  .admin-page .finance-form { grid-template-columns: 1fr; }
 }
 
 .admin-page .tab-users .users-head {

@@ -247,9 +247,36 @@ export function useAdminPanel() {
   const supportLoading = ref(false)
   let supportPollTimer = null
 
+  const financeSummary = ref(null)
+  const financeEntries = ref([])
+  const financeFilter = ref('')
+  const financeError = ref('')
+  const financeSaving = ref(false)
+  const financeOpeningDraft = ref('0')
+  const financeForm = reactive({
+    kind: 'expense',
+    category: 'other',
+    amount_rub: '',
+    amount_usd: '',
+    note: '',
+    occurred_at: '',
+  })
+
+  const financeKindOptions = computed(() => financeSummary.value?.meta?.kinds || [])
+  const financeCategoryOptions = computed(() => {
+    const map = financeSummary.value?.meta?.categories || {}
+    return map[financeForm.kind] || [{ value: 'other', label: 'Прочее' }]
+  })
+  const filteredFinanceEntries = computed(() => {
+    const kind = financeFilter.value
+    if (!kind) return financeEntries.value
+    return financeEntries.value.filter((item) => item.kind === kind)
+  })
+
   const tabs = computed(() => [
     { id: 'analytics', label: 'Аналитика' },
     { id: 'settings', label: 'Настройки' },
+    { id: 'finance', label: 'Финансы' },
     { id: 'payments', label: 'Платежи' },
     { id: 'ledger', label: 'Транзакции' },
     { id: 'users', label: 'Пользователи' },
@@ -652,6 +679,99 @@ export function useAdminPanel() {
     }
   }
 
+  function applyFinanceSummary(summary) {
+    financeSummary.value = summary || null
+    financeEntries.value = summary?.entries || []
+    if (summary && summary.opening_cash_rub != null) {
+      financeOpeningDraft.value = String(summary.opening_cash_rub)
+    }
+  }
+
+  async function loadFinance() {
+    financeError.value = ''
+    try {
+      const data = await api('/api/admin/finance')
+      applyFinanceSummary(data)
+      const cats = data?.meta?.categories?.[financeForm.kind] || []
+      if (cats.length && !cats.some((c) => c.value === financeForm.category)) {
+        financeForm.category = cats[0].value
+      }
+    } catch (error) {
+      financeError.value = error.message || 'error'
+    }
+  }
+
+  async function saveFinanceOpening() {
+    financeSaving.value = true
+    financeError.value = ''
+    try {
+      const data = await api('/api/admin/finance/opening', {
+        method: 'PUT',
+        body: JSON.stringify({
+          opening_cash_rub: Number(String(financeOpeningDraft.value).replace(',', '.')) || 0,
+        }),
+      })
+      applyFinanceSummary(data.summary)
+    } catch (error) {
+      financeError.value = error.message || 'error'
+    } finally {
+      financeSaving.value = false
+    }
+  }
+
+  async function addFinanceEntry() {
+    const amount = Number(String(financeForm.amount_rub).replace(',', '.'))
+    if (!amount) {
+      financeError.value = 'Укажите сумму в ₽'
+      return
+    }
+    financeSaving.value = true
+    financeError.value = ''
+    try {
+      const data = await api('/api/admin/finance/entries', {
+        method: 'POST',
+        body: JSON.stringify({
+          kind: financeForm.kind,
+          category: financeForm.category,
+          amount_rub: amount,
+          amount_usd: Number(String(financeForm.amount_usd || '0').replace(',', '.')) || 0,
+          note: financeForm.note,
+          occurred_at: financeForm.occurred_at || '',
+        }),
+      })
+      applyFinanceSummary(data.summary)
+      financeForm.amount_rub = ''
+      financeForm.amount_usd = ''
+      financeForm.note = ''
+    } catch (error) {
+      financeError.value = error.message || 'error'
+    } finally {
+      financeSaving.value = false
+    }
+  }
+
+  async function deleteFinanceEntry(id) {
+    if (!confirm('Удалить проводку?')) return
+    financeError.value = ''
+    try {
+      const data = await api('/api/admin/finance/entries/' + id, { method: 'DELETE' })
+      applyFinanceSummary(data.summary)
+    } catch (error) {
+      financeError.value = error.message || 'error'
+    }
+  }
+
+  function financeKindClass(kind) {
+    return ({
+      income: 'fin-income',
+      expense: 'fin-expense',
+      reserve: 'fin-reserve',
+      reserve_release: 'fin-release',
+      withdrawal: 'fin-withdrawal',
+      deposit: 'fin-deposit',
+    })[kind] || 'fin-expense'
+  }
+
   function setTab(tab) {
     activeTab.value = tab
     if (tab === 'support') {
@@ -660,6 +780,7 @@ export function useAdminPanel() {
     } else {
       stopSupportPoll()
     }
+    if (tab === 'finance') loadFinance()
   }
 
   function supportPerson(row) {
@@ -1086,6 +1207,21 @@ export function useAdminPanel() {
     ledgerError,
     ledgerUserOptions,
     ledgerKindOptions,
+    financeSummary,
+    financeEntries,
+    filteredFinanceEntries,
+    financeFilter,
+    financeError,
+    financeSaving,
+    financeOpeningDraft,
+    financeForm,
+    financeKindOptions,
+    financeCategoryOptions,
+    loadFinance,
+    saveFinanceOpening,
+    addFinanceEntry,
+    deleteFinanceEntry,
+    financeKindClass,
     topups,
     users,
     filteredUsers,
