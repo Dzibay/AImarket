@@ -218,3 +218,55 @@ def resolve_topic(topic_id: int) -> dict | None:
         if guest is not None:
             return {"kind": "guest", "id": int(guest["id"])}
     return None
+
+
+def rename_topic_after_guest_claim(*, user_id: int, topic_id: int, guest_id: int) -> None:
+    """После слияния гостя: переименовать тему в email и отметить, что диалог был гостевым."""
+    threading.Thread(
+        target=_rename_after_claim_safe,
+        kwargs={"user_id": user_id, "topic_id": topic_id, "guest_id": guest_id},
+        name="support-tg-rename",
+        daemon=True,
+    ).start()
+
+
+def _rename_after_claim_safe(*, user_id: int, topic_id: int, guest_id: int) -> None:
+    try:
+        _rename_after_claim(user_id=user_id, topic_id=topic_id, guest_id=guest_id)
+    except Exception:
+        log.exception("не удалось переименовать тему после слияния гостя")
+
+
+def _rename_after_claim(*, user_id: int, topic_id: int, guest_id: int) -> None:
+    token = settings.telegram_bot_token.strip()
+    chat_id = support_telegram_chat_id()
+    if not token or chat_id is None:
+        return
+    with pool.connection() as conn:
+        row = conn.execute(
+            "SELECT id, email, username, first_name FROM users WHERE id = %s",
+            (user_id,),
+        ).fetchone()
+    if row is None:
+        return
+    label = _user_label(row)
+    # 🔄 — диалог начинался как гостевой, потом привязан к аккаунту.
+    title = f"🔄 {label}"[:128]
+    try:
+        _telegram_call(
+            token,
+            "editForumTopic",
+            {
+                "chat_id": str(chat_id),
+                "message_thread_id": str(topic_id),
+                "name": title,
+            },
+        )
+    except (urllib.error.URLError, TimeoutError, OSError, json.JSONDecodeError) as exc:
+        log.warning("editForumTopic %s failed: %s", topic_id, exc)
+        return
+    note = (
+        f"🔄 Гостевой диалог <b>Гость #{guest_id}</b> привязан к аккаунту "
+        f"<b>{html.escape(label)}</b> <code>user:{user_id}</code>."
+    )
+    _send_topic_message(token, chat_id, topic_id, note)

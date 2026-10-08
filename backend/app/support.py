@@ -6,7 +6,11 @@ import secrets
 
 from app.datetime_util import iso_utc
 from app.db import pool
-from app.support_telegram import forward_staff_message, forward_user_message
+from app.support_telegram import (
+    forward_staff_message,
+    forward_user_message,
+    rename_topic_after_guest_claim,
+)
 from app.web_auth import key_hash
 
 _MAX_BODY = 4000
@@ -68,14 +72,14 @@ def claim_guest_messages(user_id: int, raw_token: str) -> int:
         return 0
     with pool.connection() as conn:
         guest = conn.execute(
-            "SELECT id, seen_at FROM support_guests WHERE token_hash = %s",
+            "SELECT id, seen_at, telegram_topic_id FROM support_guests WHERE token_hash = %s",
             (key_hash(token),),
         ).fetchone()
         if guest is None:
             return 0
         guest_id = int(guest["id"])
         user = conn.execute(
-            "SELECT id, support_seen_at FROM users WHERE id = %s",
+            "SELECT id, support_seen_at, support_telegram_topic_id FROM users WHERE id = %s",
             (user_id,),
         ).fetchone()
         if user is None:
@@ -93,24 +97,13 @@ def claim_guest_messages(user_id: int, raw_token: str) -> int:
                 (merged_seen, user_id),
             )
 
-        guest_topic = conn.execute(
-            "SELECT telegram_topic_id FROM support_guests WHERE id = %s",
-            (guest_id,),
-        ).fetchone()
-        user_topic = conn.execute(
-            "SELECT support_telegram_topic_id FROM users WHERE id = %s",
-            (user_id,),
-        ).fetchone()
+        claimed_topic_id: int | None = None
         # Если у пользователя ещё нет темы — забираем гостевую.
-        if (
-            guest_topic
-            and guest_topic["telegram_topic_id"] is not None
-            and user_topic
-            and user_topic["support_telegram_topic_id"] is None
-        ):
+        if guest["telegram_topic_id"] is not None and user["support_telegram_topic_id"] is None:
+            claimed_topic_id = int(guest["telegram_topic_id"])
             conn.execute(
                 "UPDATE users SET support_telegram_topic_id = %s WHERE id = %s",
-                (int(guest_topic["telegram_topic_id"]), user_id),
+                (claimed_topic_id, user_id),
             )
             conn.execute(
                 "UPDATE support_guests SET telegram_topic_id = NULL WHERE id = %s",
@@ -127,6 +120,13 @@ def claim_guest_messages(user_id: int, raw_token: str) -> int:
         )
         count = int(moved.rowcount or 0)
         conn.execute("DELETE FROM support_guests WHERE id = %s", (guest_id,))
+
+    if claimed_topic_id is not None:
+        rename_topic_after_guest_claim(
+            user_id=user_id,
+            topic_id=claimed_topic_id,
+            guest_id=guest_id,
+        )
     return count
 
 
