@@ -220,24 +220,57 @@ def resolve_topic(topic_id: int) -> dict | None:
     return None
 
 
-def rename_topic_after_guest_claim(*, user_id: int, topic_id: int, guest_id: int) -> None:
-    """После слияния гостя: переименовать тему в email и отметить, что диалог был гостевым."""
+def after_guest_claim(
+    *,
+    user_id: int,
+    guest_id: int,
+    guest_topic_id: int | None,
+    user_topic_id: int | None,
+    guest_messages: list[dict],
+) -> None:
+    """После слияния гостя в аккаунт: переименовать тему или перенести историю и удалить гостевую."""
     threading.Thread(
-        target=_rename_after_claim_safe,
-        kwargs={"user_id": user_id, "topic_id": topic_id, "guest_id": guest_id},
-        name="support-tg-rename",
+        target=_after_guest_claim_safe,
+        kwargs={
+            "user_id": user_id,
+            "guest_id": guest_id,
+            "guest_topic_id": guest_topic_id,
+            "user_topic_id": user_topic_id,
+            "guest_messages": guest_messages,
+        },
+        name="support-tg-claim",
         daemon=True,
     ).start()
 
 
-def _rename_after_claim_safe(*, user_id: int, topic_id: int, guest_id: int) -> None:
+def _after_guest_claim_safe(
+    *,
+    user_id: int,
+    guest_id: int,
+    guest_topic_id: int | None,
+    user_topic_id: int | None,
+    guest_messages: list[dict],
+) -> None:
     try:
-        _rename_after_claim(user_id=user_id, topic_id=topic_id, guest_id=guest_id)
+        _after_guest_claim(
+            user_id=user_id,
+            guest_id=guest_id,
+            guest_topic_id=guest_topic_id,
+            user_topic_id=user_topic_id,
+            guest_messages=guest_messages,
+        )
     except Exception:
-        log.exception("не удалось переименовать тему после слияния гостя")
+        log.exception("не удалось обновить Telegram после слияния гостя")
 
 
-def _rename_after_claim(*, user_id: int, topic_id: int, guest_id: int) -> None:
+def _after_guest_claim(
+    *,
+    user_id: int,
+    guest_id: int,
+    guest_topic_id: int | None,
+    user_topic_id: int | None,
+    guest_messages: list[dict],
+) -> None:
     token = settings.telegram_bot_token.strip()
     chat_id = support_telegram_chat_id()
     if not token or chat_id is None:
@@ -250,8 +283,52 @@ def _rename_after_claim(*, user_id: int, topic_id: int, guest_id: int) -> None:
     if row is None:
         return
     label = _user_label(row)
-    # 🔄 — диалог начинался как гостевой, потом привязан к аккаунту.
-    title = f"🔄 {label}"[:128]
+
+    # У пользователя ещё не было темы — забираем гостевую и помечаем 🔄.
+    if guest_topic_id is not None and user_topic_id is None:
+        _rename_topic(token, chat_id, guest_topic_id, f"🔄 {label}"[:128])
+        _send_topic_message(
+            token,
+            chat_id,
+            guest_topic_id,
+            (
+                f"🔄 Гостевой диалог <b>Гость #{guest_id}</b> привязан к аккаунту "
+                f"<b>{html.escape(label)}</b> <code>user:{user_id}</code>."
+            ),
+        )
+        return
+
+    # У аккаунта уже есть тема — переносим историю туда и удаляем гостевую.
+    if user_topic_id is not None and (guest_topic_id is not None or guest_messages):
+        header = (
+            f"📦 <b>Перенесено из гостевого диалога</b> Гость #{guest_id}\n"
+            f"Аккаунт: <b>{html.escape(label)}</b> <code>user:{user_id}</code>"
+        )
+        if not guest_messages:
+            header += "\n<i>Сообщений в гостевом чате не было.</i>"
+        _send_topic_message(token, chat_id, user_topic_id, header)
+        for item in guest_messages:
+            author = "👤 Пользователь" if item.get("author") == "user" else "💬 Поддержка"
+            body = html.escape(str(item.get("body") or ""))
+            when = html.escape(str(item.get("created_at") or ""))
+            chunk = f"{author}"
+            if when:
+                chunk += f" · <i>{when}</i>"
+            chunk += f"\n{body}"
+            _send_topic_message(token, chat_id, user_topic_id, chunk)
+        _send_topic_message(
+            token,
+            chat_id,
+            user_topic_id,
+            "✅ Перенос завершён. Гостевая тема удалена."
+            if guest_topic_id is not None
+            else "✅ Перенос завершён.",
+        )
+        if guest_topic_id is not None:
+            _delete_topic(token, chat_id, guest_topic_id)
+
+
+def _rename_topic(token: str, chat_id: int, topic_id: int, title: str) -> None:
     try:
         _telegram_call(
             token,
@@ -259,14 +336,22 @@ def _rename_after_claim(*, user_id: int, topic_id: int, guest_id: int) -> None:
             {
                 "chat_id": str(chat_id),
                 "message_thread_id": str(topic_id),
-                "name": title,
+                "name": title[:128],
             },
         )
     except (urllib.error.URLError, TimeoutError, OSError, json.JSONDecodeError) as exc:
         log.warning("editForumTopic %s failed: %s", topic_id, exc)
-        return
-    note = (
-        f"🔄 Гостевой диалог <b>Гость #{guest_id}</b> привязан к аккаунту "
-        f"<b>{html.escape(label)}</b> <code>user:{user_id}</code>."
-    )
-    _send_topic_message(token, chat_id, topic_id, note)
+
+
+def _delete_topic(token: str, chat_id: int, topic_id: int) -> None:
+    try:
+        _telegram_call(
+            token,
+            "deleteForumTopic",
+            {
+                "chat_id": str(chat_id),
+                "message_thread_id": str(topic_id),
+            },
+        )
+    except (urllib.error.URLError, TimeoutError, OSError, json.JSONDecodeError) as exc:
+        log.warning("deleteForumTopic %s failed: %s", topic_id, exc)

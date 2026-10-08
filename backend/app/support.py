@@ -7,9 +7,9 @@ import secrets
 from app.datetime_util import iso_utc
 from app.db import pool
 from app.support_telegram import (
+    after_guest_claim,
     forward_staff_message,
     forward_user_message,
-    rename_topic_after_guest_claim,
 )
 from app.web_auth import key_hash
 
@@ -70,6 +70,10 @@ def claim_guest_messages(user_id: int, raw_token: str) -> int:
     token = (raw_token or "").strip()
     if not token:
         return 0
+    guest_topic_id: int | None = None
+    user_topic_id: int | None = None
+    guest_id = 0
+    guest_messages: list[dict] = []
     with pool.connection() as conn:
         guest = conn.execute(
             "SELECT id, seen_at, telegram_topic_id FROM support_guests WHERE token_hash = %s",
@@ -78,12 +82,18 @@ def claim_guest_messages(user_id: int, raw_token: str) -> int:
         if guest is None:
             return 0
         guest_id = int(guest["id"])
+        guest_topic_id = int(guest["telegram_topic_id"]) if guest["telegram_topic_id"] is not None else None
         user = conn.execute(
             "SELECT id, support_seen_at, support_telegram_topic_id FROM users WHERE id = %s",
             (user_id,),
         ).fetchone()
         if user is None:
             raise LookupError("user")
+        user_topic_id = (
+            int(user["support_telegram_topic_id"])
+            if user["support_telegram_topic_id"] is not None
+            else None
+        )
 
         guest_seen = guest["seen_at"]
         user_seen = user["support_seen_at"]
@@ -97,13 +107,31 @@ def claim_guest_messages(user_id: int, raw_token: str) -> int:
                 (merged_seen, user_id),
             )
 
-        claimed_topic_id: int | None = None
+        # Снимок гостевой переписки до переноса (для Telegram-темы аккаунта).
+        rows = conn.execute(
+            """
+            SELECT author_kind, body, created_at
+            FROM support_messages
+            WHERE guest_id = %s
+            ORDER BY created_at ASC, id ASC
+            LIMIT %s
+            """,
+            (guest_id, _MAX_MESSAGES),
+        ).fetchall()
+        guest_messages = [
+            {
+                "author": row["author_kind"],
+                "body": row["body"],
+                "created_at": iso_utc(row["created_at"]),
+            }
+            for row in rows
+        ]
+
         # Если у пользователя ещё нет темы — забираем гостевую.
-        if guest["telegram_topic_id"] is not None and user["support_telegram_topic_id"] is None:
-            claimed_topic_id = int(guest["telegram_topic_id"])
+        if guest_topic_id is not None and user_topic_id is None:
             conn.execute(
                 "UPDATE users SET support_telegram_topic_id = %s WHERE id = %s",
-                (claimed_topic_id, user_id),
+                (guest_topic_id, user_id),
             )
             conn.execute(
                 "UPDATE support_guests SET telegram_topic_id = NULL WHERE id = %s",
@@ -119,14 +147,22 @@ def claim_guest_messages(user_id: int, raw_token: str) -> int:
             (user_id, guest_id),
         )
         count = int(moved.rowcount or 0)
+        # Перед удалением гостя отвязываем тему, если она осталась (случай «у аккаунта уже есть тема»).
+        if guest_topic_id is not None and user_topic_id is not None:
+            conn.execute(
+                "UPDATE support_guests SET telegram_topic_id = NULL WHERE id = %s",
+                (guest_id,),
+            )
         conn.execute("DELETE FROM support_guests WHERE id = %s", (guest_id,))
 
-    if claimed_topic_id is not None:
-        rename_topic_after_guest_claim(
-            user_id=user_id,
-            topic_id=claimed_topic_id,
-            guest_id=guest_id,
-        )
+    # guest_topic_id / user_topic_id — значения до слияния.
+    after_guest_claim(
+        user_id=user_id,
+        guest_id=guest_id,
+        guest_topic_id=guest_topic_id,
+        user_topic_id=user_topic_id,
+        guest_messages=guest_messages,
+    )
     return count
 
 
