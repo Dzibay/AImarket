@@ -81,11 +81,11 @@ function accept() {
   font-weight: 700;
   letter-spacing: 0.04em;
   cursor: pointer;
-  background: #2f9e44;
+  background: var(--accent, #1c1915);
   color: #fff;
 }
 .cookie-accept:hover {
-  background: #2b8a3e;
+  opacity: 0.9;
 }
 @media (max-width: 640px) {
   .cookie-banner {
