@@ -5,6 +5,7 @@
         <h1>Aimarket</h1>
         <div class="links">
           <RouterLink to="/privacy">Политика</RouterLink>
+          <RouterLink to="/cookies">Cookies</RouterLink>
           <RouterLink to="/consent">Согласие</RouterLink>
           <RouterLink to="/offer">Оферта</RouterLink>
           <button v-if="isLoggedIn" type="button" class="quiet sm logout" @click="logout">Выйти</button>

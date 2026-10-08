@@ -22,6 +22,7 @@ const router = createRouter({
     { path: '/privacy', name: 'privacy', component: LegalView, props: { page: 'privacy' } },
     { path: '/consent', name: 'consent', component: LegalView, props: { page: 'consent' } },
     { path: '/offer', name: 'offer', component: LegalView, props: { page: 'offer' } },
+    { path: '/cookies', name: 'cookies', component: LegalView, props: { page: 'cookies' } },
     { path: '/admin', redirect: '/admin-panel' },
     { path: '/admin-panel', name: 'admin', component: AdminView },
     { path: '/:pathMatch(.*)*', redirect: '/' },

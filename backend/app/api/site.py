@@ -1,8 +1,8 @@
 from fastapi import APIRouter, HTTPException
 
-from app.legal import legal_consent_data, legal_privacy_data
+from app.legal import legal_consent_data, legal_cookies_data, legal_privacy_data
 from app.offer import legal_offer_data
-from app.settings_store import consent_url, offer_url, privacy_url
+from app.settings_store import consent_url, cookies_url, offer_url, privacy_url
 from app.telegram_link import bot_start_url, bot_username
 
 router = APIRouter(tags=["site"])
@@ -18,6 +18,7 @@ def site_config() -> dict:
         "privacy_url": privacy_url() or "/privacy",
         "consent_url": consent_url() or "/consent",
         "offer_url": offer_url() or "/offer",
+        "cookies_url": cookies_url() or "/cookies",
     }
 
 
@@ -27,6 +28,7 @@ def site_legal(page: str) -> dict:
         "privacy": legal_privacy_data,
         "consent": legal_consent_data,
         "offer": legal_offer_data,
+        "cookies": legal_cookies_data,
     }
     render = pages.get(page)
     if render is None:

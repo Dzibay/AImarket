@@ -83,6 +83,7 @@ import SiteHeader from '../components/SiteHeader.vue'
 import { errorText, webApi } from '../api/web'
 import { claimGuestSupportIfNeeded } from '../composables/useGuestSupport'
 import { getSession, useSession } from '../composables/useSession'
+import { reachMetrikaGoal } from '../utils/cookiesConsent'
 import { usd } from '../utils/format'
 import { useHead } from '../utils/useHead'
 
@@ -164,9 +165,7 @@ function trackPaymentSuccess(params) {
   } catch {
     /* private mode — всё равно отправим */
   }
-  if (typeof window.ym === 'function') {
-    window.ym(113324421, 'reachGoal', 'payment_success', params)
-  }
+  reachMetrikaGoal('payment_success', params)
 }
 
 onMounted(() => {

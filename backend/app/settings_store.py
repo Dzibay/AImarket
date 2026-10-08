@@ -59,6 +59,11 @@ def consent_url() -> str:
     return f"{base}/consent" if base else ""
 
 
+def cookies_url() -> str:
+    base = public_base_url()
+    return f"{base}/cookies" if base else ""
+
+
 def support_username() -> str:
     return get_setting("support_username").strip().lstrip("@")
 

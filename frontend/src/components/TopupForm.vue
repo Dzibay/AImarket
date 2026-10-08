@@ -90,7 +90,9 @@
       <template v-if="mode === 'checkout'">
         Нажимая «Оплатить», вы принимаете
         <RouterLink to="/offer">оферту</RouterLink>,
-        <RouterLink to="/privacy">политику конфиденциальности</RouterLink> и
+        <RouterLink to="/privacy">политику конфиденциальности</RouterLink>,
+        <RouterLink to="/cookies">политику cookies</RouterLink>
+        и
         <RouterLink to="/consent">согласие на обработку данных</RouterLink>.
       </template>
       <template v-else>
@@ -109,6 +111,7 @@ import { computed, ref, watch } from 'vue'
 import { RouterLink } from 'vue-router'
 import { errorText, webApi } from '../api/web'
 import { formatMoneyInput, parseMoneyInput, rub, usd } from '../utils/format'
+import { reachMetrikaGoal } from '../utils/cookiesConsent'
 import { getReferralToken } from '../utils/referral'
 
 const props = defineProps({
@@ -270,11 +273,9 @@ async function submit() {
           ...(referral ? { referral } : {}),
         })
       : await webApi.topup(payload)
-    if (typeof window.ym === 'function') {
-      window.ym(113324421, 'reachGoal', props.mode === 'checkout' ? 'checkout_start' : 'topup_start', {
-        amount_usd: result.amount_usd,
-      })
-    }
+    reachMetrikaGoal(props.mode === 'checkout' ? 'checkout_start' : 'topup_start', {
+      amount_usd: result.amount_usd,
+    })
     window.location.href = result.pay_url
   } catch (error) {
     submitError.value = errorText(error)
