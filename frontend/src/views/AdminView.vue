@@ -465,9 +465,11 @@
                         </span>
                       </div>
                     </td>
-                    <td class="num ledger-amt" :class="ledgerAmountClass(item)">
-                      <span class="ledger-usd">{{ ledgerAmountUsd(item) }}</span>
-                      <span v-if="ledgerAmountRub(item)" class="ledger-rub">{{ ledgerAmountRub(item) }}</span>
+                    <td class="num">
+                      <div class="ledger-amt" :class="ledgerAmountClass(item)">
+                        <span class="ledger-usd">{{ ledgerAmountUsd(item) }}</span>
+                        <span v-if="ledgerAmountRub(item)" class="ledger-rub">{{ ledgerAmountRub(item) }}</span>
+                      </div>
                     </td>
                     <td class="actions">
                       <button
@@ -1406,29 +1408,36 @@ onMounted(() => {
   background: #fff;
 }
 .admin-page .ledger-table {
+  width: 100%;
   min-width: 720px;
+  border-collapse: collapse;
   table-layout: fixed;
 }
 .admin-page .ledger-table th:nth-child(1),
 .admin-page .ledger-table td:nth-child(1) { width: 132px; }
 .admin-page .ledger-table th:nth-child(2),
-.admin-page .ledger-table td:nth-child(2) { width: 28%; }
+.admin-page .ledger-table td:nth-child(2) { width: 26%; }
 .admin-page .ledger-table th:nth-child(3),
 .admin-page .ledger-table td:nth-child(3) { width: auto; }
 .admin-page .ledger-table th:nth-child(4),
-.admin-page .ledger-table td:nth-child(4) { width: 128px; }
+.admin-page .ledger-table td:nth-child(4) { width: 110px; }
 .admin-page .ledger-table th:nth-child(5),
-.admin-page .ledger-table td:nth-child(5) { width: 48px; }
+.admin-page .ledger-table td:nth-child(5) {
+  width: 48px;
+  padding-left: 4px;
+  padding-right: 12px;
+}
 .admin-page .ledger-table th,
 .admin-page .ledger-table td {
   padding: 12px 14px;
   vertical-align: middle;
 }
-.admin-page .ledger-table td.actions {
-  display: table-cell;
-  padding-left: 4px;
-  padding-right: 10px;
+.admin-page .ledger-table td.num {
   text-align: right;
+}
+.admin-page .ledger-table td.actions {
+  text-align: right;
+  vertical-align: middle;
 }
 .admin-page .ledger-table .user-cell.compact {
   display: flex;
@@ -1439,7 +1448,7 @@ onMounted(() => {
 .admin-page .ledger-table .user-cell.compact .user-channel {
   width: 24px;
   height: 24px;
-  flex-basis: 24px;
+  flex: 0 0 24px;
   border-radius: 7px;
   margin-top: 0;
 }
@@ -1498,11 +1507,13 @@ onMounted(() => {
   white-space: nowrap;
 }
 .admin-page .ledger-amt {
-  display: grid;
-  justify-items: end;
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-end;
   gap: 2px;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
+  line-height: 1.25;
 }
 .admin-page .ledger-usd { font-weight: 600; }
 .admin-page .ledger-rub {
