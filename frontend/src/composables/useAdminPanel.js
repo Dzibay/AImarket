@@ -186,12 +186,14 @@ export function useAdminPanel() {
   const ledgerCheckCards = ref([])
   const ledgerItems = ref([])
   const ledgerSearch = ref('')
+  const ledgerModalOpen = ref(false)
   const ledgerForm = reactive({
     user_id: '',
     kind: 'credit',
     amount_usd: '',
     amount_rub: '',
     note: '',
+    occurred_at: '',
   })
   const ledgerError = ref('')
   const ledgerUserOptions = ref([])
@@ -254,6 +256,7 @@ export function useAdminPanel() {
   const financeSection = ref('expenses')
   const financeError = ref('')
   const financeSaving = ref(false)
+  const financeModal = ref(null)
   const financeExpenseForm = reactive({
     account_id: '',
     category_id: '',
@@ -278,12 +281,14 @@ export function useAdminPanel() {
     account_id: '',
     amount_rub: '',
     note: '',
+    occurred_at: '',
   })
   const financeTransferForm = reactive({
     account_id: '',
     counterparty_account_id: '',
     amount_rub: '',
     note: '',
+    occurred_at: '',
   })
   const financeCategoryForm = reactive({
     kind: 'expense',
@@ -291,6 +296,37 @@ export function useAdminPanel() {
     color: '#6b645b',
   })
   const financeEditExpense = ref(null)
+  const creditModal = reactive({
+    open: false,
+    user: null,
+    amount: '',
+    date: '',
+    error: '',
+  })
+
+  function todayDate() {
+    const d = new Date()
+    const m = String(d.getMonth() + 1).padStart(2, '0')
+    const day = String(d.getDate()).padStart(2, '0')
+    return `${d.getFullYear()}-${m}-${day}`
+  }
+
+  function financeDateOnly(value) {
+    if (!value) return '—'
+    return String(value).replace('T', ' ').slice(0, 10)
+  }
+
+  function defaultAccountId() {
+    return financeSummary.value?.default_account_id
+      ? String(financeSummary.value.default_account_id)
+      : ''
+  }
+
+  function firstCategoryId(kind) {
+    const list =
+      kind === 'withdrawal' ? financeWithdrawalCategories.value : financeExpenseCategories.value
+    return list[0] ? String(list[0].id) : ''
+  }
 
   const financeAccounts = computed(() => financeSummary.value?.accounts || [])
   const financeExpenseCategories = computed(() =>
@@ -713,21 +749,53 @@ export function useAdminPanel() {
 
   function applyFinanceSummary(summary) {
     financeSummary.value = summary || null
-    const def = summary?.default_account_id
-    if (def) {
-      if (!financeExpenseForm.account_id) financeExpenseForm.account_id = String(def)
-      if (!financeWithdrawalForm.account_id) financeWithdrawalForm.account_id = String(def)
-      if (!financeDepositForm.account_id) financeDepositForm.account_id = String(def)
-      if (!financeTransferForm.account_id) financeTransferForm.account_id = String(def)
+  }
+
+  function openFinanceModal(type) {
+    financeError.value = ''
+    const today = todayDate()
+    const account = defaultAccountId()
+    if (type === 'expense') {
+      financeExpenseForm.account_id = account
+      financeExpenseForm.category_id = firstCategoryId('expense')
+      financeExpenseForm.amount_rub = ''
+      financeExpenseForm.note = ''
+      financeExpenseForm.occurred_at = today
+      financeEditExpense.value = null
+    } else if (type === 'withdrawal') {
+      financeWithdrawalForm.account_id = account
+      financeWithdrawalForm.category_id = firstCategoryId('withdrawal')
+      financeWithdrawalForm.amount_rub = ''
+      financeWithdrawalForm.note = ''
+      financeWithdrawalForm.occurred_at = today
+    } else if (type === 'account') {
+      financeAccountForm.name = ''
+      financeAccountForm.provider_key = ''
+      financeAccountForm.is_default = !financeAccounts.value.length
+      financeAccountForm.note = ''
+    } else if (type === 'deposit') {
+      financeDepositForm.account_id = account
+      financeDepositForm.amount_rub = ''
+      financeDepositForm.note = ''
+      financeDepositForm.occurred_at = today
+    } else if (type === 'transfer') {
+      financeTransferForm.account_id = account
+      financeTransferForm.counterparty_account_id = ''
+      financeTransferForm.amount_rub = ''
+      financeTransferForm.note = ''
+      financeTransferForm.occurred_at = today
+    } else if (type === 'category') {
+      financeCategoryForm.kind = financeSection.value === 'withdrawals' ? 'withdrawal' : 'expense'
+      financeCategoryForm.name = ''
+      financeCategoryForm.color = '#6b645b'
     }
-    const expCats = (summary?.categories || []).filter((c) => c.kind === 'expense' && !c.archived)
-    const wdCats = (summary?.categories || []).filter((c) => c.kind === 'withdrawal' && !c.archived)
-    if (expCats.length && !financeExpenseForm.category_id) {
-      financeExpenseForm.category_id = String(expCats[0].id)
-    }
-    if (wdCats.length && !financeWithdrawalForm.category_id) {
-      financeWithdrawalForm.category_id = String(wdCats[0].id)
-    }
+    financeModal.value = type
+  }
+
+  function closeFinanceModal() {
+    financeModal.value = null
+    financeEditExpense.value = null
+    financeError.value = ''
   }
 
   async function loadFinance() {
@@ -775,7 +843,7 @@ export function useAdminPanel() {
       })
       financeExpenseForm.amount_rub = ''
       financeExpenseForm.note = ''
-      financeEditExpense.value = null
+      closeFinanceModal()
     } catch {
       /* shown */
     }
@@ -801,21 +869,23 @@ export function useAdminPanel() {
           occurred_at: item.occurred_at || '',
         }),
       })
-      financeEditExpense.value = null
+      closeFinanceModal()
     } catch {
       /* shown */
     }
   }
 
   function startEditExpense(item) {
+    financeError.value = ''
     financeEditExpense.value = {
       id: item.id,
       account_id: String(item.account_id),
       category_id: item.category_id ? String(item.category_id) : '',
       amount_rub: String(item.amount_rub),
       note: item.note || '',
-      occurred_at: item.occurred_at ? String(item.occurred_at).slice(0, 16) : '',
+      occurred_at: item.occurred_at ? String(item.occurred_at).slice(0, 10) : todayDate(),
     }
+    financeModal.value = 'expense-edit'
   }
 
   async function addFinanceWithdrawal() {
@@ -840,6 +910,7 @@ export function useAdminPanel() {
       })
       financeWithdrawalForm.amount_rub = ''
       financeWithdrawalForm.note = ''
+      closeFinanceModal()
     } catch {
       /* shown */
     }
@@ -849,7 +920,7 @@ export function useAdminPanel() {
     if (!confirm('Удалить ' + label + '?')) return
     try {
       await financeRequest('/api/admin/finance/operations/' + id, { method: 'DELETE' })
-      if (financeEditExpense.value?.id === id) financeEditExpense.value = null
+      if (financeEditExpense.value?.id === id) closeFinanceModal()
     } catch {
       /* shown */
     }
@@ -871,10 +942,7 @@ export function useAdminPanel() {
           import_history: true,
         }),
       })
-      financeAccountForm.name = ''
-      financeAccountForm.provider_key = ''
-      financeAccountForm.is_default = false
-      financeAccountForm.note = ''
+      closeFinanceModal()
     } catch {
       /* shown */
     }
@@ -918,10 +986,10 @@ export function useAdminPanel() {
           account_id: Number(financeDepositForm.account_id),
           amount_rub: amount,
           note: financeDepositForm.note,
+          occurred_at: financeDepositForm.occurred_at || '',
         }),
       })
-      financeDepositForm.amount_rub = ''
-      financeDepositForm.note = ''
+      closeFinanceModal()
     } catch {
       /* shown */
     }
@@ -942,10 +1010,10 @@ export function useAdminPanel() {
           counterparty_account_id: Number(financeTransferForm.counterparty_account_id),
           amount_rub: amount,
           note: financeTransferForm.note,
+          occurred_at: financeTransferForm.occurred_at || '',
         }),
       })
-      financeTransferForm.amount_rub = ''
-      financeTransferForm.note = ''
+      closeFinanceModal()
     } catch {
       /* shown */
     }
@@ -965,7 +1033,7 @@ export function useAdminPanel() {
           color: financeCategoryForm.color,
         }),
       })
-      financeCategoryForm.name = ''
+      closeFinanceModal()
     } catch {
       /* shown */
     }
@@ -1158,6 +1226,22 @@ export function useAdminPanel() {
     }
   }
 
+  function openLedgerModal() {
+    ledgerError.value = ''
+    ledgerForm.user_id = ''
+    ledgerForm.kind = 'credit'
+    ledgerForm.amount_usd = ''
+    ledgerForm.amount_rub = ''
+    ledgerForm.note = ''
+    ledgerForm.occurred_at = todayDate()
+    ledgerModalOpen.value = true
+  }
+
+  function closeLedgerModal() {
+    ledgerModalOpen.value = false
+    ledgerError.value = ''
+  }
+
   async function addLedgerEntry() {
     ledgerError.value = ''
     const amount = Number(String(ledgerForm.amount_usd).replace(',', '.'))
@@ -1175,11 +1259,10 @@ export function useAdminPanel() {
           amount_usd: amount,
           amount_rub: rubles,
           note: ledgerForm.note,
+          occurred_at: ledgerForm.occurred_at || '',
         }),
       })
-      ledgerForm.amount_usd = ''
-      ledgerForm.amount_rub = ''
-      ledgerForm.note = ''
+      closeLedgerModal()
       await load()
     } catch (error) {
       ledgerError.value = error.message === 'duplicate'
@@ -1198,28 +1281,47 @@ export function useAdminPanel() {
     }
   }
 
-  async function creditUser(user) {
-    const amount = Number(String(userCredits[user.id] || '').replace(',', '.'))
+  function openCreditModal(user) {
+    creditModal.open = true
+    creditModal.user = user
+    creditModal.amount = ''
+    creditModal.date = todayDate()
+    creditModal.error = ''
+  }
+
+  function closeCreditModal() {
+    creditModal.open = false
+    creditModal.user = null
+    creditModal.amount = ''
+    creditModal.date = ''
+    creditModal.error = ''
+  }
+
+  async function submitCreditModal() {
+    const user = creditModal.user
+    if (!user) return
+    const amount = Number(String(creditModal.amount || '').replace(',', '.'))
     if (!amount || Number.isNaN(amount)) {
-      userCreditError[user.id] = 'Введите сумму (+ или −)'
+      creditModal.error = 'Введите сумму (+ или −)'
       return
     }
     if (userCreditBusy[user.id]) return
     userCreditBusy[user.id] = true
-    userCreditError[user.id] = ''
+    creditModal.error = ''
     try {
+      const date = creditModal.date || todayDate()
       const data = await api('/api/admin/users/' + user.id + '/credit', {
         method: 'POST',
-        body: JSON.stringify({ amount_usd: amount }),
+        body: JSON.stringify({ amount_usd: amount, note_date: date }),
       })
-      userCredits[user.id] = ''
       const idx = users.value.findIndex((row) => row.id === user.id)
       if (idx >= 0 && data.balance_usd != null) {
         users.value[idx] = { ...users.value[idx], balance_usd: data.balance_usd }
       }
+      closeCreditModal()
     } catch (error) {
       const code = error.message || 'error'
-      userCreditError[user.id] =
+      creditModal.error =
         code === 'supplier'
           ? 'Не хватает лимита у поставщика'
           : code === 'balance'
@@ -1464,10 +1566,14 @@ export function useAdminPanel() {
     ledgerError,
     ledgerUserOptions,
     ledgerKindOptions,
+    ledgerModalOpen,
+    openLedgerModal,
+    closeLedgerModal,
     financeSummary,
     financeSection,
     financeError,
     financeSaving,
+    financeModal,
     financeExpenseForm,
     financeWithdrawalForm,
     financeAccountForm,
@@ -1482,6 +1588,10 @@ export function useAdminPanel() {
     financeWithdrawals,
     financeOperations,
     financeProviders,
+    creditModal,
+    openFinanceModal,
+    closeFinanceModal,
+    financeDateOnly,
     loadFinance,
     addFinanceExpense,
     saveFinanceExpenseEdit,
@@ -1497,6 +1607,9 @@ export function useAdminPanel() {
     saveFinanceCategory,
     archiveFinanceCategory,
     financeKindClass,
+    openCreditModal,
+    closeCreditModal,
+    submitCreditModal,
     topups,
     users,
     filteredUsers,
@@ -1535,7 +1648,6 @@ export function useAdminPanel() {
     saveSettings,
     addLedgerEntry,
     deleteLedgerEntry,
-    creditUser,
     unblockUser,
     blockUser,
     deleteUser,

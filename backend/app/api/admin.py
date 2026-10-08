@@ -99,6 +99,7 @@ class SettingsIn(BaseModel):
 
 class CreditIn(BaseModel):
     amount_usd: float = Field(ge=-100000, le=100000)
+    note_date: str = Field(default="", max_length=32)
 
 
 class BlockIn(BaseModel):
@@ -111,6 +112,7 @@ class LedgerIn(BaseModel):
     amount_usd: float = Field(gt=0, le=1_000_000)
     amount_rub: float = Field(default=0, ge=0, le=100_000_000)
     note: str = Field(default="", max_length=300)
+    occurred_at: str = Field(default="", max_length=40)
 
 
 class ReferralIn(BaseModel):
@@ -338,7 +340,14 @@ def credit_user(user_id: int, body: CreditIn) -> dict:
     amount = Decimal(str(body.amount_usd)).quantize(Decimal("0.01"))
     if amount == 0:
         raise HTTPException(status_code=400, detail="empty")
-    stamp = datetime.now(_MSK).strftime("%Y-%m-%d %H:%M:%S")
+    raw_date = (body.note_date or "").strip()
+    if raw_date:
+        try:
+            stamp = date.fromisoformat(raw_date).isoformat()
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail="note_date") from exc
+    else:
+        stamp = datetime.now(_MSK).date().isoformat()
     action = "начисление" if amount > 0 else "списание"
     try:
         balance = adjust_usd(user_id, amount, f"{action} из админки {stamp}")
@@ -779,6 +788,7 @@ def create_ledger(body: LedgerIn) -> dict:
     amount = Decimal(str(body.amount_usd)).quantize(Decimal("0.0001"))
     kopecks = int((Decimal(str(body.amount_rub)) * 100).quantize(Decimal("1")))
     note = body.note.strip()
+    when = _finance_when(body.occurred_at) or datetime.now(_MSK)
     with pool.connection() as conn:
         user = conn.execute("SELECT id FROM users WHERE id = %s", (body.user_id,)).fetchone()
         if user is None:
@@ -786,11 +796,11 @@ def create_ledger(body: LedgerIn) -> dict:
         try:
             row = conn.execute(
                 """
-                INSERT INTO ledger (user_id, amount_kopecks, kind, note, amount_usd)
-                VALUES (%s, %s, %s, %s, %s)
+                INSERT INTO ledger (user_id, amount_kopecks, kind, note, amount_usd, created_at)
+                VALUES (%s, %s, %s, %s, %s, %s)
                 RETURNING id
                 """,
-                (body.user_id, kopecks, kind, note, amount),
+                (body.user_id, kopecks, kind, note, amount, when),
             ).fetchone()
         except UniqueViolation as exc:
             raise HTTPException(status_code=409, detail="duplicate") from exc
@@ -976,6 +986,8 @@ def _finance_when(raw: str):
     if not value:
         return None
     try:
+        if len(value) == 10 and value[4] == "-" and value[7] == "-":
+            return datetime.combine(date.fromisoformat(value), datetime.min.time(), tzinfo=_MSK)
         return datetime.fromisoformat(value.replace("Z", "+00:00"))
     except ValueError as exc:
         raise HTTPException(status_code=422, detail="occurred_at") from exc

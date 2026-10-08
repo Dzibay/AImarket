@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal, ROUND_HALF_UP
 from zoneinfo import ZoneInfo
 
@@ -46,8 +46,11 @@ def _now() -> datetime:
 def _parse_when(raw: str | None) -> datetime:
     if not raw or not str(raw).strip():
         return _now()
+    value = str(raw).strip()
     try:
-        return datetime.fromisoformat(str(raw).strip().replace("Z", "+00:00"))
+        if len(value) == 10 and value[4] == "-" and value[7] == "-":
+            return datetime.combine(date.fromisoformat(value), datetime.min.time(), tzinfo=_MSK)
+        return datetime.fromisoformat(value.replace("Z", "+00:00"))
     except ValueError as exc:
         raise ValueError("occurred_at") from exc
 

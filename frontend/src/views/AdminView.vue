@@ -394,36 +394,18 @@
           <p v-if="financeError" class="error">{{ financeError }}</p>
 
           <div v-show="financeSection === 'expenses'" class="finance-card wide">
-            <h3>Расходы</h3>
-            <div class="finance-form">
-              <div class="field">
-                <label>Счёт</label>
-                <select v-model="financeExpenseForm.account_id">
-                  <option v-for="a in financeAccounts" :key="a.id" :value="String(a.id)">{{ a.name }}</option>
-                </select>
-              </div>
-              <div class="field">
-                <label>Категория</label>
-                <select v-model="financeExpenseForm.category_id">
-                  <option value="">Без категории</option>
-                  <option v-for="c in financeExpenseCategories" :key="c.id" :value="String(c.id)">{{ c.name }}</option>
-                </select>
-              </div>
-              <div class="field">
-                <label>Сумма ₽</label>
-                <input v-model="financeExpenseForm.amount_rub" inputmode="decimal" placeholder="1000">
-              </div>
-              <div class="field grow">
-                <label>Комментарий</label>
-                <input v-model="financeExpenseForm.note" placeholder="Пополнение поставщика / комиссия…">
-              </div>
-              <button type="button" :disabled="financeSaving" @click="addFinanceExpense">Добавить</button>
+            <div class="finance-card-head">
+              <h3>Расходы</h3>
+              <button type="button" class="sm" :disabled="financeSaving" @click="openFinanceModal('expense')">
+                <AppIcon name="plus" :size="14" />
+                Добавить
+              </button>
             </div>
-            <div class="table-wrap" style="margin-top:12px">
+            <div class="table-wrap">
               <table class="finance-table">
                 <thead>
                   <tr>
-                    <th>Когда</th>
+                    <th>Дата</th>
                     <th>Счёт</th>
                     <th>Категория</th>
                     <th>Комментарий</th>
@@ -434,7 +416,7 @@
                 <tbody>
                   <tr v-if="!financeExpenses.length" class="empty"><td colspan="6">Пока нет расходов</td></tr>
                   <tr v-for="item in financeExpenses" :key="item.id">
-                    <td class="nowrap muted">{{ formatRecentAt(item.occurred_at) }}</td>
+                    <td class="nowrap muted">{{ financeDateOnly(item.occurred_at) }}</td>
                     <td>{{ item.account_name }}</td>
                     <td>
                       <span
@@ -456,71 +438,25 @@
                 </tbody>
               </table>
             </div>
-            <div v-if="financeEditExpense" class="finance-edit">
-              <h3>Редактирование расхода #{{ financeEditExpense.id }}</h3>
-              <div class="finance-form">
-                <div class="field">
-                  <label>Счёт</label>
-                  <select v-model="financeEditExpense.account_id">
-                    <option v-for="a in financeAccounts" :key="a.id" :value="String(a.id)">{{ a.name }}</option>
-                  </select>
-                </div>
-                <div class="field">
-                  <label>Категория</label>
-                  <select v-model="financeEditExpense.category_id">
-                    <option value="">Без категории</option>
-                    <option v-for="c in financeExpenseCategories" :key="c.id" :value="String(c.id)">{{ c.name }}</option>
-                  </select>
-                </div>
-                <div class="field">
-                  <label>Сумма ₽</label>
-                  <input v-model="financeEditExpense.amount_rub" inputmode="decimal">
-                </div>
-                <div class="field grow">
-                  <label>Комментарий</label>
-                  <input v-model="financeEditExpense.note">
-                </div>
-                <button type="button" :disabled="financeSaving" @click="saveFinanceExpenseEdit">Сохранить</button>
-                <button type="button" class="quiet" @click="financeEditExpense = null">Отмена</button>
-              </div>
-            </div>
           </div>
 
           <div v-show="financeSection === 'withdrawals'" class="finance-card wide">
-            <h3>Выводы</h3>
-            <div class="finance-form">
-              <div class="field">
-                <label>Счёт</label>
-                <select v-model="financeWithdrawalForm.account_id">
-                  <option v-for="a in financeAccounts" :key="a.id" :value="String(a.id)">{{ a.name }}</option>
-                </select>
-              </div>
-              <div class="field">
-                <label>Категория</label>
-                <select v-model="financeWithdrawalForm.category_id">
-                  <option value="">Без категории</option>
-                  <option v-for="c in financeWithdrawalCategories" :key="c.id" :value="String(c.id)">{{ c.name }}</option>
-                </select>
-              </div>
-              <div class="field">
-                <label>Сумма ₽</label>
-                <input v-model="financeWithdrawalForm.amount_rub" inputmode="decimal">
-              </div>
-              <div class="field grow">
-                <label>Комментарий</label>
-                <input v-model="financeWithdrawalForm.note">
-              </div>
-              <button type="button" :disabled="financeSaving" @click="addFinanceWithdrawal">Добавить</button>
+            <div class="finance-card-head">
+              <h3>Выводы</h3>
+              <button type="button" class="sm" :disabled="financeSaving" @click="openFinanceModal('withdrawal')">
+                <AppIcon name="plus" :size="14" />
+                Добавить
+              </button>
             </div>
-            <div class="table-wrap" style="margin-top:12px">
+            <div class="table-wrap">
               <table class="finance-table">
                 <thead>
-                  <tr><th>Когда</th><th>Счёт</th><th>Категория</th><th>Комментарий</th><th class="num">Сумма</th><th class="actions"></th></tr>
+                  <tr><th>Дата</th><th>Счёт</th><th>Категория</th><th>Комментарий</th><th class="num">Сумма</th><th class="actions"></th></tr>
                 </thead>
                 <tbody>
                   <tr v-if="!financeWithdrawals.length" class="empty"><td colspan="6">Пока нет выводов</td></tr>
                   <tr v-for="item in financeWithdrawals" :key="item.id">
-                    <td class="nowrap muted">{{ formatRecentAt(item.occurred_at) }}</td>
+                    <td class="nowrap muted">{{ financeDateOnly(item.occurred_at) }}</td>
                     <td>{{ item.account_name }}</td>
                     <td>
                       <span v-if="item.category_name" class="cat-chip" :style="{ background: item.category_color || '#eee' }">{{ item.category_name }}</span>
@@ -540,30 +476,16 @@
           </div>
 
           <div v-show="financeSection === 'accounts'" class="finance-card wide">
-            <h3>Счета</h3>
-            <div class="finance-form">
-              <div class="field">
-                <label>Название</label>
-                <input v-model="financeAccountForm.name" placeholder="ЮKassa / Тинькофф">
+            <div class="finance-card-head">
+              <h3>Счета</h3>
+              <div class="finance-card-actions">
+                <button type="button" class="quiet sm" :disabled="financeSaving || !financeAccounts.length" @click="openFinanceModal('deposit')">Пополнить</button>
+                <button type="button" class="quiet sm" :disabled="financeSaving || financeAccounts.length < 2" @click="openFinanceModal('transfer')">Перевод</button>
+                <button type="button" class="sm" :disabled="financeSaving" @click="openFinanceModal('account')">
+                  <AppIcon name="plus" :size="14" />
+                  Счёт
+                </button>
               </div>
-              <div class="field">
-                <label>Провайдер</label>
-                <select v-model="financeAccountForm.provider_key">
-                  <option value="">Обычный счёт</option>
-                  <option v-for="p in financeProviders" :key="p.value" :value="p.value">{{ p.label }}</option>
-                </select>
-              </div>
-              <div class="field">
-                <label class="support-filter" style="margin-top:22px">
-                  <input v-model="financeAccountForm.is_default" type="checkbox">
-                  Дефолт для расходов
-                </label>
-              </div>
-              <div class="field grow">
-                <label>Комментарий</label>
-                <input v-model="financeAccountForm.note">
-              </div>
-              <button type="button" :disabled="financeSaving" @click="addFinanceAccount">Создать</button>
             </div>
             <p class="muted small">Для счёта ЮKassa при создании подтянутся все прошлые оплаты.</p>
             <div class="table-wrap" style="margin-top:12px">
@@ -592,58 +514,17 @@
                 </tbody>
               </table>
             </div>
-            <div class="finance-split">
-              <div>
-                <h3>Пополнение счёта</h3>
-                <div class="finance-form stacked">
-                  <select v-model="financeDepositForm.account_id">
-                    <option v-for="a in financeAccounts" :key="a.id" :value="String(a.id)">{{ a.name }}</option>
-                  </select>
-                  <input v-model="financeDepositForm.amount_rub" inputmode="decimal" placeholder="Сумма ₽">
-                  <input v-model="financeDepositForm.note" placeholder="Комментарий">
-                  <button type="button" :disabled="financeSaving" @click="addFinanceDeposit">Пополнить</button>
-                </div>
-              </div>
-              <div>
-                <h3>Перевод между счетами</h3>
-                <div class="finance-form stacked">
-                  <select v-model="financeTransferForm.account_id">
-                    <option disabled value="">Откуда</option>
-                    <option v-for="a in financeAccounts" :key="'f'+a.id" :value="String(a.id)">{{ a.name }}</option>
-                  </select>
-                  <select v-model="financeTransferForm.counterparty_account_id">
-                    <option disabled value="">Куда</option>
-                    <option v-for="a in financeAccounts" :key="'t'+a.id" :value="String(a.id)">{{ a.name }}</option>
-                  </select>
-                  <input v-model="financeTransferForm.amount_rub" inputmode="decimal" placeholder="Сумма ₽">
-                  <input v-model="financeTransferForm.note" placeholder="Комментарий">
-                  <button type="button" :disabled="financeSaving" @click="addFinanceTransfer">Перевести</button>
-                </div>
-              </div>
-            </div>
           </div>
 
           <div v-show="financeSection === 'categories'" class="finance-card wide">
-            <h3>Категории</h3>
-            <div class="finance-form">
-              <div class="field">
-                <label>Тип</label>
-                <select v-model="financeCategoryForm.kind">
-                  <option value="expense">Расход</option>
-                  <option value="withdrawal">Вывод</option>
-                </select>
-              </div>
-              <div class="field">
-                <label>Название</label>
-                <input v-model="financeCategoryForm.name">
-              </div>
-              <div class="field">
-                <label>Цвет</label>
-                <input v-model="financeCategoryForm.color" type="color">
-              </div>
-              <button type="button" :disabled="financeSaving" @click="addFinanceCategory">Добавить</button>
+            <div class="finance-card-head">
+              <h3>Категории</h3>
+              <button type="button" class="sm" :disabled="financeSaving" @click="openFinanceModal('category')">
+                <AppIcon name="plus" :size="14" />
+                Добавить
+              </button>
             </div>
-            <div class="table-wrap" style="margin-top:12px">
+            <div class="table-wrap">
               <table class="finance-table">
                 <thead>
                   <tr><th>Тип</th><th>Название</th><th>Цвет</th><th class="actions"></th></tr>
@@ -669,12 +550,12 @@
             <div class="table-wrap">
               <table class="finance-table">
                 <thead>
-                  <tr><th>Когда</th><th>Тип</th><th>Счёт</th><th>Категория / куда</th><th>Комментарий</th><th class="num">Сумма</th></tr>
+                  <tr><th>Дата</th><th>Тип</th><th>Счёт</th><th>Категория / куда</th><th>Комментарий</th><th class="num">Сумма</th></tr>
                 </thead>
                 <tbody>
                   <tr v-if="!financeOperations.length" class="empty"><td colspan="6">Пока пусто</td></tr>
                   <tr v-for="item in financeOperations" :key="item.id">
-                    <td class="nowrap muted">{{ formatRecentAt(item.occurred_at) }}</td>
+                    <td class="nowrap muted">{{ financeDateOnly(item.occurred_at) }}</td>
                     <td><span class="kind-badge" :class="financeKindClass(item.kind)">{{ item.kind_label }}</span></td>
                     <td>{{ item.account_name }}</td>
                     <td>
@@ -742,63 +623,29 @@
             </div>
           </div>
 
-          <div class="ledger-create">
-            <h3>Новая запись</h3>
-            <div class="ledger-form">
-              <div class="field">
-                <label for="ledger-user">Клиент</label>
-                <select id="ledger-user" v-model="ledgerForm.user_id">
-                  <option value="">Выберите клиента</option>
-                  <option v-for="item in ledgerUserOptions" :key="item.id" :value="String(item.id)">
-                    {{ person(item) }}
-                  </option>
-                </select>
-              </div>
-              <div class="field">
-                <label for="ledger-kind">Тип</label>
-                <select id="ledger-kind" v-model="ledgerForm.kind">
-                  <option v-for="opt in ledgerKindOptions" :key="opt.value" :value="opt.value">
-                    {{ opt.label }}
-                  </option>
-                </select>
-              </div>
-              <div class="field">
-                <label for="ledger-usd">Сумма $</label>
-                <input id="ledger-usd" v-model="ledgerForm.amount_usd" inputmode="decimal" placeholder="10">
-              </div>
-              <div class="field">
-                <label for="ledger-rub">Сумма ₽</label>
-                <input id="ledger-rub" v-model="ledgerForm.amount_rub" inputmode="decimal" placeholder="0">
-              </div>
-              <div class="field grow">
-                <label for="ledger-note">Пометка</label>
-                <input id="ledger-note" v-model="ledgerForm.note" placeholder="Необязательно">
-              </div>
-              <button type="button" class="ledger-add" @click="addLedgerEntry">
-                <AppIcon name="plus" :size="15" />
-                Добавить
-              </button>
-            </div>
-            <p v-if="ledgerError" class="error">{{ ledgerError }}</p>
-          </div>
-
           <div class="ledger-list">
             <div class="ledger-list-head">
               <h3>Список транзакций</h3>
-              <label class="ledger-search">
-                <AppIcon name="search" :size="15" />
-                <input
-                  v-model="ledgerSearch"
-                  type="search"
-                  placeholder="Поиск по клиенту или операции…"
-                >
-              </label>
+              <div class="ledger-list-tools">
+                <label class="ledger-search">
+                  <AppIcon name="search" :size="15" />
+                  <input
+                    v-model="ledgerSearch"
+                    type="search"
+                    placeholder="Поиск по клиенту или операции…"
+                  >
+                </label>
+                <button type="button" class="sm" @click="openLedgerModal">
+                  <AppIcon name="plus" :size="14" />
+                  Добавить
+                </button>
+              </div>
             </div>
             <div class="table-wrap ledger-table-wrap">
               <table class="ledger-table">
                 <thead>
                   <tr>
-                    <th>Когда</th>
+                    <th>Дата</th>
                     <th>Клиент</th>
                     <th>Операция</th>
                     <th class="num">Сумма</th>
@@ -810,7 +657,7 @@
                     <td colspan="5">{{ ledgerItems.length ? 'Ничего не найдено' : 'Пока пусто' }}</td>
                   </tr>
                   <tr v-for="item in filteredLedgerItems" :key="item.id">
-                    <td class="nowrap muted ledger-when">{{ formatRecentAt(item.created_at) }}</td>
+                    <td class="nowrap muted ledger-when">{{ financeDateOnly(item.created_at) }}</td>
                     <td>
                       <div class="user-cell compact">
                         <span
@@ -998,27 +845,20 @@
                     <span v-else class="muted">—</span>
                   </td>
                   <td class="compact">
-                    <div class="credit-cell">
-                      <input
-                        v-model="userCredits[item.id]"
-                        placeholder="+10 / −5"
-                        inputmode="decimal"
-                        :disabled="!!userCreditBusy[item.id]"
-                        @keydown.enter.prevent="creditUser(item)"
-                      >
-                      <button
-                        type="button"
-                        class="icon-btn credit-btn"
-                        :class="{ busy: userCreditBusy[item.id] }"
-                        :title="userCreditBusy[item.id] ? 'Сохраняем…' : 'Изменить баланс'"
-                        :disabled="!!userCreditBusy[item.id]"
-                        @click="creditUser(item)"
-                      >
-                        <AppIcon v-if="!userCreditBusy[item.id]" name="plus" :size="14" />
-                        <span v-else class="credit-spinner" aria-hidden="true" />
-                      </button>
-                    </div>
-                    <p v-if="userCreditError[item.id]" class="error credit-error">{{ userCreditError[item.id] }}</p>
+                    <button
+                      type="button"
+                      class="quiet sm credit-open"
+                      :class="{ busy: userCreditBusy[item.id] }"
+                      :disabled="!!userCreditBusy[item.id]"
+                      :title="userCreditBusy[item.id] ? 'Сохраняем…' : 'Начислить / списать'"
+                      @click="openCreditModal(item)"
+                    >
+                      <span v-if="userCreditBusy[item.id]" class="credit-spinner" aria-hidden="true" />
+                      <template v-else>
+                        <AppIcon name="plus" :size="13" />
+                        ±$
+                      </template>
+                    </button>
                   </td>
                   <td>
                     <div class="access-cell">
@@ -1239,6 +1079,261 @@
           <p v-if="referralError" class="error">{{ referralError }}</p>
         </div>
       </div>
+
+      <div v-if="ledgerModalOpen" class="modal" aria-hidden="false">
+        <div class="modal-backdrop" @click="closeLedgerModal" />
+        <div class="modal-box modal-wide">
+          <h2>Новая запись</h2>
+          <label for="ledger-user">Клиент</label>
+          <select id="ledger-user" v-model="ledgerForm.user_id">
+            <option value="">Выберите клиента</option>
+            <option v-for="item in ledgerUserOptions" :key="item.id" :value="String(item.id)">
+              {{ person(item) }}
+            </option>
+          </select>
+          <label for="ledger-kind">Тип</label>
+          <select id="ledger-kind" v-model="ledgerForm.kind">
+            <option v-for="opt in ledgerKindOptions" :key="opt.value" :value="opt.value">
+              {{ opt.label }}
+            </option>
+          </select>
+          <div class="modal-grid">
+            <div>
+              <label for="ledger-usd">Сумма $</label>
+              <input id="ledger-usd" v-model="ledgerForm.amount_usd" inputmode="decimal" placeholder="10">
+            </div>
+            <div>
+              <label for="ledger-rub">Сумма ₽</label>
+              <input id="ledger-rub" v-model="ledgerForm.amount_rub" inputmode="decimal" placeholder="0">
+            </div>
+          </div>
+          <label for="ledger-date">Дата</label>
+          <input id="ledger-date" v-model="ledgerForm.occurred_at" type="date">
+          <label for="ledger-note">Пометка</label>
+          <input id="ledger-note" v-model="ledgerForm.note" placeholder="Необязательно">
+          <div class="row">
+            <button type="button" @click="addLedgerEntry">Добавить</button>
+            <button type="button" class="quiet" @click="closeLedgerModal">Отмена</button>
+          </div>
+          <p v-if="ledgerError" class="error">{{ ledgerError }}</p>
+        </div>
+      </div>
+
+      <div v-if="creditModal.open" class="modal" aria-hidden="false">
+        <div class="modal-backdrop" @click="closeCreditModal" />
+        <div class="modal-box">
+          <h2>Баланс</h2>
+          <p v-if="creditModal.user" class="muted modal-sub">{{ person(creditModal.user) }} · {{ usd(creditModal.user.balance_usd) }}</p>
+          <label for="credit-amount">Сумма $ (+ начислить / − списать)</label>
+          <input
+            id="credit-amount"
+            v-model="creditModal.amount"
+            inputmode="decimal"
+            placeholder="+10 / −5"
+            :disabled="creditModal.user && !!userCreditBusy[creditModal.user.id]"
+            @keydown.enter.prevent="submitCreditModal"
+          >
+          <label for="credit-date">Дата</label>
+          <input id="credit-date" v-model="creditModal.date" type="date">
+          <div class="row">
+            <button
+              type="button"
+              :disabled="creditModal.user && !!userCreditBusy[creditModal.user.id]"
+              @click="submitCreditModal"
+            >
+              {{ creditModal.user && userCreditBusy[creditModal.user.id] ? 'Сохраняем…' : 'Применить' }}
+            </button>
+            <button type="button" class="quiet" @click="closeCreditModal">Отмена</button>
+          </div>
+          <p v-if="creditModal.error" class="error">{{ creditModal.error }}</p>
+        </div>
+      </div>
+
+      <div v-if="financeModal" class="modal" aria-hidden="false">
+        <div class="modal-backdrop" @click="closeFinanceModal" />
+        <div class="modal-box modal-wide">
+          <template v-if="financeModal === 'expense'">
+            <h2>Новый расход</h2>
+            <label>Счёт</label>
+            <select v-model="financeExpenseForm.account_id">
+              <option v-for="a in financeAccounts" :key="a.id" :value="String(a.id)">{{ a.name }}</option>
+            </select>
+            <label>Категория</label>
+            <select v-model="financeExpenseForm.category_id">
+              <option value="">Без категории</option>
+              <option v-for="c in financeExpenseCategories" :key="c.id" :value="String(c.id)">{{ c.name }}</option>
+            </select>
+            <div class="modal-grid">
+              <div>
+                <label>Сумма ₽</label>
+                <input v-model="financeExpenseForm.amount_rub" inputmode="decimal" placeholder="1000">
+              </div>
+              <div>
+                <label>Дата</label>
+                <input v-model="financeExpenseForm.occurred_at" type="date">
+              </div>
+            </div>
+            <label>Комментарий</label>
+            <input v-model="financeExpenseForm.note" placeholder="Пополнение поставщика / комиссия…">
+            <div class="row">
+              <button type="button" :disabled="financeSaving" @click="addFinanceExpense">Добавить</button>
+              <button type="button" class="quiet" @click="closeFinanceModal">Отмена</button>
+            </div>
+          </template>
+
+          <template v-else-if="financeModal === 'expense-edit' && financeEditExpense">
+            <h2>Редактирование расхода #{{ financeEditExpense.id }}</h2>
+            <label>Счёт</label>
+            <select v-model="financeEditExpense.account_id">
+              <option v-for="a in financeAccounts" :key="a.id" :value="String(a.id)">{{ a.name }}</option>
+            </select>
+            <label>Категория</label>
+            <select v-model="financeEditExpense.category_id">
+              <option value="">Без категории</option>
+              <option v-for="c in financeExpenseCategories" :key="c.id" :value="String(c.id)">{{ c.name }}</option>
+            </select>
+            <div class="modal-grid">
+              <div>
+                <label>Сумма ₽</label>
+                <input v-model="financeEditExpense.amount_rub" inputmode="decimal">
+              </div>
+              <div>
+                <label>Дата</label>
+                <input v-model="financeEditExpense.occurred_at" type="date">
+              </div>
+            </div>
+            <label>Комментарий</label>
+            <input v-model="financeEditExpense.note">
+            <div class="row">
+              <button type="button" :disabled="financeSaving" @click="saveFinanceExpenseEdit">Сохранить</button>
+              <button type="button" class="quiet" @click="closeFinanceModal">Отмена</button>
+            </div>
+          </template>
+
+          <template v-else-if="financeModal === 'withdrawal'">
+            <h2>Новый вывод</h2>
+            <label>Счёт</label>
+            <select v-model="financeWithdrawalForm.account_id">
+              <option v-for="a in financeAccounts" :key="a.id" :value="String(a.id)">{{ a.name }}</option>
+            </select>
+            <label>Категория</label>
+            <select v-model="financeWithdrawalForm.category_id">
+              <option value="">Без категории</option>
+              <option v-for="c in financeWithdrawalCategories" :key="c.id" :value="String(c.id)">{{ c.name }}</option>
+            </select>
+            <div class="modal-grid">
+              <div>
+                <label>Сумма ₽</label>
+                <input v-model="financeWithdrawalForm.amount_rub" inputmode="decimal">
+              </div>
+              <div>
+                <label>Дата</label>
+                <input v-model="financeWithdrawalForm.occurred_at" type="date">
+              </div>
+            </div>
+            <label>Комментарий</label>
+            <input v-model="financeWithdrawalForm.note">
+            <div class="row">
+              <button type="button" :disabled="financeSaving" @click="addFinanceWithdrawal">Добавить</button>
+              <button type="button" class="quiet" @click="closeFinanceModal">Отмена</button>
+            </div>
+          </template>
+
+          <template v-else-if="financeModal === 'account'">
+            <h2>Новый счёт</h2>
+            <label>Название</label>
+            <input v-model="financeAccountForm.name" placeholder="ЮKassa / Тинькофф">
+            <label>Провайдер</label>
+            <select v-model="financeAccountForm.provider_key">
+              <option value="">Обычный счёт</option>
+              <option v-for="p in financeProviders" :key="p.value" :value="p.value">{{ p.label }}</option>
+            </select>
+            <label class="support-filter modal-check">
+              <input v-model="financeAccountForm.is_default" type="checkbox">
+              Дефолт для расходов
+            </label>
+            <label>Комментарий</label>
+            <input v-model="financeAccountForm.note">
+            <div class="row">
+              <button type="button" :disabled="financeSaving" @click="addFinanceAccount">Создать</button>
+              <button type="button" class="quiet" @click="closeFinanceModal">Отмена</button>
+            </div>
+          </template>
+
+          <template v-else-if="financeModal === 'deposit'">
+            <h2>Пополнение счёта</h2>
+            <label>Счёт</label>
+            <select v-model="financeDepositForm.account_id">
+              <option v-for="a in financeAccounts" :key="a.id" :value="String(a.id)">{{ a.name }}</option>
+            </select>
+            <div class="modal-grid">
+              <div>
+                <label>Сумма ₽</label>
+                <input v-model="financeDepositForm.amount_rub" inputmode="decimal" placeholder="1000">
+              </div>
+              <div>
+                <label>Дата</label>
+                <input v-model="financeDepositForm.occurred_at" type="date">
+              </div>
+            </div>
+            <label>Комментарий</label>
+            <input v-model="financeDepositForm.note">
+            <div class="row">
+              <button type="button" :disabled="financeSaving" @click="addFinanceDeposit">Пополнить</button>
+              <button type="button" class="quiet" @click="closeFinanceModal">Отмена</button>
+            </div>
+          </template>
+
+          <template v-else-if="financeModal === 'transfer'">
+            <h2>Перевод между счетами</h2>
+            <label>Откуда</label>
+            <select v-model="financeTransferForm.account_id">
+              <option disabled value="">Откуда</option>
+              <option v-for="a in financeAccounts" :key="'f'+a.id" :value="String(a.id)">{{ a.name }}</option>
+            </select>
+            <label>Куда</label>
+            <select v-model="financeTransferForm.counterparty_account_id">
+              <option disabled value="">Куда</option>
+              <option v-for="a in financeAccounts" :key="'t'+a.id" :value="String(a.id)">{{ a.name }}</option>
+            </select>
+            <div class="modal-grid">
+              <div>
+                <label>Сумма ₽</label>
+                <input v-model="financeTransferForm.amount_rub" inputmode="decimal" placeholder="1000">
+              </div>
+              <div>
+                <label>Дата</label>
+                <input v-model="financeTransferForm.occurred_at" type="date">
+              </div>
+            </div>
+            <label>Комментарий</label>
+            <input v-model="financeTransferForm.note">
+            <div class="row">
+              <button type="button" :disabled="financeSaving" @click="addFinanceTransfer">Перевести</button>
+              <button type="button" class="quiet" @click="closeFinanceModal">Отмена</button>
+            </div>
+          </template>
+
+          <template v-else-if="financeModal === 'category'">
+            <h2>Новая категория</h2>
+            <label>Тип</label>
+            <select v-model="financeCategoryForm.kind">
+              <option value="expense">Расход</option>
+              <option value="withdrawal">Вывод</option>
+            </select>
+            <label>Название</label>
+            <input v-model="financeCategoryForm.name">
+            <label>Цвет</label>
+            <input v-model="financeCategoryForm.color" type="color">
+            <div class="row">
+              <button type="button" :disabled="financeSaving" @click="addFinanceCategory">Добавить</button>
+              <button type="button" class="quiet" @click="closeFinanceModal">Отмена</button>
+            </div>
+          </template>
+
+          <p v-if="financeError" class="error">{{ financeError }}</p>
+        </div>
+      </div>
     </main>
   </div>
 </template>
@@ -1294,6 +1389,7 @@ const {
   financeSection,
   financeError,
   financeSaving,
+  financeModal,
   financeExpenseForm,
   financeWithdrawalForm,
   financeAccountForm,
@@ -1308,6 +1404,10 @@ const {
   financeWithdrawals,
   financeOperations,
   financeProviders,
+  creditModal,
+  openFinanceModal,
+  closeFinanceModal,
+  financeDateOnly,
   loadFinance,
   addFinanceExpense,
   saveFinanceExpenseEdit,
@@ -1323,13 +1423,14 @@ const {
   saveFinanceCategory,
   archiveFinanceCategory,
   financeKindClass,
+  openCreditModal,
+  closeCreditModal,
+  submitCreditModal,
   topups,
   users,
   filteredUsers,
   usersSearch,
-  userCredits,
   userCreditBusy,
-  userCreditError,
   supportThreads,
   supportWaiting,
   supportFilterWaiting,
@@ -1359,9 +1460,11 @@ const {
   setTab,
   setPeriod,
   saveSettings,
+  ledgerModalOpen,
+  openLedgerModal,
+  closeLedgerModal,
   addLedgerEntry,
   deleteLedgerEntry,
-  creditUser,
   unblockUser,
   blockUser,
   deleteUser,
@@ -1779,6 +1882,12 @@ onMounted(() => {
   white-space: nowrap;
 }
 .admin-page .ledger-list { background: #fff; }
+.admin-page .ledger-list-tools {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
 .admin-page .ledger-list-head {
   display: flex;
   align-items: center;
@@ -2028,6 +2137,27 @@ onMounted(() => {
   grid-template-columns: 1fr 1fr;
   gap: 16px;
   margin-top: 18px;
+}
+.admin-page .finance-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+  flex-wrap: wrap;
+}
+.admin-page .finance-card-head h3 { margin: 0; }
+.admin-page .finance-card-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+.admin-page .finance-card-head button.sm,
+.admin-page .ledger-list-tools button.sm {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
 }
 .admin-page .finance-form.stacked {
   grid-template-columns: 1fr;
@@ -2333,43 +2463,28 @@ onMounted(() => {
   padding: 2px 6px;
   vertical-align: middle;
 }
-.admin-page .credit-cell {
+.admin-page .credit-open {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: 5px;
+  white-space: nowrap;
 }
-.admin-page .credit-cell input {
-  width: 88px;
-  padding: 6px 8px;
-  font-size: 13px;
-}
-.admin-page .credit-btn {
-  background: var(--accent);
-  color: #fff;
-  flex: 0 0 30px;
-}
-.admin-page .credit-btn:hover { transform: none; opacity: 0.9; }
-.admin-page .credit-btn.busy,
-.admin-page .credit-btn:disabled {
+.admin-page .credit-open.busy,
+.admin-page .credit-open:disabled {
   opacity: 0.7;
   cursor: wait;
 }
 .admin-page .credit-spinner {
   width: 14px;
   height: 14px;
-  border: 2px solid rgba(255, 255, 255, 0.35);
-  border-top-color: #fff;
+  border: 2px solid rgba(28, 25, 21, 0.2);
+  border-top-color: var(--text);
   border-radius: 50%;
   display: block;
   animation: credit-spin 0.7s linear infinite;
 }
 @keyframes credit-spin {
   to { transform: rotate(360deg); }
-}
-.admin-page .credit-error {
-  margin: 4px 0 0;
-  font-size: 11px;
-  max-width: 140px;
 }
 .admin-page .access-cell {
   display: inline-flex;
@@ -2670,8 +2785,35 @@ onMounted(() => {
   border-radius: var(--radius);
   padding: 22px 22px 20px;
   box-shadow: 0 24px 60px rgba(28, 25, 21, 0.18);
+  max-height: calc(100dvh - 36px);
+  overflow: auto;
 }
-.admin-page .modal-box h2 { margin-bottom: 16px; }
+.admin-page .modal-box.modal-wide { width: min(480px, 100%); }
+.admin-page .modal-box h2 { margin-bottom: 8px; }
+.admin-page .modal-sub { margin: 0 0 14px; }
+.admin-page .modal-box label {
+  display: block;
+  margin: 12px 0 6px;
+  color: var(--muted);
+  font-size: 13px;
+}
+.admin-page .modal-box label:first-of-type { margin-top: 0; }
+.admin-page .modal-box .row { margin-top: 16px; }
+.admin-page .modal-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+.admin-page .modal-grid label { margin-top: 12px; }
+.admin-page .modal-check {
+  display: inline-flex !important;
+  align-items: center;
+  gap: 8px;
+  margin-top: 14px !important;
+  color: var(--text) !important;
+  text-transform: none;
+  width: auto;
+}
 
 @media (max-width: 1100px) {
   .admin-page .ledger-checks { grid-template-columns: repeat(3, minmax(0, 1fr)); }
