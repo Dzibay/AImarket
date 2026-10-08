@@ -170,6 +170,15 @@ CREATE TABLE IF NOT EXISTS support_guests (
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+-- Тема форума в Telegram-группе поддержки (message_thread_id).
+ALTER TABLE support_guests ADD COLUMN IF NOT EXISTS telegram_topic_id BIGINT;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS support_telegram_topic_id BIGINT;
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_support_guests_topic
+    ON support_guests (telegram_topic_id) WHERE telegram_topic_id IS NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_users_support_topic
+    ON users (support_telegram_topic_id) WHERE support_telegram_topic_id IS NOT NULL;
+
 -- Чат поддержки на сайте: сообщения пользователя/гостя и ответы админки.
 CREATE TABLE IF NOT EXISTS support_messages (
     id          BIGSERIAL PRIMARY KEY,

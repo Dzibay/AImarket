@@ -302,8 +302,19 @@
             </div>
             <div class="settings-block">
               <h3>Поддержка</h3>
-              <label for="support-username">Telegram</label>
+              <label for="support-username">Telegram (публичный контакт)</label>
               <input id="support-username" v-model="settingsForm.support_username" placeholder="support_username">
+              <label for="support-chat-id">ID группы с темами (чат поддержки)</label>
+              <input
+                id="support-chat-id"
+                v-model="settingsForm.support_telegram_chat_id"
+                inputmode="numeric"
+                placeholder="-1001234567890"
+              >
+              <p class="muted small">
+                Супергруппа с включёнными Topics. Добавьте туда бота как админа.
+                Сообщения с сайта создают темы; ответы в теме уходят пользователю на сайте.
+              </p>
             </div>
           </div>
           <div class="row">

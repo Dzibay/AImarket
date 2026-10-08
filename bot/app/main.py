@@ -6,6 +6,7 @@ from aiogram.enums import ParseMode
 
 from app.config import settings
 from app.handlers import router
+from app.support_bridge import router as support_bridge_router
 
 log = logging.getLogger("app.main")
 
@@ -22,6 +23,8 @@ async def main() -> None:
         default=DefaultBotProperties(parse_mode=ParseMode.HTML),
     )
     dp = Dispatcher()
+    # Сначала мост поддержки — чтобы ответы в группе не перехватывал общий хендлер.
+    dp.include_router(support_bridge_router)
     dp.include_router(router)
     log.info("Aimarket бот запущен, long polling")
     await dp.start_polling(bot)

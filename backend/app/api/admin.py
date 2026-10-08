@@ -48,6 +48,7 @@ _TEXT_KEYS = (
     "offer_email",
     "offer_date",
     "support_username",
+    "support_telegram_chat_id",
 )
 
 
@@ -68,6 +69,7 @@ class SettingsIn(BaseModel):
     offer_email: str = Field(default="", max_length=200)
     offer_date: str = Field(default="", max_length=32)
     support_username: str = Field(default="", max_length=64)
+    support_telegram_chat_id: str = Field(default="", max_length=32)
     router_root_key: str = Field(default="", max_length=300)
 
 
@@ -116,6 +118,15 @@ def _mail_missing() -> list[str]:
     return missing
 
 
+def _normalize_chat_id(raw: str) -> str:
+    value = (raw or "").strip().replace(" ", "")
+    if not value:
+        return ""
+    if value.lstrip("-").isdigit():
+        return value
+    raise HTTPException(status_code=422, detail="support_chat")
+
+
 def _settings_payload() -> dict:
     root = get_setting("router_root_key")
     supplier = None
@@ -136,6 +147,7 @@ def _settings_payload() -> dict:
         "offer_email": get_setting("offer_email") or get_setting("seller_email"),
         "offer_date": get_setting("offer_date"),
         "support_username": get_setting("support_username"),
+        "support_telegram_chat_id": get_setting("support_telegram_chat_id"),
         "router_root_key_set": bool(root),
         "router_root_key_hint": root[-4:] if len(root) >= 8 else "",
         "supplier_balance_usd": supplier,
@@ -186,6 +198,7 @@ def write_settings(body: SettingsIn) -> dict:
         "offer_email": body.offer_email.strip(),
         "offer_date": offer_date,
         "support_username": body.support_username.strip().lstrip("@"),
+        "support_telegram_chat_id": _normalize_chat_id(body.support_telegram_chat_id),
     }
     for key in _TEXT_KEYS:
         set_setting(key, values[key])

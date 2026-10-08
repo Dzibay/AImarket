@@ -153,6 +153,7 @@ export function useAdminPanel() {
     offer_date: '',
     offer_email: '',
     support_username: '',
+    support_telegram_chat_id: '',
   })
   const bonusTiers = ref([])
   const mailEnabled = ref(false)
@@ -519,6 +520,7 @@ export function useAdminPanel() {
     settingsForm.offer_date = settings.offer_date || ''
     settingsForm.offer_email = settings.offer_email || ''
     settingsForm.support_username = settings.support_username || ''
+    settingsForm.support_telegram_chat_id = settings.support_telegram_chat_id || ''
     rootKey.value = ''
     rootHint.value = settings.router_root_key_set
       ? 'Задан · …' + settings.router_root_key_hint
@@ -706,6 +708,7 @@ export function useAdminPanel() {
           offer_date: settingsForm.offer_date,
           offer_email: settingsForm.offer_email,
           support_username: settingsForm.support_username,
+          support_telegram_chat_id: settingsForm.support_telegram_chat_id,
           router_root_key: rootKey.value,
         }),
       })

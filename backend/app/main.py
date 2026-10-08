@@ -10,6 +10,7 @@ from fastapi.responses import FileResponse, PlainTextResponse, RedirectResponse
 from app.api.admin import router as admin_router
 from app.api.products import router as products_router
 from app.api.site import router as site_router
+from app.api.support_bot import router as support_bot_router
 from app.api.users import router as users_router
 from app.api.web import router as web_router
 from app.api.yookassa import router as yookassa_router
@@ -114,5 +115,6 @@ app.include_router(site_router, prefix="/api")
 app.include_router(web_router, prefix="/api")
 app.include_router(products_router, prefix="/api")
 app.include_router(users_router, prefix="/api")
+app.include_router(support_bot_router, prefix="/api")
 app.include_router(admin_router, prefix="/api/admin")
 app.include_router(yookassa_router, prefix="/api/yookassa")

@@ -6,6 +6,7 @@ import secrets
 
 from app.datetime_util import iso_utc
 from app.db import pool
+from app.support_telegram import forward_staff_message, forward_user_message
 from app.web_auth import key_hash
 
 _MAX_BODY = 4000
@@ -92,6 +93,30 @@ def claim_guest_messages(user_id: int, raw_token: str) -> int:
                 (merged_seen, user_id),
             )
 
+        guest_topic = conn.execute(
+            "SELECT telegram_topic_id FROM support_guests WHERE id = %s",
+            (guest_id,),
+        ).fetchone()
+        user_topic = conn.execute(
+            "SELECT support_telegram_topic_id FROM users WHERE id = %s",
+            (user_id,),
+        ).fetchone()
+        # Если у пользователя ещё нет темы — забираем гостевую.
+        if (
+            guest_topic
+            and guest_topic["telegram_topic_id"] is not None
+            and user_topic
+            and user_topic["support_telegram_topic_id"] is None
+        ):
+            conn.execute(
+                "UPDATE users SET support_telegram_topic_id = %s WHERE id = %s",
+                (int(guest_topic["telegram_topic_id"]), user_id),
+            )
+            conn.execute(
+                "UPDATE support_guests SET telegram_topic_id = NULL WHERE id = %s",
+                (guest_id,),
+            )
+
         moved = conn.execute(
             """
             UPDATE support_messages
@@ -173,7 +198,9 @@ def post_user_message(user_id: int, body: str) -> dict:
             "UPDATE users SET support_seen_at = NOW() WHERE id = %s",
             (user_id,),
         )
-    return _message_row(row)
+    message = _message_row(row)
+    forward_user_message(user_id=user_id, body=text)
+    return message
 
 
 def post_guest_message(token: str, body: str) -> dict:
@@ -192,7 +219,9 @@ def post_guest_message(token: str, body: str) -> dict:
             "UPDATE support_guests SET seen_at = NOW() WHERE id = %s",
             (guest_id,),
         )
-    return _message_row(row)
+    message = _message_row(row)
+    forward_user_message(guest_id=guest_id, body=text)
+    return message
 
 
 def post_staff_message(user_id: int, body: str) -> dict:
@@ -209,10 +238,48 @@ def post_staff_message(user_id: int, body: str) -> dict:
             """,
             (user_id, text),
         ).fetchone()
-    return _message_row(row)
+    message = _message_row(row)
+    forward_staff_message(user_id=user_id, body=text)
+    return message
 
 
 def post_staff_guest_message(guest_id: int, body: str) -> dict:
+    text = normalize_body(body)
+    with pool.connection() as conn:
+        exists = conn.execute("SELECT 1 FROM support_guests WHERE id = %s", (guest_id,)).fetchone()
+        if exists is None:
+            raise LookupError("guest")
+        row = conn.execute(
+            """
+            INSERT INTO support_messages (guest_id, author_kind, body)
+            VALUES (%s, 'staff', %s)
+            RETURNING id, author_kind, body, created_at
+            """,
+            (guest_id, text),
+        ).fetchone()
+    message = _message_row(row)
+    forward_staff_message(guest_id=guest_id, body=text)
+    return message
+
+# Keep a silent path for Telegram→site replies (без эха обратно в группу).
+def post_staff_message_from_telegram(user_id: int, body: str) -> dict:
+    text = normalize_body(body)
+    with pool.connection() as conn:
+        exists = conn.execute("SELECT 1 FROM users WHERE id = %s", (user_id,)).fetchone()
+        if exists is None:
+            raise LookupError("user")
+        row = conn.execute(
+            """
+            INSERT INTO support_messages (user_id, author_kind, body)
+            VALUES (%s, 'staff', %s)
+            RETURNING id, author_kind, body, created_at
+            """,
+            (user_id, text),
+        ).fetchone()
+    return _message_row(row)
+
+
+def post_staff_guest_message_from_telegram(guest_id: int, body: str) -> dict:
     text = normalize_body(body)
     with pool.connection() as conn:
         exists = conn.execute("SELECT 1 FROM support_guests WHERE id = %s", (guest_id,)).fetchone()

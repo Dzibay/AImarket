@@ -130,3 +130,15 @@ async def get_history(
 ) -> dict:
     params = f"?filter={filter}&offset={offset}&limit={limit}"
     return await _request("GET", f"/api/users/{telegram_id}/history{params}")
+
+
+async def support_telegram_config() -> dict:
+    return await _request("GET", "/api/support/telegram/config")
+
+
+async def support_telegram_reply(topic_id: int, body: str) -> dict:
+    return await _request(
+        "POST",
+        "/api/support/telegram/reply",
+        {"topic_id": topic_id, "body": body},
+    )
