@@ -149,6 +149,7 @@ export function useAdminPanel() {
   const settingsForm = reactive({
     public_base_url: '',
     usd_price_rub: '',
+    supplier_usd_price_rub: '',
     min_topup_usd: '',
     offer_date: '',
     offer_email: '',
@@ -250,30 +251,58 @@ export function useAdminPanel() {
   let supportPollTimer = null
 
   const financeSummary = ref(null)
-  const financeEntries = ref([])
-  const financeFilter = ref('')
+  const financeSection = ref('expenses')
   const financeError = ref('')
   const financeSaving = ref(false)
-  const financeOpeningDraft = ref('0')
-  const financeForm = reactive({
-    kind: 'expense',
-    category: 'other',
+  const financeExpenseForm = reactive({
+    account_id: '',
+    category_id: '',
     amount_rub: '',
-    amount_usd: '',
     note: '',
     occurred_at: '',
   })
+  const financeWithdrawalForm = reactive({
+    account_id: '',
+    category_id: '',
+    amount_rub: '',
+    note: '',
+    occurred_at: '',
+  })
+  const financeAccountForm = reactive({
+    name: '',
+    provider_key: '',
+    is_default: false,
+    note: '',
+  })
+  const financeDepositForm = reactive({
+    account_id: '',
+    amount_rub: '',
+    note: '',
+  })
+  const financeTransferForm = reactive({
+    account_id: '',
+    counterparty_account_id: '',
+    amount_rub: '',
+    note: '',
+  })
+  const financeCategoryForm = reactive({
+    kind: 'expense',
+    name: '',
+    color: '#6b645b',
+  })
+  const financeEditExpense = ref(null)
 
-  const financeKindOptions = computed(() => financeSummary.value?.meta?.kinds || [])
-  const financeCategoryOptions = computed(() => {
-    const map = financeSummary.value?.meta?.categories || {}
-    return map[financeForm.kind] || [{ value: 'other', label: 'Прочее' }]
-  })
-  const filteredFinanceEntries = computed(() => {
-    const kind = financeFilter.value
-    if (!kind) return financeEntries.value
-    return financeEntries.value.filter((item) => item.kind === kind)
-  })
+  const financeAccounts = computed(() => financeSummary.value?.accounts || [])
+  const financeExpenseCategories = computed(() =>
+    (financeSummary.value?.categories || []).filter((c) => c.kind === 'expense' && !c.archived),
+  )
+  const financeWithdrawalCategories = computed(() =>
+    (financeSummary.value?.categories || []).filter((c) => c.kind === 'withdrawal' && !c.archived),
+  )
+  const financeExpenses = computed(() => financeSummary.value?.expenses || [])
+  const financeWithdrawals = computed(() => financeSummary.value?.withdrawals || [])
+  const financeOperations = computed(() => financeSummary.value?.operations || [])
+  const financeProviders = computed(() => financeSummary.value?.providers || [])
 
   const tabs = computed(() => [
     { id: 'analytics', label: 'Аналитика' },
@@ -619,6 +648,7 @@ export function useAdminPanel() {
     const settings = await api('/api/admin/settings')
     settingsForm.public_base_url = settings.public_base_url || ''
     settingsForm.usd_price_rub = settings.usd_price_rub || ''
+    settingsForm.supplier_usd_price_rub = settings.supplier_usd_price_rub || ''
     settingsForm.min_topup_usd = settings.min_topup_usd || ''
     bonusTiers.value = (settings.topup_bonuses || []).map((tier) => ({
       min_usd: String(tier.min_usd),
@@ -683,95 +713,298 @@ export function useAdminPanel() {
 
   function applyFinanceSummary(summary) {
     financeSummary.value = summary || null
-    financeEntries.value = summary?.entries || []
-    if (summary && summary.opening_cash_rub != null) {
-      financeOpeningDraft.value = String(summary.opening_cash_rub)
+    const def = summary?.default_account_id
+    if (def) {
+      if (!financeExpenseForm.account_id) financeExpenseForm.account_id = String(def)
+      if (!financeWithdrawalForm.account_id) financeWithdrawalForm.account_id = String(def)
+      if (!financeDepositForm.account_id) financeDepositForm.account_id = String(def)
+      if (!financeTransferForm.account_id) financeTransferForm.account_id = String(def)
+    }
+    const expCats = (summary?.categories || []).filter((c) => c.kind === 'expense' && !c.archived)
+    const wdCats = (summary?.categories || []).filter((c) => c.kind === 'withdrawal' && !c.archived)
+    if (expCats.length && !financeExpenseForm.category_id) {
+      financeExpenseForm.category_id = String(expCats[0].id)
+    }
+    if (wdCats.length && !financeWithdrawalForm.category_id) {
+      financeWithdrawalForm.category_id = String(wdCats[0].id)
     }
   }
 
   async function loadFinance() {
     financeError.value = ''
     try {
-      const data = await api('/api/admin/finance')
-      applyFinanceSummary(data)
-      const cats = data?.meta?.categories?.[financeForm.kind] || []
-      if (cats.length && !cats.some((c) => c.value === financeForm.category)) {
-        financeForm.category = cats[0].value
-      }
+      applyFinanceSummary(await api('/api/admin/finance'))
     } catch (error) {
       financeError.value = error.message || 'error'
     }
   }
 
-  async function saveFinanceOpening() {
+  async function financeRequest(path, options = {}) {
     financeSaving.value = true
     financeError.value = ''
     try {
-      const data = await api('/api/admin/finance/opening', {
-        method: 'PUT',
-        body: JSON.stringify({
-          opening_cash_rub: Number(String(financeOpeningDraft.value).replace(',', '.')) || 0,
-        }),
-      })
-      applyFinanceSummary(data.summary)
+      const data = await api(path, options)
+      if (data.summary) applyFinanceSummary(data.summary)
+      else await loadFinance()
+      return data
     } catch (error) {
       financeError.value = error.message || 'error'
+      throw error
     } finally {
       financeSaving.value = false
     }
   }
 
-  async function addFinanceEntry() {
-    const amount = Number(String(financeForm.amount_rub).replace(',', '.'))
-    if (!amount) {
-      financeError.value = 'Укажите сумму в ₽'
+  async function addFinanceExpense() {
+    const amount = Number(String(financeExpenseForm.amount_rub).replace(',', '.'))
+    if (!amount || !financeExpenseForm.account_id) {
+      financeError.value = 'Укажите счёт и сумму'
       return
     }
-    financeSaving.value = true
-    financeError.value = ''
     try {
-      const data = await api('/api/admin/finance/entries', {
+      await financeRequest('/api/admin/finance/operations', {
         method: 'POST',
         body: JSON.stringify({
-          kind: financeForm.kind,
-          category: financeForm.category,
+          kind: 'expense',
+          account_id: Number(financeExpenseForm.account_id),
+          category_id: financeExpenseForm.category_id ? Number(financeExpenseForm.category_id) : null,
           amount_rub: amount,
-          amount_usd: Number(String(financeForm.amount_usd || '0').replace(',', '.')) || 0,
-          note: financeForm.note,
-          occurred_at: financeForm.occurred_at || '',
+          note: financeExpenseForm.note,
+          occurred_at: financeExpenseForm.occurred_at || '',
         }),
       })
-      applyFinanceSummary(data.summary)
-      financeForm.amount_rub = ''
-      financeForm.amount_usd = ''
-      financeForm.note = ''
-    } catch (error) {
-      financeError.value = error.message || 'error'
-    } finally {
-      financeSaving.value = false
+      financeExpenseForm.amount_rub = ''
+      financeExpenseForm.note = ''
+      financeEditExpense.value = null
+    } catch {
+      /* shown */
     }
   }
 
-  async function deleteFinanceEntry(id) {
-    if (!confirm('Удалить проводку?')) return
-    financeError.value = ''
+  async function saveFinanceExpenseEdit() {
+    const item = financeEditExpense.value
+    if (!item) return
+    const amount = Number(String(item.amount_rub).replace(',', '.'))
+    if (!amount) {
+      financeError.value = 'Укажите сумму'
+      return
+    }
     try {
-      const data = await api('/api/admin/finance/entries/' + id, { method: 'DELETE' })
-      applyFinanceSummary(data.summary)
-    } catch (error) {
-      financeError.value = error.message || 'error'
+      await financeRequest('/api/admin/finance/operations/' + item.id, {
+        method: 'PUT',
+        body: JSON.stringify({
+          account_id: Number(item.account_id),
+          category_id: item.category_id ? Number(item.category_id) : null,
+          clear_category: !item.category_id,
+          amount_rub: amount,
+          note: item.note || '',
+          occurred_at: item.occurred_at || '',
+        }),
+      })
+      financeEditExpense.value = null
+    } catch {
+      /* shown */
+    }
+  }
+
+  function startEditExpense(item) {
+    financeEditExpense.value = {
+      id: item.id,
+      account_id: String(item.account_id),
+      category_id: item.category_id ? String(item.category_id) : '',
+      amount_rub: String(item.amount_rub),
+      note: item.note || '',
+      occurred_at: item.occurred_at ? String(item.occurred_at).slice(0, 16) : '',
+    }
+  }
+
+  async function addFinanceWithdrawal() {
+    const amount = Number(String(financeWithdrawalForm.amount_rub).replace(',', '.'))
+    if (!amount || !financeWithdrawalForm.account_id) {
+      financeError.value = 'Укажите счёт и сумму'
+      return
+    }
+    try {
+      await financeRequest('/api/admin/finance/operations', {
+        method: 'POST',
+        body: JSON.stringify({
+          kind: 'withdrawal',
+          account_id: Number(financeWithdrawalForm.account_id),
+          category_id: financeWithdrawalForm.category_id
+            ? Number(financeWithdrawalForm.category_id)
+            : null,
+          amount_rub: amount,
+          note: financeWithdrawalForm.note,
+          occurred_at: financeWithdrawalForm.occurred_at || '',
+        }),
+      })
+      financeWithdrawalForm.amount_rub = ''
+      financeWithdrawalForm.note = ''
+    } catch {
+      /* shown */
+    }
+  }
+
+  async function deleteFinanceOperation(id, label = 'операцию') {
+    if (!confirm('Удалить ' + label + '?')) return
+    try {
+      await financeRequest('/api/admin/finance/operations/' + id, { method: 'DELETE' })
+      if (financeEditExpense.value?.id === id) financeEditExpense.value = null
+    } catch {
+      /* shown */
+    }
+  }
+
+  async function addFinanceAccount() {
+    if (!financeAccountForm.name.trim()) {
+      financeError.value = 'Укажите название счёта'
+      return
+    }
+    try {
+      await financeRequest('/api/admin/finance/accounts', {
+        method: 'POST',
+        body: JSON.stringify({
+          name: financeAccountForm.name,
+          provider_key: financeAccountForm.provider_key || '',
+          is_default: !!financeAccountForm.is_default,
+          note: financeAccountForm.note,
+          import_history: true,
+        }),
+      })
+      financeAccountForm.name = ''
+      financeAccountForm.provider_key = ''
+      financeAccountForm.is_default = false
+      financeAccountForm.note = ''
+    } catch {
+      /* shown */
+    }
+  }
+
+  async function setDefaultFinanceAccount(account) {
+    try {
+      await financeRequest('/api/admin/finance/accounts/' + account.id, {
+        method: 'PUT',
+        body: JSON.stringify({
+          name: account.name,
+          is_default: true,
+          note: account.note || '',
+        }),
+      })
+    } catch {
+      /* shown */
+    }
+  }
+
+  async function deleteFinanceAccount(account) {
+    if (!confirm('Удалить счёт «' + account.name + '»?')) return
+    try {
+      await financeRequest('/api/admin/finance/accounts/' + account.id, { method: 'DELETE' })
+    } catch {
+      /* shown */
+    }
+  }
+
+  async function addFinanceDeposit() {
+    const amount = Number(String(financeDepositForm.amount_rub).replace(',', '.'))
+    if (!amount || !financeDepositForm.account_id) {
+      financeError.value = 'Укажите счёт и сумму'
+      return
+    }
+    try {
+      await financeRequest('/api/admin/finance/operations', {
+        method: 'POST',
+        body: JSON.stringify({
+          kind: 'deposit',
+          account_id: Number(financeDepositForm.account_id),
+          amount_rub: amount,
+          note: financeDepositForm.note,
+        }),
+      })
+      financeDepositForm.amount_rub = ''
+      financeDepositForm.note = ''
+    } catch {
+      /* shown */
+    }
+  }
+
+  async function addFinanceTransfer() {
+    const amount = Number(String(financeTransferForm.amount_rub).replace(',', '.'))
+    if (!amount || !financeTransferForm.account_id || !financeTransferForm.counterparty_account_id) {
+      financeError.value = 'Укажите оба счёта и сумму'
+      return
+    }
+    try {
+      await financeRequest('/api/admin/finance/operations', {
+        method: 'POST',
+        body: JSON.stringify({
+          kind: 'transfer',
+          account_id: Number(financeTransferForm.account_id),
+          counterparty_account_id: Number(financeTransferForm.counterparty_account_id),
+          amount_rub: amount,
+          note: financeTransferForm.note,
+        }),
+      })
+      financeTransferForm.amount_rub = ''
+      financeTransferForm.note = ''
+    } catch {
+      /* shown */
+    }
+  }
+
+  async function addFinanceCategory() {
+    if (!financeCategoryForm.name.trim()) {
+      financeError.value = 'Укажите название категории'
+      return
+    }
+    try {
+      await financeRequest('/api/admin/finance/categories', {
+        method: 'POST',
+        body: JSON.stringify({
+          kind: financeCategoryForm.kind,
+          name: financeCategoryForm.name,
+          color: financeCategoryForm.color,
+        }),
+      })
+      financeCategoryForm.name = ''
+    } catch {
+      /* shown */
+    }
+  }
+
+  async function saveFinanceCategory(cat) {
+    try {
+      await financeRequest('/api/admin/finance/categories/' + cat.id, {
+        method: 'PUT',
+        body: JSON.stringify({
+          name: cat.name,
+          color: cat.color,
+          sort_order: cat.sort_order,
+        }),
+      })
+    } catch {
+      /* shown */
+    }
+  }
+
+  async function archiveFinanceCategory(cat) {
+    if (!confirm('Скрыть категорию «' + cat.name + '»?')) return
+    try {
+      await financeRequest('/api/admin/finance/categories/' + cat.id, { method: 'DELETE' })
+    } catch {
+      /* shown */
     }
   }
 
   function financeKindClass(kind) {
-    return ({
-      income: 'fin-income',
-      expense: 'fin-expense',
-      reserve: 'fin-reserve',
-      reserve_release: 'fin-release',
-      withdrawal: 'fin-withdrawal',
-      deposit: 'fin-deposit',
-    })[kind] || 'fin-expense'
+    return (
+      {
+        income: 'fin-income',
+        expense: 'fin-expense',
+        withdrawal: 'fin-withdrawal',
+        deposit: 'fin-deposit',
+        transfer: 'fin-release',
+      }[kind] || 'fin-expense'
+    )
   }
 
   function setTab(tab) {
@@ -901,6 +1134,7 @@ export function useAdminPanel() {
         body: JSON.stringify({
           public_base_url: settingsForm.public_base_url,
           usd_price_rub: settingsForm.usd_price_rub,
+          supplier_usd_price_rub: settingsForm.supplier_usd_price_rub,
           min_topup_usd: settingsForm.min_topup_usd,
           topup_bonuses: bonusTiers.value
             .map((tier) => ({
@@ -1231,19 +1465,37 @@ export function useAdminPanel() {
     ledgerUserOptions,
     ledgerKindOptions,
     financeSummary,
-    financeEntries,
-    filteredFinanceEntries,
-    financeFilter,
+    financeSection,
     financeError,
     financeSaving,
-    financeOpeningDraft,
-    financeForm,
-    financeKindOptions,
-    financeCategoryOptions,
+    financeExpenseForm,
+    financeWithdrawalForm,
+    financeAccountForm,
+    financeDepositForm,
+    financeTransferForm,
+    financeCategoryForm,
+    financeEditExpense,
+    financeAccounts,
+    financeExpenseCategories,
+    financeWithdrawalCategories,
+    financeExpenses,
+    financeWithdrawals,
+    financeOperations,
+    financeProviders,
     loadFinance,
-    saveFinanceOpening,
-    addFinanceEntry,
-    deleteFinanceEntry,
+    addFinanceExpense,
+    saveFinanceExpenseEdit,
+    startEditExpense,
+    addFinanceWithdrawal,
+    deleteFinanceOperation,
+    addFinanceAccount,
+    setDefaultFinanceAccount,
+    deleteFinanceAccount,
+    addFinanceDeposit,
+    addFinanceTransfer,
+    addFinanceCategory,
+    saveFinanceCategory,
+    archiveFinanceCategory,
     financeKindClass,
     topups,
     users,

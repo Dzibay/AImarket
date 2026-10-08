@@ -103,6 +103,17 @@ def settle_payment(payment_id: str) -> str:
         ).fetchone()
     if credited is None:
         return "already"
+    try:
+        from app.finance import record_yookassa_payment
+
+        record_yookassa_payment(
+            topup_id=topup_id,
+            amount_kopecks=int(row["amount_kopecks"]),
+            amount_usd=Decimal(row["amount_usd"]),
+            payment_id=str(payment_id),
+        )
+    except Exception:
+        log.exception("не удалось записать оплату %s в финансы", topup_id)
     user_id = int(row["user_id"])
     # Оплата с сайта: ключ — это и доступ к API, и пароль в кабинет, выпускаем сразу и шлём письмо.
     if row["return_token_hash"]:

@@ -21,6 +21,19 @@ def usd_price_rub() -> Decimal:
     return Decimal(0)
 
 
+def supplier_usd_price_rub() -> Decimal:
+    """Курс $ у поставщика. Если не задан — берём клиентский курс."""
+    raw = get_setting("supplier_usd_price_rub").strip().replace(",", ".")
+    if raw:
+        try:
+            value = Decimal(raw)
+        except Exception:
+            value = Decimal(0)
+        if value > 0:
+            return value
+    return usd_price_rub()
+
+
 def usd_to_units(usd: Decimal) -> int:
     return int(
         (usd * Decimal(settings.router_quota_per_unit)).quantize(Decimal("1"), rounding=ROUND_HALF_UP)

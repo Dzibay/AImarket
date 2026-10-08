@@ -233,26 +233,83 @@ CREATE TABLE IF NOT EXISTS app_settings (
     value TEXT NOT NULL DEFAULT ''
 );
 
-INSERT INTO app_settings (key, value) VALUES ('finance_opening_cash_rub', '0')
+INSERT INTO app_settings (key, value) VALUES ('supplier_usd_price_rub', '')
 ON CONFLICT (key) DO NOTHING;
+DELETE FROM app_settings WHERE key = 'finance_opening_cash_rub';
 
 -- ---------------------------------------------------------------------------
 -- Бухгалтерия компании
 -- ---------------------------------------------------------------------------
-CREATE TABLE IF NOT EXISTS finance_entries (
+DROP TABLE IF EXISTS finance_entries;
+
+CREATE TABLE IF NOT EXISTS finance_categories (
     id          BIGSERIAL PRIMARY KEY,
-    kind        TEXT NOT NULL CHECK (kind IN (
-        'income', 'expense', 'reserve', 'reserve_release', 'withdrawal', 'deposit'
-    )),
-    category    TEXT NOT NULL DEFAULT 'other',
-    amount_rub  NUMERIC(14, 2) NOT NULL CHECK (amount_rub > 0),
-    amount_usd  NUMERIC(12, 4) NOT NULL DEFAULT 0 CHECK (amount_usd >= 0),
-    note        TEXT NOT NULL DEFAULT '',
-    occurred_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    name        TEXT NOT NULL,
+    color       TEXT NOT NULL DEFAULT '#6b645b',
+    kind        TEXT NOT NULL DEFAULT 'expense'
+                    CHECK (kind IN ('expense', 'withdrawal')),
+    sort_order  INTEGER NOT NULL DEFAULT 0,
+    archived_at TIMESTAMPTZ,
     created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX IF NOT EXISTS idx_finance_entries_kind_time
-    ON finance_entries (kind, occurred_at DESC);
-CREATE INDEX IF NOT EXISTS idx_finance_entries_time
-    ON finance_entries (occurred_at DESC);
+CREATE INDEX IF NOT EXISTS idx_finance_categories_kind
+    ON finance_categories (kind, sort_order, id);
+
+CREATE TABLE IF NOT EXISTS finance_accounts (
+    id           BIGSERIAL PRIMARY KEY,
+    name         TEXT NOT NULL,
+    provider_key TEXT NOT NULL DEFAULT '',
+    is_default   BOOLEAN NOT NULL DEFAULT FALSE,
+    note         TEXT NOT NULL DEFAULT '',
+    created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_finance_accounts_provider
+    ON finance_accounts (provider_key) WHERE provider_key <> '';
+CREATE UNIQUE INDEX IF NOT EXISTS idx_finance_accounts_default
+    ON finance_accounts (is_default) WHERE is_default;
+
+CREATE TABLE IF NOT EXISTS finance_operations (
+    id                       BIGSERIAL PRIMARY KEY,
+    kind                     TEXT NOT NULL CHECK (kind IN (
+        'income', 'expense', 'withdrawal', 'deposit', 'transfer'
+    )),
+    account_id               BIGINT NOT NULL REFERENCES finance_accounts (id),
+    counterparty_account_id  BIGINT REFERENCES finance_accounts (id),
+    category_id              BIGINT REFERENCES finance_categories (id) ON DELETE SET NULL,
+    amount_rub               NUMERIC(14, 2) NOT NULL CHECK (amount_rub > 0),
+    amount_usd               NUMERIC(12, 4) NOT NULL DEFAULT 0 CHECK (amount_usd >= 0),
+    note                     TEXT NOT NULL DEFAULT '',
+    occurred_at              TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    source                   TEXT NOT NULL DEFAULT 'manual',
+    source_ref               TEXT NOT NULL DEFAULT '',
+    created_at               TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at               TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    CHECK (
+        (kind <> 'transfer' AND counterparty_account_id IS NULL)
+        OR (kind = 'transfer' AND counterparty_account_id IS NOT NULL
+            AND counterparty_account_id <> account_id)
+    )
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_finance_operations_source
+    ON finance_operations (source, source_ref) WHERE source_ref <> '';
+CREATE INDEX IF NOT EXISTS idx_finance_operations_kind_time
+    ON finance_operations (kind, occurred_at DESC);
+CREATE INDEX IF NOT EXISTS idx_finance_operations_account
+    ON finance_operations (account_id, occurred_at DESC);
+
+INSERT INTO finance_categories (name, color, kind, sort_order)
+SELECT v.name, v.color, v.kind, v.sort_order
+FROM (VALUES
+    ('Комиссия', '#8d2b2b', 'expense', 10),
+    ('Реклама', '#9a6700', 'expense', 20),
+    ('Хостинг', '#2f4f8c', 'expense', 30),
+    ('Налоги', '#6b645b', 'expense', 40),
+    ('Пополнение поставщика', '#2a6f97', 'expense', 50),
+    ('Прочее', '#5c564c', 'expense', 90),
+    ('Вывод владельцу', '#1c1915', 'withdrawal', 10),
+    ('Прочее', '#6b645b', 'withdrawal', 90)
+) AS v(name, color, kind, sort_order)
+WHERE NOT EXISTS (SELECT 1 FROM finance_categories LIMIT 1);

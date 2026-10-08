@@ -259,8 +259,16 @@
             </div>
             <div class="settings-block">
               <h3>Цена</h3>
-              <label for="price">₽ за $1 лимита</label>
+              <label for="price">Курс для клиентов, ₽/$</label>
               <input id="price" v-model="settingsForm.usd_price_rub" inputmode="decimal" placeholder="100">
+              <label for="supplier-price">Курс поставщика, ₽/$</label>
+              <input
+                id="supplier-price"
+                v-model="settingsForm.supplier_usd_price_rub"
+                inputmode="decimal"
+                placeholder="как у клиентов"
+              >
+              <p class="muted small">Если пусто — для финансов берётся клиентский курс.</p>
               <label for="min-topup">Минимальное пополнение, $</label>
               <input id="min-topup" v-model="settingsForm.min_topup_usd" inputmode="decimal" placeholder="10">
             </div>
@@ -327,194 +335,355 @@
           <div class="panel-head finance-head">
             <div>
               <h2>Финансы</h2>
-              <p class="muted finance-sub">
-                Касса, обязательства клиентам, резервы и сумма к выводу
-              </p>
+              <p class="muted finance-sub">Счета, расходы, выводы и доступная сумма</p>
             </div>
-            <button type="button" class="quiet sm" :disabled="financeSaving" @click="loadFinance">
-              Обновить
-            </button>
+            <button type="button" class="quiet sm" :disabled="financeSaving" @click="loadFinance">Обновить</button>
+          </div>
+
+          <div
+            v-if="financeSummary?.supplier_needs_topup"
+            class="finance-alert"
+          >
+            Нужно пополнить баланс поставщика на
+            <b>{{ usd(financeSummary.supplier_shortfall_usd) }}</b>
+            <span class="muted">
+              (≈ {{ rub(financeSummary.supplier_shortfall_rub) }} по курсу поставщика
+              {{ Number(financeSummary.supplier_rate || 0).toFixed(2) }} ₽/$).
+              Обязательства клиентам {{ usd(financeSummary.customer_liability_usd) }},
+              у поставщика {{ usd(financeSummary.supplier_balance_usd) }}.
+            </span>
           </div>
 
           <div v-if="financeSummary" class="finance-kpis">
             <div class="finance-kpi emphasis" :class="financeSummary.available_rub >= 0 ? 'ok' : 'bad'">
               <span>Доступно к выводу</span>
               <b>{{ rub(financeSummary.available_rub) }}</b>
-              <small v-if="financeSummary.rate">≈ {{ usd(financeSummary.available_usd) }}</small>
+              <small>касса − обязательства клиентам</small>
             </div>
             <div class="finance-kpi">
-              <span>Касса (книга)</span>
-              <b>{{ rub(financeSummary.cash_book_rub) }}</b>
+              <span>Касса по счетам</span>
+              <b>{{ rub(financeSummary.cash_rub) }}</b>
             </div>
             <div class="finance-kpi">
-              <span>Обязательства</span>
-              <b>{{ rub(financeSummary.obligations_rub) }}</b>
-              <small>клиенты {{ usd(financeSummary.customer_liability_usd) }} + резервы</small>
+              <span>Обязательства клиентам</span>
+              <b>{{ usd(financeSummary.customer_liability_usd) }}</b>
+              <small>{{ rub(financeSummary.customer_liability_rub) }} · курс клиентов</small>
             </div>
-            <div class="finance-kpi">
-              <span>Резервы</span>
-              <b>{{ rub(financeSummary.reserves_net_rub) }}</b>
-            </div>
-            <div class="finance-kpi">
-              <span>ЮKassa оплачено</span>
-              <b>{{ rub(financeSummary.topups?.rub || 0) }}</b>
-              <small>{{ financeSummary.topups?.count || 0 }} платежей · {{ usd(financeSummary.topups?.usd || 0) }}</small>
-            </div>
-            <div class="finance-kpi">
-              <span>Маржа (оценка)</span>
-              <b>{{ usd(financeSummary.gross_margin_usd) }}</b>
-              <small>оплаты − расход квот − бонусы</small>
-            </div>
-            <div class="finance-kpi">
-              <span>Баланс поставщика</span>
+            <div class="finance-kpi" :class="{ bad: financeSummary.supplier_needs_topup }">
+              <span>Поставщик</span>
               <b>{{ usd(financeSummary.supplier_balance_usd) }}</b>
+              <small>курс {{ Number(financeSummary.supplier_rate || 0).toFixed(2) }} ₽/$</small>
             </div>
             <div class="finance-kpi">
-              <span>Курс</span>
-              <b>{{ Number(financeSummary.rate || 0).toFixed(2) }} ₽/$</b>
+              <span>Расходы</span>
+              <b>{{ rub(financeSummary.expenses_total_rub) }}</b>
+            </div>
+            <div class="finance-kpi">
+              <span>Выводы</span>
+              <b>{{ rub(financeSummary.withdrawals_total_rub) }}</b>
             </div>
           </div>
 
-          <div v-if="financeSummary" class="finance-grid">
-            <div class="finance-card">
-              <h3>Разбор кассы</h3>
-              <ul class="finance-breakdown">
-                <li
-                  v-for="(row, idx) in financeSummary.breakdown || []"
-                  :key="idx"
-                  :class="{ emphasis: row.emphasis, ok: row.tone === 'ok', bad: row.tone === 'bad' }"
-                >
-                  <span class="sign">{{ row.sign }}</span>
-                  <span class="label">{{ row.label }}</span>
-                  <b>{{ rub(row.rub) }}</b>
-                </li>
-              </ul>
-              <p class="muted small finance-hint">
-                К выводу = касса − обязательства клиентам (балансы × курс) − резервы.
-                Комиссии ЮKassa и налоги вносите как расходы или резервы.
-              </p>
-            </div>
-
-            <div class="finance-card">
-              <h3>Стартовый остаток</h3>
-              <p class="muted small">Деньги на счёте до учёта в системе (или сверка кассы).</p>
-              <div class="finance-opening">
-                <input v-model="financeOpeningDraft" inputmode="decimal" placeholder="0">
-                <button type="button" :disabled="financeSaving" @click="saveFinanceOpening">Сохранить</button>
-              </div>
-            </div>
-
-            <div class="finance-card wide">
-              <h3>Новая проводка</h3>
-              <div class="finance-form">
-                <div class="field">
-                  <label for="fin-kind">Тип</label>
-                  <select
-                    id="fin-kind"
-                    v-model="financeForm.kind"
-                    @change="financeForm.category = (financeCategoryOptions[0] && financeCategoryOptions[0].value) || 'other'"
-                  >
-                    <option v-for="opt in financeKindOptions" :key="opt.value" :value="opt.value">
-                      {{ opt.label }}
-                    </option>
-                  </select>
-                </div>
-                <div class="field">
-                  <label for="fin-cat">Категория</label>
-                  <select id="fin-cat" v-model="financeForm.category">
-                    <option v-for="opt in financeCategoryOptions" :key="opt.value" :value="opt.value">
-                      {{ opt.label }}
-                    </option>
-                  </select>
-                </div>
-                <div class="field">
-                  <label for="fin-rub">Сумма ₽</label>
-                  <input id="fin-rub" v-model="financeForm.amount_rub" inputmode="decimal" placeholder="1000">
-                </div>
-                <div class="field">
-                  <label for="fin-usd">Сумма $ <span class="muted">(опц.)</span></label>
-                  <input id="fin-usd" v-model="financeForm.amount_usd" inputmode="decimal" placeholder="0">
-                </div>
-                <div class="field grow">
-                  <label for="fin-note">Комментарий</label>
-                  <input id="fin-note" v-model="financeForm.note" placeholder="Например: комиссия за октябрь">
-                </div>
-                <div class="field">
-                  <label for="fin-date">Дата</label>
-                  <input id="fin-date" v-model="financeForm.occurred_at" type="datetime-local">
-                </div>
-                <button type="button" :disabled="financeSaving" @click="addFinanceEntry">Добавить</button>
-              </div>
-              <p v-if="financeError" class="error">{{ financeError }}</p>
-            </div>
+          <div class="finance-filters">
+            <button type="button" class="quiet sm" :class="{ on: financeSection === 'expenses' }" @click="financeSection = 'expenses'">Расходы</button>
+            <button type="button" class="quiet sm" :class="{ on: financeSection === 'withdrawals' }" @click="financeSection = 'withdrawals'">Выводы</button>
+            <button type="button" class="quiet sm" :class="{ on: financeSection === 'accounts' }" @click="financeSection = 'accounts'">Счета</button>
+            <button type="button" class="quiet sm" :class="{ on: financeSection === 'categories' }" @click="financeSection = 'categories'">Категории</button>
+            <button type="button" class="quiet sm" :class="{ on: financeSection === 'operations' }" @click="financeSection = 'operations'">Операции</button>
           </div>
+          <p v-if="financeError" class="error">{{ financeError }}</p>
 
-          <div class="finance-list">
-            <div class="finance-list-head">
-              <h3>Журнал проводок</h3>
-              <div class="finance-filters">
-                <button
-                  type="button"
-                  class="quiet sm"
-                  :class="{ on: !financeFilter }"
-                  @click="financeFilter = ''"
-                >
-                  Все
-                </button>
-                <button
-                  v-for="opt in financeKindOptions"
-                  :key="opt.value"
-                  type="button"
-                  class="quiet sm"
-                  :class="{ on: financeFilter === opt.value }"
-                  @click="financeFilter = opt.value"
-                >
-                  {{ opt.label }}
-                </button>
+          <div v-show="financeSection === 'expenses'" class="finance-card wide">
+            <h3>Расходы</h3>
+            <div class="finance-form">
+              <div class="field">
+                <label>Счёт</label>
+                <select v-model="financeExpenseForm.account_id">
+                  <option v-for="a in financeAccounts" :key="a.id" :value="String(a.id)">{{ a.name }}</option>
+                </select>
               </div>
+              <div class="field">
+                <label>Категория</label>
+                <select v-model="financeExpenseForm.category_id">
+                  <option value="">Без категории</option>
+                  <option v-for="c in financeExpenseCategories" :key="c.id" :value="String(c.id)">{{ c.name }}</option>
+                </select>
+              </div>
+              <div class="field">
+                <label>Сумма ₽</label>
+                <input v-model="financeExpenseForm.amount_rub" inputmode="decimal" placeholder="1000">
+              </div>
+              <div class="field grow">
+                <label>Комментарий</label>
+                <input v-model="financeExpenseForm.note" placeholder="Пополнение поставщика / комиссия…">
+              </div>
+              <button type="button" :disabled="financeSaving" @click="addFinanceExpense">Добавить</button>
             </div>
-            <div class="table-wrap">
+            <div class="table-wrap" style="margin-top:12px">
               <table class="finance-table">
                 <thead>
                   <tr>
                     <th>Когда</th>
-                    <th>Тип</th>
+                    <th>Счёт</th>
                     <th>Категория</th>
                     <th>Комментарий</th>
                     <th class="num">Сумма</th>
-                    <th class="actions" aria-label="Действия"></th>
+                    <th class="actions"></th>
                   </tr>
                 </thead>
                 <tbody>
-                  <tr v-if="!filteredFinanceEntries.length" class="empty">
-                    <td colspan="6">Пока нет ручных проводок</td>
-                  </tr>
-                  <tr v-for="item in filteredFinanceEntries" :key="item.id">
+                  <tr v-if="!financeExpenses.length" class="empty"><td colspan="6">Пока нет расходов</td></tr>
+                  <tr v-for="item in financeExpenses" :key="item.id">
                     <td class="nowrap muted">{{ formatRecentAt(item.occurred_at) }}</td>
+                    <td>{{ item.account_name }}</td>
                     <td>
-                      <span class="kind-badge" :class="financeKindClass(item.kind)">
-                        {{ item.kind_label }}
-                      </span>
+                      <span
+                        v-if="item.category_name"
+                        class="cat-chip"
+                        :style="{ background: item.category_color || '#eee' }"
+                      >{{ item.category_name }}</span>
+                      <span v-else class="muted">—</span>
                     </td>
-                    <td>{{ item.category_label }}</td>
                     <td class="finance-note-cell">{{ item.note || '—' }}</td>
-                    <td class="num">
-                      <div class="ledger-amt">
-                        <span class="ledger-usd">{{ rub(item.amount_rub) }}</span>
-                        <span v-if="item.amount_usd" class="ledger-rub">{{ usd(item.amount_usd) }}</span>
-                      </div>
-                    </td>
+                    <td class="num">{{ rub(item.amount_rub) }}</td>
                     <td class="actions">
-                      <button
-                        type="button"
-                        class="icon-btn danger-ghost"
-                        title="Удалить"
-                        aria-label="Удалить"
-                        @click="deleteFinanceEntry(item.id)"
-                      >
+                      <button type="button" class="quiet sm" @click="startEditExpense(item)">Изм.</button>
+                      <button type="button" class="icon-btn danger-ghost" title="Удалить" @click="deleteFinanceOperation(item.id, 'расход')">
                         <AppIcon name="trash" :size="15" />
                       </button>
                     </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+            <div v-if="financeEditExpense" class="finance-edit">
+              <h3>Редактирование расхода #{{ financeEditExpense.id }}</h3>
+              <div class="finance-form">
+                <div class="field">
+                  <label>Счёт</label>
+                  <select v-model="financeEditExpense.account_id">
+                    <option v-for="a in financeAccounts" :key="a.id" :value="String(a.id)">{{ a.name }}</option>
+                  </select>
+                </div>
+                <div class="field">
+                  <label>Категория</label>
+                  <select v-model="financeEditExpense.category_id">
+                    <option value="">Без категории</option>
+                    <option v-for="c in financeExpenseCategories" :key="c.id" :value="String(c.id)">{{ c.name }}</option>
+                  </select>
+                </div>
+                <div class="field">
+                  <label>Сумма ₽</label>
+                  <input v-model="financeEditExpense.amount_rub" inputmode="decimal">
+                </div>
+                <div class="field grow">
+                  <label>Комментарий</label>
+                  <input v-model="financeEditExpense.note">
+                </div>
+                <button type="button" :disabled="financeSaving" @click="saveFinanceExpenseEdit">Сохранить</button>
+                <button type="button" class="quiet" @click="financeEditExpense = null">Отмена</button>
+              </div>
+            </div>
+          </div>
+
+          <div v-show="financeSection === 'withdrawals'" class="finance-card wide">
+            <h3>Выводы</h3>
+            <div class="finance-form">
+              <div class="field">
+                <label>Счёт</label>
+                <select v-model="financeWithdrawalForm.account_id">
+                  <option v-for="a in financeAccounts" :key="a.id" :value="String(a.id)">{{ a.name }}</option>
+                </select>
+              </div>
+              <div class="field">
+                <label>Категория</label>
+                <select v-model="financeWithdrawalForm.category_id">
+                  <option value="">Без категории</option>
+                  <option v-for="c in financeWithdrawalCategories" :key="c.id" :value="String(c.id)">{{ c.name }}</option>
+                </select>
+              </div>
+              <div class="field">
+                <label>Сумма ₽</label>
+                <input v-model="financeWithdrawalForm.amount_rub" inputmode="decimal">
+              </div>
+              <div class="field grow">
+                <label>Комментарий</label>
+                <input v-model="financeWithdrawalForm.note">
+              </div>
+              <button type="button" :disabled="financeSaving" @click="addFinanceWithdrawal">Добавить</button>
+            </div>
+            <div class="table-wrap" style="margin-top:12px">
+              <table class="finance-table">
+                <thead>
+                  <tr><th>Когда</th><th>Счёт</th><th>Категория</th><th>Комментарий</th><th class="num">Сумма</th><th class="actions"></th></tr>
+                </thead>
+                <tbody>
+                  <tr v-if="!financeWithdrawals.length" class="empty"><td colspan="6">Пока нет выводов</td></tr>
+                  <tr v-for="item in financeWithdrawals" :key="item.id">
+                    <td class="nowrap muted">{{ formatRecentAt(item.occurred_at) }}</td>
+                    <td>{{ item.account_name }}</td>
+                    <td>
+                      <span v-if="item.category_name" class="cat-chip" :style="{ background: item.category_color || '#eee' }">{{ item.category_name }}</span>
+                      <span v-else class="muted">—</span>
+                    </td>
+                    <td class="finance-note-cell">{{ item.note || '—' }}</td>
+                    <td class="num">{{ rub(item.amount_rub) }}</td>
+                    <td class="actions">
+                      <button type="button" class="icon-btn danger-ghost" @click="deleteFinanceOperation(item.id, 'вывод')">
+                        <AppIcon name="trash" :size="15" />
+                      </button>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <div v-show="financeSection === 'accounts'" class="finance-card wide">
+            <h3>Счета</h3>
+            <div class="finance-form">
+              <div class="field">
+                <label>Название</label>
+                <input v-model="financeAccountForm.name" placeholder="ЮKassa / Тинькофф">
+              </div>
+              <div class="field">
+                <label>Провайдер</label>
+                <select v-model="financeAccountForm.provider_key">
+                  <option value="">Обычный счёт</option>
+                  <option v-for="p in financeProviders" :key="p.value" :value="p.value">{{ p.label }}</option>
+                </select>
+              </div>
+              <div class="field">
+                <label class="support-filter" style="margin-top:22px">
+                  <input v-model="financeAccountForm.is_default" type="checkbox">
+                  Дефолт для расходов
+                </label>
+              </div>
+              <div class="field grow">
+                <label>Комментарий</label>
+                <input v-model="financeAccountForm.note">
+              </div>
+              <button type="button" :disabled="financeSaving" @click="addFinanceAccount">Создать</button>
+            </div>
+            <p class="muted small">Для счёта ЮKassa при создании подтянутся все прошлые оплаты.</p>
+            <div class="table-wrap" style="margin-top:12px">
+              <table class="finance-table">
+                <thead>
+                  <tr><th>Счёт</th><th>Провайдер</th><th class="num">Баланс</th><th></th><th class="actions"></th></tr>
+                </thead>
+                <tbody>
+                  <tr v-if="!financeAccounts.length" class="empty"><td colspan="5">Создайте хотя бы один счёт</td></tr>
+                  <tr v-for="a in financeAccounts" :key="a.id">
+                    <td>
+                      <b>{{ a.name }}</b>
+                      <span v-if="a.is_default" class="badge ok">дефолт</span>
+                    </td>
+                    <td>{{ a.provider_label || '—' }}</td>
+                    <td class="num">{{ rub(a.balance_rub) }}</td>
+                    <td>
+                      <button v-if="!a.is_default" type="button" class="quiet sm" @click="setDefaultFinanceAccount(a)">Сделать дефолтным</button>
+                    </td>
+                    <td class="actions">
+                      <button type="button" class="icon-btn danger-ghost" @click="deleteFinanceAccount(a)">
+                        <AppIcon name="trash" :size="15" />
+                      </button>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+            <div class="finance-split">
+              <div>
+                <h3>Пополнение счёта</h3>
+                <div class="finance-form stacked">
+                  <select v-model="financeDepositForm.account_id">
+                    <option v-for="a in financeAccounts" :key="a.id" :value="String(a.id)">{{ a.name }}</option>
+                  </select>
+                  <input v-model="financeDepositForm.amount_rub" inputmode="decimal" placeholder="Сумма ₽">
+                  <input v-model="financeDepositForm.note" placeholder="Комментарий">
+                  <button type="button" :disabled="financeSaving" @click="addFinanceDeposit">Пополнить</button>
+                </div>
+              </div>
+              <div>
+                <h3>Перевод между счетами</h3>
+                <div class="finance-form stacked">
+                  <select v-model="financeTransferForm.account_id">
+                    <option disabled value="">Откуда</option>
+                    <option v-for="a in financeAccounts" :key="'f'+a.id" :value="String(a.id)">{{ a.name }}</option>
+                  </select>
+                  <select v-model="financeTransferForm.counterparty_account_id">
+                    <option disabled value="">Куда</option>
+                    <option v-for="a in financeAccounts" :key="'t'+a.id" :value="String(a.id)">{{ a.name }}</option>
+                  </select>
+                  <input v-model="financeTransferForm.amount_rub" inputmode="decimal" placeholder="Сумма ₽">
+                  <input v-model="financeTransferForm.note" placeholder="Комментарий">
+                  <button type="button" :disabled="financeSaving" @click="addFinanceTransfer">Перевести</button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div v-show="financeSection === 'categories'" class="finance-card wide">
+            <h3>Категории</h3>
+            <div class="finance-form">
+              <div class="field">
+                <label>Тип</label>
+                <select v-model="financeCategoryForm.kind">
+                  <option value="expense">Расход</option>
+                  <option value="withdrawal">Вывод</option>
+                </select>
+              </div>
+              <div class="field">
+                <label>Название</label>
+                <input v-model="financeCategoryForm.name">
+              </div>
+              <div class="field">
+                <label>Цвет</label>
+                <input v-model="financeCategoryForm.color" type="color">
+              </div>
+              <button type="button" :disabled="financeSaving" @click="addFinanceCategory">Добавить</button>
+            </div>
+            <div class="table-wrap" style="margin-top:12px">
+              <table class="finance-table">
+                <thead>
+                  <tr><th>Тип</th><th>Название</th><th>Цвет</th><th class="actions"></th></tr>
+                </thead>
+                <tbody>
+                  <tr v-for="c in (financeSummary?.categories || [])" :key="c.id">
+                    <td>{{ c.kind === 'expense' ? 'Расход' : 'Вывод' }}</td>
+                    <td><input v-model="c.name" @change="saveFinanceCategory(c)"></td>
+                    <td><input v-model="c.color" type="color" @change="saveFinanceCategory(c)"></td>
+                    <td class="actions">
+                      <button type="button" class="icon-btn danger-ghost" @click="archiveFinanceCategory(c)">
+                        <AppIcon name="trash" :size="15" />
+                      </button>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <div v-show="financeSection === 'operations'" class="finance-card wide">
+            <h3>Все операции</h3>
+            <div class="table-wrap">
+              <table class="finance-table">
+                <thead>
+                  <tr><th>Когда</th><th>Тип</th><th>Счёт</th><th>Категория / куда</th><th>Комментарий</th><th class="num">Сумма</th></tr>
+                </thead>
+                <tbody>
+                  <tr v-if="!financeOperations.length" class="empty"><td colspan="6">Пока пусто</td></tr>
+                  <tr v-for="item in financeOperations" :key="item.id">
+                    <td class="nowrap muted">{{ formatRecentAt(item.occurred_at) }}</td>
+                    <td><span class="kind-badge" :class="financeKindClass(item.kind)">{{ item.kind_label }}</span></td>
+                    <td>{{ item.account_name }}</td>
+                    <td>
+                      <span v-if="item.kind === 'transfer'">→ {{ item.counterparty_name }}</span>
+                      <span v-else-if="item.category_name" class="cat-chip" :style="{ background: item.category_color || '#eee' }">{{ item.category_name }}</span>
+                      <span v-else class="muted">—</span>
+                    </td>
+                    <td class="finance-note-cell">{{ item.note || '—' }}</td>
+                    <td class="num">{{ rub(item.amount_rub) }}</td>
                   </tr>
                 </tbody>
               </table>
@@ -1122,18 +1291,37 @@ const {
   ledgerUserOptions,
   ledgerKindOptions,
   financeSummary,
-  filteredFinanceEntries,
-  financeFilter,
+  financeSection,
   financeError,
   financeSaving,
-  financeOpeningDraft,
-  financeForm,
-  financeKindOptions,
-  financeCategoryOptions,
+  financeExpenseForm,
+  financeWithdrawalForm,
+  financeAccountForm,
+  financeDepositForm,
+  financeTransferForm,
+  financeCategoryForm,
+  financeEditExpense,
+  financeAccounts,
+  financeExpenseCategories,
+  financeWithdrawalCategories,
+  financeExpenses,
+  financeWithdrawals,
+  financeOperations,
+  financeProviders,
   loadFinance,
-  saveFinanceOpening,
-  addFinanceEntry,
-  deleteFinanceEntry,
+  addFinanceExpense,
+  saveFinanceExpenseEdit,
+  startEditExpense,
+  addFinanceWithdrawal,
+  deleteFinanceOperation,
+  addFinanceAccount,
+  setDefaultFinanceAccount,
+  deleteFinanceAccount,
+  addFinanceDeposit,
+  addFinanceTransfer,
+  addFinanceCategory,
+  saveFinanceCategory,
+  archiveFinanceCategory,
   financeKindClass,
   topups,
   users,
@@ -1815,11 +2003,48 @@ onMounted(() => {
   border-color: #e3b4b4;
 }
 .admin-page .finance-kpi.emphasis.bad b { color: var(--danger); }
+.admin-page .finance-kpi.bad {
+  background: var(--danger-soft);
+  border-color: #e3b4b4;
+}
+.admin-page .finance-alert {
+  margin: 0 0 14px;
+  padding: 12px 14px;
+  border-radius: var(--radius-sm);
+  border: 1px solid #e3b4b4;
+  background: var(--danger-soft);
+  color: var(--danger);
+  font-size: 14px;
+}
+.admin-page .finance-alert b { color: var(--text); }
 .admin-page .finance-grid {
   display: grid;
   grid-template-columns: 1.2fr 0.8fr;
   gap: 12px;
   margin-bottom: 16px;
+}
+.admin-page .finance-split {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  margin-top: 18px;
+}
+.admin-page .finance-form.stacked {
+  grid-template-columns: 1fr;
+}
+.admin-page .cat-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 999px;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 650;
+}
+.admin-page .finance-edit {
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
 }
 .admin-page .finance-card {
   padding: 16px 18px;
@@ -1956,7 +2181,8 @@ onMounted(() => {
 }
 @media (max-width: 1100px) {
   .admin-page .finance-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .admin-page .finance-grid { grid-template-columns: 1fr; }
+  .admin-page .finance-grid,
+  .admin-page .finance-split { grid-template-columns: 1fr; }
   .admin-page .finance-form { grid-template-columns: 1fr 1fr; }
   .admin-page .finance-form .field.grow,
   .admin-page .finance-form button { grid-column: 1 / -1; }

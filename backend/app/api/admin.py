@@ -13,7 +13,14 @@ from app.billing import BillingError, adjust_usd, block_user, unblock_user
 from app.db import pool
 from app.config import settings
 from app.mailer import enabled as mail_enabled
-from app.money import bonus_tiers, min_topup_usd, normalize_bonus_tiers, units_to_usd, usd_price_rub
+from app.money import (
+    bonus_tiers,
+    min_topup_usd,
+    normalize_bonus_tiers,
+    supplier_usd_price_rub,
+    units_to_usd,
+    usd_price_rub,
+)
 from app.referrals import (
     ReferralError,
     create_group,
@@ -34,15 +41,19 @@ from app.support import (
     waiting_count,
 )
 from app.finance import (
-    CATEGORIES,
-    CATEGORY_LABELS,
-    KIND_LABELS,
-    KINDS,
+    archive_category,
     build_summary,
-    create_entry,
-    delete_entry,
-    list_entries,
-    set_opening_cash_rub,
+    create_account,
+    create_category,
+    create_operation,
+    delete_account,
+    delete_operation,
+    list_accounts,
+    list_categories,
+    list_operations,
+    update_account,
+    update_category,
+    update_operation,
 )
 from app.telegram_link import bot_username
 from app.upstream import UpstreamError, upstream
@@ -54,6 +65,7 @@ _MSK = ZoneInfo("Europe/Moscow")
 _TEXT_KEYS = (
     "public_base_url",
     "usd_price_rub",
+    "supplier_usd_price_rub",
     "min_topup_usd",
     "topup_bonuses",
     "offer_email",
@@ -75,6 +87,7 @@ class BonusTierIn(BaseModel):
 class SettingsIn(BaseModel):
     public_base_url: str = Field(default="", max_length=300)
     usd_price_rub: str = Field(default="", max_length=32)
+    supplier_usd_price_rub: str = Field(default="", max_length=32)
     min_topup_usd: str = Field(default="", max_length=32)
     topup_bonuses: list[BonusTierIn] = Field(default_factory=list, max_length=20)
     offer_email: str = Field(default="", max_length=200)
@@ -117,17 +130,52 @@ class SupportReplyIn(BaseModel):
     body: str = Field(min_length=1, max_length=4000)
 
 
-class FinanceEntryIn(BaseModel):
+class FinanceCategoryIn(BaseModel):
+    name: str = Field(min_length=1, max_length=80)
+    color: str = Field(default="#6b645b", max_length=16)
+    kind: str = Field(default="expense", max_length=32)
+    sort_order: int = Field(default=100, ge=0, le=10000)
+
+
+class FinanceCategoryUpdateIn(BaseModel):
+    name: str = Field(min_length=1, max_length=80)
+    color: str = Field(default="#6b645b", max_length=16)
+    sort_order: int | None = Field(default=None, ge=0, le=10000)
+
+
+class FinanceAccountIn(BaseModel):
+    name: str = Field(min_length=1, max_length=120)
+    provider_key: str = Field(default="", max_length=32)
+    is_default: bool = False
+    note: str = Field(default="", max_length=300)
+    import_history: bool = True
+
+
+class FinanceAccountUpdateIn(BaseModel):
+    name: str = Field(min_length=1, max_length=120)
+    is_default: bool | None = None
+    note: str | None = Field(default=None, max_length=300)
+
+
+class FinanceOperationIn(BaseModel):
     kind: str = Field(min_length=1, max_length=32)
-    category: str = Field(default="other", max_length=64)
+    account_id: int = Field(gt=0)
+    counterparty_account_id: int | None = Field(default=None, gt=0)
+    category_id: int | None = Field(default=None, gt=0)
     amount_rub: float = Field(gt=0, le=100_000_000)
     amount_usd: float = Field(default=0, ge=0, le=1_000_000)
     note: str = Field(default="", max_length=500)
     occurred_at: str = Field(default="", max_length=40)
 
 
-class FinanceOpeningIn(BaseModel):
-    opening_cash_rub: float = Field(ge=0, le=100_000_000)
+class FinanceOperationUpdateIn(BaseModel):
+    account_id: int | None = Field(default=None, gt=0)
+    category_id: int | None = Field(default=None, gt=0)
+    clear_category: bool = False
+    amount_rub: float | None = Field(default=None, gt=0, le=100_000_000)
+    amount_usd: float | None = Field(default=None, ge=0, le=1_000_000)
+    note: str | None = Field(default=None, max_length=500)
+    occurred_at: str = Field(default="", max_length=40)
 
 
 _LEDGER_KINDS = {"topup", "credit", "spend", "adjust"}
@@ -164,6 +212,11 @@ def _settings_payload() -> dict:
         "public_base_url": public_base_url(),
         "offer_url": offer_url(),
         "usd_price_rub": str(usd_price_rub()) if usd_price_rub() > 0 else get_setting("usd_price_rub"),
+        "supplier_usd_price_rub": (
+            str(supplier_usd_price_rub())
+            if get_setting("supplier_usd_price_rub").strip()
+            else ""
+        ),
         "min_topup_usd": str(min_topup_usd()),
         "topup_bonuses": bonus_tiers(),
         "mail_enabled": mail_enabled(),
@@ -200,6 +253,13 @@ def write_settings(body: SettingsIn) -> dict:
                 raise HTTPException(status_code=422, detail="price")
         except Exception as exc:
             raise HTTPException(status_code=422, detail="price") from exc
+    supplier_price = body.supplier_usd_price_rub.strip().replace(",", ".")
+    if supplier_price:
+        try:
+            if Decimal(supplier_price) <= 0:
+                raise ValueError
+        except Exception as exc:
+            raise HTTPException(status_code=422, detail="supplier_price") from exc
     min_topup = body.min_topup_usd.strip().replace(",", ".")
     if min_topup:
         try:
@@ -217,6 +277,7 @@ def write_settings(body: SettingsIn) -> dict:
     values = {
         "public_base_url": normalize_base_url(body.public_base_url),
         "usd_price_rub": price,
+        "supplier_usd_price_rub": supplier_price,
         "min_topup_usd": min_topup,
         "topup_bonuses": json.dumps(tiers, ensure_ascii=False) if tiers else "",
         "offer_email": body.offer_email.strip(),
@@ -910,56 +971,160 @@ def support_reply(kind: str, thread_id: int, body: SupportReplyIn) -> dict:
     return {"message": message}
 
 
+def _finance_when(raw: str):
+    value = (raw or "").strip()
+    if not value:
+        return None
+    try:
+        return datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail="occurred_at") from exc
+
+
 @router.get("/finance", dependencies=[Depends(require_admin)])
 def finance_summary() -> dict:
     return build_summary()
 
 
-@router.get("/finance/entries", dependencies=[Depends(require_admin)])
-def finance_entries(kind: str = Query(default="")) -> dict:
-    filter_kind = kind.strip() if kind.strip() in KINDS else None
-    return {
-        "items": list_entries(filter_kind),
-        "kinds": [{"value": k, "label": KIND_LABELS[k]} for k in KINDS],
-        "categories": {
-            k: [{"value": c, "label": CATEGORY_LABELS.get(c, c)} for c in CATEGORIES[k]]
-            for k in KINDS
-        },
-    }
+@router.get("/finance/categories", dependencies=[Depends(require_admin)])
+def finance_categories(kind: str = Query(default="")) -> dict:
+    return {"items": list_categories(kind.strip() or None)}
 
 
-@router.post("/finance/entries", dependencies=[Depends(require_admin)])
-def finance_create(body: FinanceEntryIn) -> dict:
-    occurred = None
-    raw = body.occurred_at.strip()
-    if raw:
-        try:
-            occurred = datetime.fromisoformat(raw.replace("Z", "+00:00"))
-        except ValueError as exc:
-            raise HTTPException(status_code=422, detail="occurred_at") from exc
+@router.post("/finance/categories", dependencies=[Depends(require_admin)])
+def finance_category_create(body: FinanceCategoryIn) -> dict:
     try:
-        entry = create_entry(
+        item = create_category(
+            name=body.name,
+            color=body.color,
             kind=body.kind.strip(),
-            category=body.category.strip(),
-            amount_rub=Decimal(str(body.amount_rub)),
-            amount_usd=Decimal(str(body.amount_usd or 0)),
-            note=body.note,
-            occurred_at=occurred,
+            sort_order=body.sort_order,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    return {"entry": entry, "summary": build_summary()}
+    return {"item": item, "summary": build_summary()}
 
 
-@router.delete("/finance/entries/{entry_id}", dependencies=[Depends(require_admin)])
-def finance_delete(entry_id: int) -> dict:
-    if not delete_entry(entry_id):
-        raise HTTPException(status_code=404, detail="entry")
+@router.put("/finance/categories/{category_id}", dependencies=[Depends(require_admin)])
+def finance_category_update(category_id: int, body: FinanceCategoryUpdateIn) -> dict:
+    try:
+        item = update_category(
+            category_id,
+            name=body.name,
+            color=body.color,
+            sort_order=body.sort_order,
+        )
+    except LookupError:
+        raise HTTPException(status_code=404, detail="category") from None
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"item": item, "summary": build_summary()}
+
+
+@router.delete("/finance/categories/{category_id}", dependencies=[Depends(require_admin)])
+def finance_category_delete(category_id: int) -> dict:
+    if not archive_category(category_id):
+        raise HTTPException(status_code=404, detail="category")
     return {"ok": True, "summary": build_summary()}
 
 
-@router.put("/finance/opening", dependencies=[Depends(require_admin)])
-def finance_opening(body: FinanceOpeningIn) -> dict:
-    amount = set_opening_cash_rub(Decimal(str(body.opening_cash_rub)))
-    return {"opening_cash_rub": float(amount), "summary": build_summary()}
+@router.get("/finance/accounts", dependencies=[Depends(require_admin)])
+def finance_accounts() -> dict:
+    return {"items": list_accounts()}
+
+
+@router.post("/finance/accounts", dependencies=[Depends(require_admin)])
+def finance_account_create(body: FinanceAccountIn) -> dict:
+    try:
+        item = create_account(
+            name=body.name,
+            provider_key=body.provider_key,
+            is_default=body.is_default,
+            note=body.note,
+            import_history=body.import_history,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"item": item, "summary": build_summary()}
+
+
+@router.put("/finance/accounts/{account_id}", dependencies=[Depends(require_admin)])
+def finance_account_update(account_id: int, body: FinanceAccountUpdateIn) -> dict:
+    try:
+        item = update_account(
+            account_id,
+            name=body.name,
+            is_default=body.is_default,
+            note=body.note,
+        )
+    except LookupError:
+        raise HTTPException(status_code=404, detail="account") from None
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"item": item, "summary": build_summary()}
+
+
+@router.delete("/finance/accounts/{account_id}", dependencies=[Depends(require_admin)])
+def finance_account_delete(account_id: int) -> dict:
+    try:
+        ok = delete_account(account_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if not ok:
+        raise HTTPException(status_code=404, detail="account")
+    return {"ok": True, "summary": build_summary()}
+
+
+@router.get("/finance/operations", dependencies=[Depends(require_admin)])
+def finance_operations(kind: str = Query(default="")) -> dict:
+    return {"items": list_operations(kind.strip() or None)}
+
+
+@router.post("/finance/operations", dependencies=[Depends(require_admin)])
+def finance_operation_create(body: FinanceOperationIn) -> dict:
+    try:
+        item = create_operation(
+            kind=body.kind.strip(),
+            account_id=body.account_id,
+            counterparty_account_id=body.counterparty_account_id,
+            category_id=body.category_id,
+            amount_rub=Decimal(str(body.amount_rub)),
+            amount_usd=Decimal(str(body.amount_usd or 0)),
+            note=body.note,
+            occurred_at=_finance_when(body.occurred_at),
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"item": item, "summary": build_summary()}
+
+
+@router.put("/finance/operations/{operation_id}", dependencies=[Depends(require_admin)])
+def finance_operation_update(operation_id: int, body: FinanceOperationUpdateIn) -> dict:
+    try:
+        item = update_operation(
+            operation_id,
+            account_id=body.account_id,
+            category_id=body.category_id,
+            clear_category=body.clear_category,
+            amount_rub=Decimal(str(body.amount_rub)) if body.amount_rub is not None else None,
+            amount_usd=Decimal(str(body.amount_usd)) if body.amount_usd is not None else None,
+            note=body.note,
+            occurred_at=_finance_when(body.occurred_at),
+        )
+    except LookupError:
+        raise HTTPException(status_code=404, detail="operation") from None
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"item": item, "summary": build_summary()}
+
+
+@router.delete("/finance/operations/{operation_id}", dependencies=[Depends(require_admin)])
+def finance_operation_delete(operation_id: int) -> dict:
+    try:
+        ok = delete_operation(operation_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if not ok:
+        raise HTTPException(status_code=404, detail="operation")
+    return {"ok": True, "summary": build_summary()}
 
