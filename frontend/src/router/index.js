@@ -8,6 +8,8 @@ import CabinetView from '../views/CabinetView.vue'
 import PricesView from '../views/PricesView.vue'
 import SupportView from '../views/SupportView.vue'
 
+const DOCS_PAGES = new Set(['privacy', 'consent', 'offer', 'cookies', 'help'])
+
 const router = createRouter({
   history: createWebHistory(),
   routes: [
@@ -24,11 +26,15 @@ const router = createRouter({
     { path: '/consent', name: 'consent', component: LegalView, props: { page: 'consent' } },
     { path: '/offer', name: 'offer', component: LegalView, props: { page: 'offer' } },
     { path: '/cookies', name: 'cookies', component: LegalView, props: { page: 'cookies' } },
+    { path: '/help', name: 'help', component: LegalView, props: { page: 'help' } },
     { path: '/admin', redirect: '/admin-panel' },
     { path: '/admin-panel', name: 'admin', component: AdminView },
     { path: '/:pathMatch(.*)*', redirect: '/' },
   ],
-  scrollBehavior() {
+  scrollBehavior(to, from) {
+    if (DOCS_PAGES.has(to.name) && DOCS_PAGES.has(from.name)) {
+      return false
+    }
     return { top: 0 }
   },
 })

@@ -33,7 +33,7 @@
             @click="navOpen = false"
           >
             <span class="nav-icon"><AppIcon :name="item.icon" :size="16" /></span>
-            <span>{{ item.label }}</span>
+            <span class="nav-label">{{ item.label }}</span>
           </RouterLink>
         </nav>
         <RouterLink to="/support" class="help-card" @click="navOpen = false">
@@ -46,8 +46,53 @@
         </RouterLink>
       </aside>
 
-      <main class="docs-main">
-        <div v-if="data" class="doc-card">
+      <main class="docs-main" ref="mainEl">
+        <div v-if="isHelp" class="doc-card">
+          <RouterLink to="/docs" class="back-link desktop-back">
+            <AppIcon name="arrow-left" :size="15" />
+            Назад к документам
+          </RouterLink>
+          <button type="button" class="back-link mobile-back" @click="navOpen = true">
+            <AppIcon name="arrow-left" :size="15" />
+            Назад к документам
+          </button>
+
+          <div class="doc-head">
+            <div class="doc-head-text">
+              <span class="doc-badge">Справка</span>
+              <h1>Справочный центр</h1>
+              <p class="doc-meta">Ответы на частые вопросы и связь с поддержкой</p>
+            </div>
+          </div>
+
+          <div class="doc-summary">
+            <span class="summary-icon"><AppIcon name="help" :size="20" /></span>
+            <div>
+              <b>Как мы помогаем</b>
+              <p>Сначала загляните в FAQ ниже. Если ответа нет — напишите в чат поддержки, ответим в течение нескольких минут.</p>
+            </div>
+          </div>
+
+          <div class="faq-list">
+            <details v-for="item in faqItems" :key="item.q">
+              <summary>
+                <span>{{ item.q }}</span>
+                <AppIcon name="chevron" :size="16" class="chev" />
+              </summary>
+              <div class="faq-body" v-html="item.a" />
+            </details>
+          </div>
+
+          <div class="help-cta">
+            <div>
+              <b>Не нашли ответ?</b>
+              <p>Откройте чат поддержки — можно писать без авторизации.</p>
+            </div>
+            <RouterLink to="/support" class="btn sm">Написать в поддержку</RouterLink>
+          </div>
+        </div>
+
+        <div v-else-if="data" class="doc-card" :class="{ dim: loading }">
           <RouterLink to="/docs" class="back-link desktop-back">
             <AppIcon name="arrow-left" :size="15" />
             Назад к документам
@@ -120,7 +165,7 @@
           <h1>Страница не найдена</h1>
           <p class="plain">Документ недоступен. Выберите другой в списке слева.</p>
         </div>
-        <div v-else class="doc-card loading">
+        <div v-else class="doc-card">
           <p class="plain">Загрузка…</p>
         </div>
       </main>
@@ -131,11 +176,12 @@
 </template>
 
 <script setup>
-import { computed, ref, watch } from 'vue'
+import { computed, nextTick, ref, watch } from 'vue'
 import { RouterLink, useRouter } from 'vue-router'
 import AppIcon from '../components/ui/AppIcon.vue'
 import { fetchLegalPage } from '../api/site'
 import { useSession } from '../composables/useSession'
+import { siteFaqItems } from '../utils/siteFaq'
 import { useHead } from '../utils/useHead'
 
 const props = defineProps({
@@ -147,18 +193,23 @@ const { isLoggedIn, clearSession } = useSession()
 
 const data = ref(null)
 const error = ref(false)
+const loading = ref(false)
 const navOpen = ref(false)
+const mainEl = ref(null)
+
+const isHelp = computed(() => props.page === 'help')
+const faqItems = siteFaqItems()
 
 const navItems = [
   { page: 'cookies', to: '/cookies', label: 'Политика в отношении cookies', icon: 'cookie' },
   { page: 'offer', to: '/offer', label: 'Публичная оферта', icon: 'file' },
   { page: 'privacy', to: '/privacy', label: 'Политика конфиденциальности', icon: 'shield' },
   { page: 'consent', to: '/consent', label: 'Согласие на обработку данных', icon: 'lock' },
-  { page: 'support', to: '/support', label: 'Справочный центр', icon: 'help' },
+  { page: 'help', to: '/help', label: 'Справочный центр', icon: 'help' },
 ]
 
 const pageIcon = computed(() => {
-  const map = { cookies: 'cookie', offer: 'file', privacy: 'shield', consent: 'lock' }
+  const map = { cookies: 'cookie', offer: 'file', privacy: 'shield', consent: 'lock', help: 'help' }
   return map[props.page] || 'file'
 })
 
@@ -181,8 +232,7 @@ const revisionText = computed(() => {
 const emailText = computed(() => {
   const meta = data.value?.meta || ''
   const parts = meta.split('·').map((p) => p.trim())
-  const email = parts.find((p) => p.includes('@'))
-  return email || ''
+  return parts.find((p) => p.includes('@')) || ''
 })
 
 const summaryText = computed(() => {
@@ -240,12 +290,15 @@ function parseBlocks(paragraphs, heading, summary) {
           bullets.push(lines[j].replace(/^[•·]\s*/, ''))
         }
       }
-      // also pull following pure-bullet paragraphs
       let k = i + 1
       while (k < paragraphs.length) {
         const next = String(paragraphs[k] || '').trim()
         if (!next) break
-        if (next.startsWith('•') || next.startsWith('·') || next.split('\n').every((l) => !l.trim() || l.trim().startsWith('•') || l.trim().startsWith('·'))) {
+        if (
+          next.startsWith('•')
+          || next.startsWith('·')
+          || next.split('\n').every((l) => !l.trim() || l.trim().startsWith('•') || l.trim().startsWith('·'))
+        ) {
           next.split('\n').forEach((l) => {
             const t = l.trim()
             if (t.startsWith('•') || t.startsWith('·')) bullets.push(t.replace(/^[•·]\s*/, ''))
@@ -261,7 +314,11 @@ function parseBlocks(paragraphs, heading, summary) {
     }
 
     if (raw.startsWith('•') || raw.startsWith('·') || raw.includes('\n•')) {
-      const items = raw.split('\n').map((l) => l.trim()).filter((l) => l.startsWith('•') || l.startsWith('·')).map((l) => l.replace(/^[•·]\s*/, ''))
+      const items = raw
+        .split('\n')
+        .map((l) => l.trim())
+        .filter((l) => l.startsWith('•') || l.startsWith('·'))
+        .map((l) => l.replace(/^[•·]\s*/, ''))
       if (items.length) {
         blocks.push({ type: 'list', items })
         i += 1
@@ -290,18 +347,36 @@ function titleCase(value) {
 }
 
 async function load() {
-  if (props.page === 'support') {
-    router.replace('/support')
+  error.value = false
+  if (isHelp.value) {
+    data.value = null
+    loading.value = false
+    useHead('Справочный центр — Aimarket', true)
+    await nextTick()
+    scrollMainTop()
     return
   }
-  error.value = false
-  data.value = null
+  loading.value = true
   try {
-    data.value = await fetchLegalPage(props.page)
-    useHead(`${data.value.title} — Aimarket`, true)
+    const next = await fetchLegalPage(props.page)
+    data.value = next
+    useHead(`${next.title} — Aimarket`, true)
   } catch {
+    data.value = null
     error.value = true
     useHead('Страница не найдена — Aimarket', true)
+  } finally {
+    loading.value = false
+    await nextTick()
+    scrollMainTop()
+  }
+}
+
+function scrollMainTop() {
+  if (!mainEl.value) return
+  const top = mainEl.value.getBoundingClientRect().top + window.scrollY - 12
+  if (Math.abs(window.scrollY - top) > 40) {
+    window.scrollTo({ top: Math.max(0, top), behavior: 'instant' in window ? 'instant' : 'auto' })
   }
 }
 
@@ -364,15 +439,13 @@ watch(() => props.page, load, { immediate: true })
   gap: 14px;
 }
 .nav-text {
-  font-size: 14px;
-  font-weight: 600;
-  color: var(--muted-2);
   background: none;
   border: 0;
   padding: 0;
   font: inherit;
   font-size: 14px;
   font-weight: 600;
+  color: var(--muted-2);
   cursor: pointer;
 }
 .linkish {
@@ -383,7 +456,7 @@ watch(() => props.page, load, { immediate: true })
 
 .docs-shell {
   display: grid;
-  grid-template-columns: 280px minmax(0, 1fr);
+  grid-template-columns: 300px minmax(0, 1fr);
   gap: 20px;
   max-width: 1280px;
   margin: 0 auto;
@@ -428,21 +501,25 @@ watch(() => props.page, load, { immediate: true })
   gap: 4px;
 }
 .docs-nav-item {
-  display: flex;
-  align-items: center;
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr);
+  align-items: start;
   gap: 10px;
   padding: 11px 12px;
   border-radius: 12px;
   color: var(--muted-2);
-  font-size: 14px;
-  font-weight: 550;
-  line-height: 1.3;
+  font-size: 13.5px;
+  font-weight: 600;
+  line-height: 1.35;
 }
 .docs-nav-item:hover { background: rgba(255, 255, 255, 0.55); color: var(--text); }
 .docs-nav-item.on {
   background: var(--docs-soft);
   color: var(--text);
-  font-weight: 650;
+}
+.nav-label {
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 .nav-icon {
   width: 28px;
@@ -488,14 +565,20 @@ watch(() => props.page, load, { immediate: true })
 .help-text b { font-size: 13px; }
 .help-text small { color: var(--muted); font-size: 12px; }
 
-.docs-main { min-width: 0; }
+.docs-main {
+  min-width: 0;
+  min-height: 70vh;
+}
 .doc-card {
   background: #fff;
   border: 1px solid var(--docs-line);
   border-radius: 22px;
   padding: 28px 32px 36px;
   box-shadow: 0 18px 40px rgba(28, 25, 21, 0.05);
+  min-height: 640px;
+  transition: opacity 0.15s ease;
 }
+.doc-card.dim { opacity: 0.72; }
 .back-link {
   display: inline-flex;
   align-items: center;
@@ -630,9 +713,7 @@ watch(() => props.page, load, { immediate: true })
   font-size: 18px;
   letter-spacing: -0.02em;
 }
-.subsection {
-  padding-left: 8px;
-}
+.subsection { padding-left: 8px; }
 .subsection p { margin: 0; white-space: pre-line; }
 .subsection strong {
   margin-right: 4px;
@@ -644,9 +725,7 @@ watch(() => props.page, load, { immediate: true })
   padding-left: 20px;
 }
 .subsection li,
-.plain-list li {
-  margin: 0 0 6px;
-}
+.plain-list li { margin: 0 0 6px; }
 .plain {
   margin: 0;
   white-space: pre-line;
@@ -658,6 +737,70 @@ watch(() => props.page, load, { immediate: true })
   color: var(--muted);
   font-size: 13px;
 }
+
+.faq-list {
+  border: 1px solid var(--docs-line);
+  border-radius: 16px;
+  overflow: hidden;
+  margin-bottom: 18px;
+}
+.faq-list details {
+  border-bottom: 1px solid var(--docs-line);
+  background: #fff;
+}
+.faq-list details:last-child { border-bottom: 0; }
+.faq-list summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 16px;
+  cursor: pointer;
+  list-style: none;
+  font-weight: 650;
+  font-size: 15px;
+}
+.faq-list summary::-webkit-details-marker { display: none; }
+.faq-list .chev {
+  color: var(--muted);
+  transition: transform 0.18s ease;
+  flex: 0 0 auto;
+}
+.faq-list details[open] .chev { transform: rotate(180deg); }
+.faq-body {
+  padding: 0 16px 16px;
+  font-size: 14.5px;
+  color: var(--muted-2);
+  line-height: 1.55;
+}
+.faq-body :deep(p) { margin: 0 0 8px; }
+.faq-body :deep(ol),
+.faq-body :deep(ul) { margin: 0 0 8px; padding-left: 20px; }
+.faq-body :deep(li) { margin-bottom: 4px; }
+.faq-body :deep(code) {
+  font-size: 13px;
+  background: var(--docs-soft-2);
+  border: 1px solid var(--docs-line);
+  padding: 1px 6px;
+  border-radius: 6px;
+}
+.faq-body :deep(a) {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.help-cta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  padding: 16px 18px;
+  border-radius: 16px;
+  background: var(--docs-soft-2);
+}
+.help-cta b { display: block; margin-bottom: 4px; }
+.help-cta p { margin: 0; color: var(--muted-2); font-size: 14px; }
+
 .nav-backdrop { display: none; }
 
 @media (max-width: 960px) {
@@ -682,7 +825,12 @@ watch(() => props.page, load, { immediate: true })
   .side-close { display: grid; }
   .desktop-back { display: none; }
   .mobile-back { display: inline-flex; }
-  .doc-card { padding: 22px 18px 28px; border-radius: 18px; }
+  .doc-card {
+    padding: 22px 18px 28px;
+    border-radius: 18px;
+    min-height: 0;
+  }
+  .docs-main { min-height: 0; }
   .doc-head { flex-direction: column; }
   .download-btn { align-self: flex-start; }
   .nav-backdrop {

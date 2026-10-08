@@ -8,6 +8,7 @@
         <RouterLink to="/cookies">Cookies</RouterLink>
         <RouterLink to="/consent">Согласие на обработку данных</RouterLink>
         <RouterLink to="/offer">Публичная оферта</RouterLink>
+        <RouterLink to="/help">Справка</RouterLink>
       </nav>
     </div>
   </footer>
