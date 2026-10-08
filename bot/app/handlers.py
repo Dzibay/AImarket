@@ -6,7 +6,7 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from aiogram import Bot, F, Router
-from aiogram.enums import ParseMode
+from aiogram.enums import ChatType, ParseMode
 from aiogram.exceptions import TelegramBadRequest
 from aiogram.filters import Command, CommandObject, CommandStart, StateFilter
 from aiogram.fsm.context import FSMContext
@@ -53,6 +53,10 @@ from app.backend import (
 )
 
 router = Router()
+# Кабинетный сценарий только в личке — иначе ответы в группе поддержки
+# перехватываются как «обычный текст» и бот шлёт стартовый экран.
+router.message.filter(F.chat.type == ChatType.PRIVATE)
+router.callback_query.filter(F.message.chat.type == ChatType.PRIVATE)
 log = logging.getLogger("app.handlers")
 UNAVAILABLE = "Сервис сейчас недоступен. Попробуйте чуть позже."
 _IMAGES = Path(__file__).resolve().parent / "images"

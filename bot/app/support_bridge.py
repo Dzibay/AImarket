@@ -35,12 +35,16 @@ async def _support_chat_id() -> int | None:
     return _cached_chat_id
 
 
-@router.message(F.chat.type.in_({ChatType.GROUP, ChatType.SUPERGROUP}), F.message_thread_id)
-async def support_topic_message(message: Message) -> None:
+@router.message(F.chat.type.in_({ChatType.GROUP, ChatType.SUPERGROUP}))
+async def support_group_message(message: Message) -> None:
     if message.from_user is None or message.from_user.is_bot:
         return
     chat_id = await _support_chat_id()
     if chat_id is None or message.chat.id != chat_id:
+        return
+
+    # General / вне темы — на сайт не отправляем.
+    if not message.message_thread_id:
         return
 
     text = (message.text or message.caption or "").strip()
