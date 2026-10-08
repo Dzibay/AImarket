@@ -1,27 +1,15 @@
 <template>
-  <div v-if="!hiddenOnAdmin" class="support-widget">
+  <div v-if="!hidden" class="support-widget">
     <transition name="panel">
       <div v-if="open" class="panel" role="dialog" aria-label="Чат поддержки">
         <header class="panel-head">
           <div>
             <strong>Поддержка</strong>
-            <p class="muted small">Обычно отвечаем в течение дня</p>
+            <p class="muted small">{{ subtitle }}</p>
           </div>
           <button type="button" class="icon-btn" aria-label="Закрыть" @click="open = false">×</button>
         </header>
-
-        <SupportChat v-if="isLoggedIn" compact class="panel-chat" />
-
-        <div v-else class="guest">
-          <p>Войдите в личный кабинет, чтобы написать в чат на сайте.</p>
-          <div class="guest-actions">
-            <RouterLink to="/login" class="btn sm" @click="open = false">Войти по ключу</RouterLink>
-            <a v-if="telegramHref" class="btn quiet sm" :href="telegramHref" target="_blank" rel="noopener">
-              Telegram
-            </a>
-          </div>
-          <p v-if="!telegramHref" class="muted small">Контакты появятся после настройки поддержки.</p>
-        </div>
+        <SupportChat compact class="panel-chat" />
       </div>
     </transition>
 
@@ -41,55 +29,49 @@
 
 <script setup>
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { RouterLink, useRoute } from 'vue-router'
+import { useRoute } from 'vue-router'
 import AppIcon from './ui/AppIcon.vue'
 import SupportChat from './SupportChat.vue'
 import { useSession } from '../composables/useSession'
 import { useSupportUnread } from '../composables/useSupportUnread'
-import { useWebConfig } from '../composables/useWebConfig'
 
 const open = ref(false)
 const route = useRoute()
 const { isLoggedIn } = useSession()
-const { config, loadConfig } = useWebConfig()
 const { unread, startPolling, stopPolling, refreshUnread } = useSupportUnread()
 
-const hiddenOnAdmin = computed(() => {
+const hidden = computed(() => {
   const path = String(route.path || '')
-  return path.startsWith('/admin') || path === '/cabinet/support'
+  return path.startsWith('/admin') || path === '/cabinet/support' || path === '/support'
 })
 
-watch(
-  () => route.path,
-  () => {
-    if (hiddenOnAdmin.value) open.value = false
-  },
+const subtitle = computed(() =>
+  isLoggedIn.value
+    ? 'Ответим в этом чате'
+    : 'Без авторизации · обычно за пару минут',
 )
-const telegramHref = computed(() => {
-  const username = config.value?.support_username
-  if (username) return `https://t.me/${username}`
-  return config.value?.bot_url || ''
-})
 
 function toggle() {
   open.value = !open.value
 }
 
+watch(
+  () => route.path,
+  () => {
+    if (hidden.value) open.value = false
+  },
+)
+
 watch(open, (value) => {
   if (value) refreshUnread()
 })
 
-watch(isLoggedIn, (value) => {
-  if (value) startPolling()
-  else {
-    stopPolling()
-    open.value = false
-  }
+watch(isLoggedIn, () => {
+  startPolling()
 })
 
-onMounted(async () => {
-  await loadConfig()
-  if (isLoggedIn.value) startPolling()
+onMounted(() => {
+  startPolling()
 })
 
 onBeforeUnmount(stopPolling)
@@ -172,13 +154,6 @@ onBeforeUnmount(stopPolling)
 }
 .icon-btn:hover { background: rgba(28, 25, 21, 0.06); color: var(--text); }
 .panel-chat { border: 0; border-radius: 0; }
-.guest {
-  padding: 18px 16px 20px;
-  display: grid;
-  gap: 14px;
-}
-.guest p { margin: 0; }
-.guest-actions { display: flex; flex-wrap: wrap; gap: 8px; }
 
 .panel-enter-active, .panel-leave-active {
   transition: opacity 0.18s ease, transform 0.18s ease;

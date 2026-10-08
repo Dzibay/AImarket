@@ -81,6 +81,7 @@ import KeyCard from '../components/KeyCard.vue'
 import SiteFooter from '../components/SiteFooter.vue'
 import SiteHeader from '../components/SiteHeader.vue'
 import { errorText, webApi } from '../api/web'
+import { claimGuestSupportIfNeeded } from '../composables/useGuestSupport'
 import { getSession, useSession } from '../composables/useSession'
 import { usd } from '../utils/format'
 import { useHead } from '../utils/useHead'
@@ -115,6 +116,7 @@ async function check() {
     const result = await webApi.paymentReturn(topup, token)
     if (result.status === 'paid') {
       setSession(result.session)
+      await claimGuestSupportIfNeeded()
       profile.value = result.profile
       bonusUsd.value = Number(result.bonus_usd || 0)
       credited.value = Number(result.amount_usd || 0) + bonusUsd.value

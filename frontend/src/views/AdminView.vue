@@ -438,11 +438,11 @@
             <div class="support-list">
               <button
                 v-for="item in supportThreads"
-                :key="item.user_id"
+                :key="item.thread_key"
                 type="button"
                 class="support-item"
-                :class="{ on: supportActiveId === item.user_id, waiting: item.waiting }"
-                @click="openSupportThread(item.user_id)"
+                :class="{ on: supportActiveId === item.thread_key, waiting: item.waiting }"
+                @click="openSupportThread(item.thread_key)"
               >
                 <span class="support-item-top">
                   <b>{{ supportPerson(item) }}</b>
@@ -458,7 +458,10 @@
                 <div class="support-chat-head">
                   <div>
                     <strong>{{ supportPerson(supportUser) }}</strong>
-                    <p class="muted small">#{{ supportUser.id }}<template v-if="supportUser.blocked"> · заблокирован</template></p>
+                    <p class="muted small">
+                      <template v-if="supportUser.kind === 'guest'">гость · </template>#{{ supportUser.id }}
+                      <template v-if="supportUser.blocked"> · заблокирован</template>
+                    </p>
                   </div>
                 </div>
                 <div class="admin-support-thread">
@@ -1208,16 +1211,30 @@ onMounted(() => {
   width: 100%;
   display: grid;
   gap: 4px;
-  padding: 12px 12px;
+  padding: 12px;
   border: 0;
+  border-radius: 0;
   border-bottom: 1px solid var(--border);
   background: transparent;
+  color: var(--text);
   text-align: left;
   font: inherit;
+  font-weight: 400;
   cursor: pointer;
+  transform: none;
 }
-.admin-page .support-item:hover { background: rgba(255, 255, 255, 0.7); }
-.admin-page .support-item.on { background: #fff; box-shadow: inset 3px 0 0 var(--accent); }
+.admin-page .support-item:hover,
+.admin-page .support-item:active {
+  transform: none;
+  background: #fff;
+  color: var(--text);
+}
+.admin-page .support-item.on {
+  background: #fff;
+  color: var(--text);
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+.admin-page .support-item .muted { color: var(--muted); }
 .admin-page .support-item-top {
   display: flex;
   align-items: center;
@@ -1226,6 +1243,8 @@ onMounted(() => {
 }
 .admin-page .support-item-top b {
   font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;

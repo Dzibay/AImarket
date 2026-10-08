@@ -27,7 +27,16 @@ from app.money import bonus_tiers, min_topup_rub, min_topup_usd, rub_to_usd, top
 from app.payments import ensure_web_key, settle_payment
 from app.settings_store import get_setting, public_base_url, support_username
 from app.referrals import attribute_user
-from app.support import list_messages, post_user_message, unread_count
+from app.support import (
+    claim_guest_messages,
+    ensure_guest_token,
+    guest_unread_count,
+    list_guest_messages,
+    list_messages,
+    post_guest_message,
+    post_user_message,
+    unread_count,
+)
 from app.telegram_link import bot_start_url
 from app.usage_stats import usage_period_stats
 from app.web_auth import key_hash, make_session, require_web_user
@@ -71,6 +80,19 @@ class InstallIn(BaseModel):
 
 class SupportMessageIn(BaseModel):
     body: str = Field(min_length=1, max_length=4000)
+
+
+class GuestSessionIn(BaseModel):
+    token: str = Field(default="", max_length=200)
+
+
+class GuestMessageIn(BaseModel):
+    token: str = Field(min_length=10, max_length=200)
+    body: str = Field(min_length=1, max_length=4000)
+
+
+class SupportClaimIn(BaseModel):
+    token: str = Field(default="", max_length=200)
 
 
 def _config_payload() -> dict:
@@ -444,6 +466,17 @@ def support_unread(user_id: int = Depends(require_web_user)) -> dict:
     return {"unread": unread_count(user_id)}
 
 
+@router.post("/web/support/claim")
+def support_claim(body: SupportClaimIn, user_id: int = Depends(require_web_user)) -> dict:
+    """Переносит гостевой чат (токен из localStorage) в диалог авторизованного пользователя."""
+    _user_row(user_id)
+    try:
+        merged = claim_guest_messages(user_id, body.token)
+    except LookupError:
+        raise HTTPException(status_code=401, detail="unauthorized") from None
+    return {"merged": merged}
+
+
 @router.post("/web/support/messages")
 def support_send(body: SupportMessageIn, user_id: int = Depends(require_web_user)) -> dict:
     try:
@@ -452,6 +485,45 @@ def support_send(body: SupportMessageIn, user_id: int = Depends(require_web_user
         raise HTTPException(status_code=401, detail="unauthorized") from None
     except PermissionError:
         raise HTTPException(status_code=403, detail="blocked") from None
+    except ValueError as exc:
+        code = str(exc) if str(exc) in {"message", "long"} else "message"
+        raise HTTPException(status_code=400, detail=code) from None
+    return {"message": message}
+
+
+@router.post("/web/support/guest/session")
+def support_guest_session(body: GuestSessionIn) -> dict:
+    """Создаёт или подтверждает гостевой токен чата (хранится в localStorage)."""
+    token = ensure_guest_token(body.token)
+    return {"token": token}
+
+
+@router.get("/web/support/guest/messages")
+def support_guest_messages(token: str = "") -> dict:
+    if not token.strip():
+        raise HTTPException(status_code=400, detail="guest-token")
+    try:
+        return list_guest_messages(token, mark_seen=True)
+    except LookupError:
+        raise HTTPException(status_code=404, detail="guest-token") from None
+
+
+@router.get("/web/support/guest/unread")
+def support_guest_unread(token: str = "") -> dict:
+    if not token.strip():
+        raise HTTPException(status_code=400, detail="guest-token")
+    try:
+        return {"unread": guest_unread_count(token)}
+    except LookupError:
+        raise HTTPException(status_code=404, detail="guest-token") from None
+
+
+@router.post("/web/support/guest/messages")
+def support_guest_send(body: GuestMessageIn) -> dict:
+    try:
+        message = post_guest_message(body.token, body.body)
+    except LookupError:
+        raise HTTPException(status_code=404, detail="guest-token") from None
     except ValueError as exc:
         code = str(exc) if str(exc) in {"message", "long"} else "message"
         raise HTTPException(status_code=400, detail=code) from None

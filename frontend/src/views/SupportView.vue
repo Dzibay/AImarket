@@ -5,32 +5,17 @@
       <div class="container wrap">
         <div class="head">
           <div>
-            <RouterLink to="/cabinet" class="back">← Личный кабинет</RouterLink>
+            <RouterLink v-if="isLoggedIn" to="/cabinet" class="back">← Личный кабинет</RouterLink>
+            <RouterLink v-else to="/" class="back">← На главную</RouterLink>
             <h1 class="page-title">Поддержка</h1>
-            <p class="page-lead">Чат с командой Aimarket. Ответ обычно в течение дня.</p>
+            <p class="page-lead">{{ lead }}</p>
           </div>
         </div>
 
         <template v-if="booting">
-          <div class="card soft"><p class="muted">Проверяем сессию…</p></div>
-        </template>
-        <template v-else-if="!isLoggedIn">
-          <div class="card soft">
-            <p>Чтобы писать в чат, войдите по API-ключу.</p>
-            <div class="actions">
-              <RouterLink to="/login" class="btn">Войти</RouterLink>
-              <a v-if="telegramHref" class="btn quiet" :href="telegramHref" target="_blank" rel="noopener">
-                Telegram
-              </a>
-            </div>
-          </div>
+          <div class="card soft"><p class="muted">Открываем чат…</p></div>
         </template>
         <SupportChat v-else :blocked="blocked" />
-
-        <p v-if="isLoggedIn && telegramHref" class="alt muted small">
-          Или напишите в Telegram:
-          <a :href="telegramHref" target="_blank" rel="noopener">{{ telegramLabel }}</a>
-        </p>
       </div>
     </main>
     <SiteFooter />
@@ -39,48 +24,37 @@
 
 <script setup>
 import { computed, onMounted, ref } from 'vue'
-import { RouterLink, useRouter } from 'vue-router'
+import { RouterLink } from 'vue-router'
 import SiteFooter from '../components/SiteFooter.vue'
 import SiteHeader from '../components/SiteHeader.vue'
 import SupportChat from '../components/SupportChat.vue'
 import { webApi } from '../api/web'
 import { useSession } from '../composables/useSession'
-import { useWebConfig } from '../composables/useWebConfig'
 import { useHead } from '../utils/useHead'
 
 useHead({
   title: 'Поддержка — Aimarket',
-  description: 'Чат поддержки Aimarket: вопросы по ключу, оплате и подключению.',
+  description: 'Чат поддержки Aimarket: пишите без авторизации — ответим на вопросы по тарифам, оплате и подключению.',
 })
 
-const router = useRouter()
 const { isLoggedIn } = useSession()
-const { config, loadConfig } = useWebConfig()
 const booting = ref(true)
 const blocked = ref(false)
 
-const telegramHref = computed(() => {
-  const username = config.value?.support_username
-  if (username) return `https://t.me/${username}`
-  return config.value?.bot_url || ''
-})
-const telegramLabel = computed(() => {
-  if (config.value?.support_username) return `@${config.value.support_username}`
-  return 'Telegram-бот'
-})
+const lead = computed(() =>
+  isLoggedIn.value
+    ? 'Чат с командой Aimarket. Ответ в течение нескольких минут.'
+    : 'Пишите без авторизации — ответим в течение пары минут. Диалог сохранится в этом браузере.',
+)
 
 onMounted(async () => {
-  await loadConfig()
-  if (!isLoggedIn.value) {
-    booting.value = false
-    return
-  }
-  try {
-    const profile = await webApi.me()
-    blocked.value = !!profile.blocked
-  } catch {
-    router.replace('/login')
-    return
+  if (isLoggedIn.value) {
+    try {
+      const profile = await webApi.me()
+      blocked.value = !!profile.blocked
+    } catch {
+      blocked.value = false
+    }
   }
   booting.value = false
 })
@@ -103,7 +77,4 @@ onMounted(async () => {
   letter-spacing: -0.03em;
 }
 .page-lead { margin: 0; color: var(--muted); }
-.actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 14px; }
-.alt { margin: 14px 0 0; }
-.alt a { text-decoration: underline; text-underline-offset: 3px; }
 </style>

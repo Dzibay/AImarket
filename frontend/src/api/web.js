@@ -38,7 +38,20 @@ export const webApi = {
     request('/api/web/install', { method: 'POST', body: JSON.stringify({ app, os, action }) }),
   supportMessages: () => request('/api/web/support/messages'),
   supportUnread: () => request('/api/web/support/unread'),
+  supportClaim: (token) =>
+    request('/api/web/support/claim', { method: 'POST', body: JSON.stringify({ token }) }),
   supportSend: (body) => request('/api/web/support/messages', { method: 'POST', body: JSON.stringify({ body }) }),
+  supportGuestSession: (token = '') =>
+    request('/api/web/support/guest/session', { method: 'POST', body: JSON.stringify({ token }) }),
+  supportGuestMessages: (token) =>
+    request(`/api/web/support/guest/messages?token=${encodeURIComponent(token)}`),
+  supportGuestUnread: (token) =>
+    request(`/api/web/support/guest/unread?token=${encodeURIComponent(token)}`),
+  supportGuestSend: (token, body) =>
+    request('/api/web/support/guest/messages', {
+      method: 'POST',
+      body: JSON.stringify({ token, body }),
+    }),
 }
 
 export const ERRORS = {
@@ -50,6 +63,7 @@ export const ERRORS = {
   key: 'Ключ не найден. Проверьте, что скопировали его целиком.',
   blocked: 'Доступ заблокирован. Напишите в поддержку.',
   token: 'Ссылка возврата недействительна.',
+  'guest-token': 'Сессия чата устарела. Откройте чат снова.',
   expired: 'Ссылка устарела или уже заменена новой. Войдите по ключу.',
   topup: 'Платёж не найден.',
   supplier: 'Временно не хватает лимита у поставщика. Напишите в поддержку.',

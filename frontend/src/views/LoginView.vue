@@ -50,6 +50,7 @@ import { RouterLink, useRoute, useRouter } from 'vue-router'
 import SiteFooter from '../components/SiteFooter.vue'
 import SiteHeader from '../components/SiteHeader.vue'
 import { errorText, webApi } from '../api/web'
+import { claimGuestSupportIfNeeded } from '../composables/useGuestSupport'
 import { useSession } from '../composables/useSession'
 import { useHead } from '../utils/useHead'
 
@@ -73,6 +74,7 @@ async function loginByLink(token) {
   try {
     const result = await webApi.loginByLink(token)
     setSession(result.session)
+    await claimGuestSupportIfNeeded()
     router.replace('/cabinet')
   } catch (err) {
     linkError.value = errorText(err)
@@ -105,6 +107,7 @@ async function submit() {
   try {
     const result = await webApi.login(key.value.trim())
     setSession(result.session)
+    await claimGuestSupportIfNeeded()
     router.replace('/cabinet')
   } catch (err) {
     error.value = errorText(err)

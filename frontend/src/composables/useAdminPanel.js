@@ -582,8 +582,18 @@ export function useAdminPanel() {
 
   function supportPerson(row) {
     if (!row) return '—'
+    if (row.kind === 'guest' || row.first_name?.startsWith('Гость')) {
+      return row.first_name || `Гость #${row.id}`
+    }
     if (row.email) return row.email
     return person(row)
+  }
+
+  function supportThreadPath(threadKey) {
+    const key = String(threadKey || '')
+    const [kind, id] = key.split(':')
+    if ((kind !== 'user' && kind !== 'guest') || !id) return ''
+    return '/api/admin/support/threads/' + kind + '/' + id
   }
 
   function supportPreview(text) {
@@ -604,17 +614,19 @@ export function useAdminPanel() {
     }
   }
 
-  async function openSupportThread(userId, { quiet = false } = {}) {
-    supportActiveId.value = userId
+  async function openSupportThread(threadKey, { quiet = false } = {}) {
+    const path = supportThreadPath(threadKey)
+    if (!path) return
+    supportActiveId.value = threadKey
     if (!quiet) {
       supportError.value = ''
       supportLoading.value = true
     }
     try {
-      const data = await api('/api/admin/support/threads/' + userId)
+      const data = await api(path)
       const prevLen = supportMessages.value.length
       const prevLast = supportMessages.value.at(-1)?.id
-      supportUser.value = data.user
+      supportUser.value = { ...data.user, kind: data.kind }
       supportMessages.value = data.messages || []
       const grew = supportMessages.value.length !== prevLen
         || supportMessages.value.at(-1)?.id !== prevLast
@@ -632,11 +644,12 @@ export function useAdminPanel() {
 
   async function sendSupportReply() {
     const body = supportDraft.value.trim()
-    if (!body || !supportActiveId.value || supportSending.value) return
+    const path = supportThreadPath(supportActiveId.value)
+    if (!body || !path || supportSending.value) return
     supportSending.value = true
     supportError.value = ''
     try {
-      const data = await api('/api/admin/support/threads/' + supportActiveId.value + '/reply', {
+      const data = await api(path + '/reply', {
         method: 'POST',
         body: JSON.stringify({ body }),
       })

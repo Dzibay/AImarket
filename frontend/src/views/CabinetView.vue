@@ -46,7 +46,7 @@
                   <AppIcon name="refresh" :size="15" :class="{ spin: loading }" />
                   {{ loading ? 'Обновляем…' : 'Обновить данные' }}
                 </button>
-                <RouterLink to="/cabinet/support" class="side-link">
+                <RouterLink to="/support" class="side-link">
                   <AppIcon name="help" :size="15" />
                   Написать в поддержку
                   <span v-if="supportUnread > 0" class="nav-badge">{{ supportUnread > 9 ? '9+' : supportUnread }}</span>
@@ -68,7 +68,7 @@
 
             <div v-if="profile.blocked" class="notice bad">
               Доступ заблокирован<template v-if="profile.blocked_reason">: {{ profile.blocked_reason }}</template>.
-              Напишите в <RouterLink to="/cabinet/support">чат поддержки</RouterLink><template v-if="supportLabel"> или {{ supportLabel }}</template>.
+              Напишите в <RouterLink to="/support">чат поддержки</RouterLink><template v-if="supportLabel"> или {{ supportLabel }}</template>.
             </div>
 
             <section id="overview" class="anchor">
@@ -316,11 +316,10 @@
                 <div class="card soft support">
                   <h3 class="card-title sm">Поддержка</h3>
                   <p class="muted small">
-                    Не получается подключить приложение, не зачислился платёж или потерялся ключ — напишите в чат.
-                    Укажите почту, на которую оплачивали, и дату платежа.
+                    Есть вопросы? Не получается подключить приложение, не зачислился платёж или потерялся ключ — напишите в чат, ответим в течение нескольких минут.
                   </p>
                   <div class="contacts">
-                    <RouterLink to="/cabinet/support" class="contact">
+                    <RouterLink to="/support" class="contact">
                       <AppIcon name="help" :size="16" /><span>Открыть чат</span>
                       <span v-if="supportUnread > 0" class="nav-badge">{{ supportUnread > 9 ? '9+' : supportUnread }}</span>
                     </RouterLink>
@@ -471,7 +470,7 @@ const onboarding = computed(() => {
 const faq = computed(() => {
   const p = profile.value || {}
   const base = (p.api_base_url || 'https://router.cheap/v1').replace(/\/+$/, '')
-  const support = '<a href="/cabinet/support">чат поддержки</a>'
+  const support = '<a href="/support">чат поддержки</a>'
     + (supportLabel.value ? ` или <a href="${supportHref.value}" target="_blank" rel="noopener">${supportLabel.value}</a>` : '')
   const minUsd = Number(p.min_topup_usd || 0)
   const bonusLine = tiers.value.length

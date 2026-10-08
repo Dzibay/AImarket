@@ -3,8 +3,8 @@
     <div ref="scroller" class="thread" role="log" aria-live="polite">
       <p v-if="loading && !messages.length" class="muted small center">Загружаем переписку…</p>
       <div v-else-if="!messages.length" class="empty">
-        <p class="muted">Напишите вопрос — ответим в этом чате, обычно в течение дня.</p>
-        <p class="muted small">Укажите почту оплаты и суть проблемы: ключ, платёж, подключение.</p>
+        <p class="muted">{{ emptyTitle }}</p>
+        <p class="muted small">{{ emptyHint }}</p>
       </div>
       <div
         v-for="item in messages"
@@ -24,14 +24,14 @@
         class="input area"
         rows="2"
         maxlength="4000"
-        :disabled="sending || blocked"
+        :disabled="sending || blocked || !ready"
         :placeholder="blocked ? 'Доступ заблокирован' : 'Ваше сообщение…'"
         @keydown.enter.exact.prevent="send"
       />
       <div class="composer-foot">
         <span v-if="error" class="error-text">{{ error }}</span>
         <span v-else class="muted small">Enter — отправить · Shift+Enter — новая строка</span>
-        <button type="submit" class="btn sm" :disabled="sending || blocked || !draft.trim()">
+        <button type="submit" class="btn sm" :disabled="sending || blocked || !ready || !draft.trim()">
           {{ sending ? 'Отправка…' : 'Отправить' }}
         </button>
       </div>
@@ -40,8 +40,15 @@
 </template>
 
 <script setup>
-import { nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { errorText, webApi } from '../api/web'
+import {
+  claimGuestSupportIfNeeded,
+  ensureGuestSupportToken,
+  getGuestSupportToken,
+  resetGuestSupportToken,
+} from '../composables/useGuestSupport'
+import { getSession, useSession } from '../composables/useSession'
 import { useSupportUnread } from '../composables/useSupportUnread'
 import { dateTime } from '../utils/format'
 
@@ -50,25 +57,76 @@ defineProps({
   blocked: { type: Boolean, default: false },
 })
 
+const { isLoggedIn } = useSession()
 const messages = ref([])
 const draft = ref('')
 const loading = ref(false)
 const sending = ref(false)
+const ready = ref(false)
 const error = ref('')
 const scroller = ref(null)
 const input = ref(null)
 let pollTimer = null
+let guestToken = ''
 const { clearUnread, refreshUnread } = useSupportUnread()
+
+const isGuest = computed(() => !isLoggedIn.value)
+
+const emptyTitle = computed(() =>
+  isGuest.value
+    ? 'Пишите без авторизации — ответим в течение пары минут.'
+    : 'Напишите вопрос — ответим в этом чате.',
+)
+const emptyHint = computed(() =>
+  isGuest.value
+    ? 'Спросите про тарифы, оплату или подключение. Диалог сохранится в этом браузере.'
+    : 'Кратко опишите проблему: ключ, платёж или подключение приложения.',
+)
+
+async function ensureAccess() {
+  if (getSession()) {
+    await claimGuestSupportIfNeeded()
+    guestToken = ''
+    ready.value = true
+    return
+  }
+  guestToken = await ensureGuestSupportToken()
+  ready.value = Boolean(guestToken)
+}
+
+async function fetchMessages() {
+  if (getSession()) return webApi.supportMessages()
+  return webApi.supportGuestMessages(guestToken || getGuestSupportToken())
+}
+
+async function postMessage(body) {
+  if (getSession()) return webApi.supportSend(body)
+  return webApi.supportGuestSend(guestToken || getGuestSupportToken(), body)
+}
 
 async function load() {
   loading.value = true
   error.value = ''
   try {
-    const data = await webApi.supportMessages()
+    await ensureAccess()
+    const data = await fetchMessages()
     messages.value = data.messages || []
     clearUnread()
     await scrollBottom()
   } catch (err) {
+    if (!getSession() && (err?.code === 'guest-token' || err?.status === 404)) {
+      try {
+        guestToken = await resetGuestSupportToken()
+        const data = await fetchMessages()
+        messages.value = data.messages || []
+        clearUnread()
+        await scrollBottom()
+        return
+      } catch (retryErr) {
+        error.value = errorText(retryErr)
+        return
+      }
+    }
     error.value = errorText(err)
   } finally {
     loading.value = false
@@ -77,16 +135,29 @@ async function load() {
 
 async function send() {
   const body = draft.value.trim()
-  if (!body || sending.value) return
+  if (!body || sending.value || !ready.value) return
   sending.value = true
   error.value = ''
   try {
-    const data = await webApi.supportSend(body)
+    const data = await postMessage(body)
     messages.value = [...messages.value, data.message]
     draft.value = ''
     await scrollBottom()
     input.value?.focus()
   } catch (err) {
+    if (!getSession() && (err?.code === 'guest-token' || err?.status === 404)) {
+      try {
+        guestToken = await resetGuestSupportToken()
+        const data = await postMessage(body)
+        messages.value = [...messages.value, data.message]
+        draft.value = ''
+        await scrollBottom()
+        return
+      } catch (retryErr) {
+        error.value = errorText(retryErr)
+        return
+      }
+    }
     error.value = errorText(err)
   } finally {
     sending.value = false
@@ -102,9 +173,9 @@ async function scrollBottom() {
 function startPoll() {
   stopPoll()
   pollTimer = setInterval(async () => {
-    if (document.visibilityState !== 'visible' || sending.value) return
+    if (document.visibilityState !== 'visible' || sending.value || !ready.value) return
     try {
-      const data = await webApi.supportMessages()
+      const data = await fetchMessages()
       const next = data.messages || []
       const grew = next.length !== messages.value.length
         || (next.at(-1)?.id !== messages.value.at(-1)?.id)
@@ -112,7 +183,7 @@ function startPoll() {
       clearUnread()
       if (grew) await scrollBottom()
     } catch {
-      /* тихо — сеть могла моргнуть */
+      /* тихо */
     }
   }, 12000)
 }

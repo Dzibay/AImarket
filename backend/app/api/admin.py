@@ -25,7 +25,14 @@ from app.referrals import (
     set_link_group,
 )
 from app.settings_store import get_setting, normalize_base_url, offer_url, public_base_url, set_setting
-from app.support import list_messages, list_threads, post_staff_message, waiting_count
+from app.support import (
+    list_guest_messages_by_id,
+    list_messages,
+    list_threads,
+    post_staff_guest_message,
+    post_staff_message,
+    waiting_count,
+)
 from app.telegram_link import bot_username
 from app.upstream import UpstreamError, upstream
 
@@ -780,38 +787,63 @@ def support_waiting() -> dict:
     return {"waiting": waiting_count()}
 
 
-@router.get("/support/threads/{user_id}", dependencies=[Depends(require_admin)])
-def support_thread(user_id: int) -> dict:
-    with pool.connection() as conn:
-        user = conn.execute(
-            """
-            SELECT id, email, username, first_name, telegram_id, blocked_at
-            FROM users WHERE id = %s
-            """,
-            (user_id,),
-        ).fetchone()
-    if user is None:
-        raise HTTPException(status_code=404, detail="user")
-    payload = list_messages(user_id, mark_seen=False)
-    return {
-        "user": {
-            "id": int(user["id"]),
-            "email": user["email"] or "",
-            "username": user["username"] or "",
-            "first_name": user["first_name"] or "",
-            "telegram_id": int(user["telegram_id"]) if user["telegram_id"] else None,
-            "blocked": user["blocked_at"] is not None,
-        },
-        **payload,
-    }
+@router.get("/support/threads/{kind}/{thread_id}", dependencies=[Depends(require_admin)])
+def support_thread(kind: str, thread_id: int) -> dict:
+    if kind == "user":
+        with pool.connection() as conn:
+            user = conn.execute(
+                """
+                SELECT id, email, username, first_name, telegram_id, blocked_at
+                FROM users WHERE id = %s
+                """,
+                (thread_id,),
+            ).fetchone()
+        if user is None:
+            raise HTTPException(status_code=404, detail="user")
+        payload = list_messages(thread_id, mark_seen=False)
+        return {
+            "kind": "user",
+            "user": {
+                "id": int(user["id"]),
+                "email": user["email"] or "",
+                "username": user["username"] or "",
+                "first_name": user["first_name"] or "",
+                "telegram_id": int(user["telegram_id"]) if user["telegram_id"] else None,
+                "blocked": user["blocked_at"] is not None,
+            },
+            **payload,
+        }
+    if kind == "guest":
+        try:
+            payload = list_guest_messages_by_id(thread_id)
+        except LookupError:
+            raise HTTPException(status_code=404, detail="guest") from None
+        return {
+            "kind": "guest",
+            "user": {
+                "id": thread_id,
+                "email": "",
+                "username": "",
+                "first_name": f"Гость #{thread_id}",
+                "telegram_id": None,
+                "blocked": False,
+            },
+            **payload,
+        }
+    raise HTTPException(status_code=404, detail="kind")
 
 
-@router.post("/support/threads/{user_id}/reply", dependencies=[Depends(require_admin)])
-def support_reply(user_id: int, body: SupportReplyIn) -> dict:
+@router.post("/support/threads/{kind}/{thread_id}/reply", dependencies=[Depends(require_admin)])
+def support_reply(kind: str, thread_id: int, body: SupportReplyIn) -> dict:
     try:
-        message = post_staff_message(user_id, body.body)
+        if kind == "user":
+            message = post_staff_message(thread_id, body.body)
+        elif kind == "guest":
+            message = post_staff_guest_message(thread_id, body.body)
+        else:
+            raise HTTPException(status_code=404, detail="kind")
     except LookupError:
-        raise HTTPException(status_code=404, detail="user") from None
+        raise HTTPException(status_code=404, detail=kind if kind in {"user", "guest"} else "user") from None
     except ValueError as exc:
         code = str(exc) if str(exc) in {"message", "long"} else "message"
         raise HTTPException(status_code=400, detail=code) from None

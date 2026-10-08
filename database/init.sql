@@ -162,17 +162,36 @@ CREATE TABLE IF NOT EXISTS install_tokens (
 
 CREATE INDEX IF NOT EXISTS idx_install_tokens_expires ON install_tokens (expires_at);
 
--- Чат поддержки на сайте: сообщения пользователя и ответы админки.
-CREATE TABLE IF NOT EXISTS support_messages (
-    id          BIGSERIAL PRIMARY KEY,
-    user_id     BIGINT NOT NULL REFERENCES users (id) ON DELETE CASCADE,
-    author_kind TEXT NOT NULL CHECK (author_kind IN ('user', 'staff')),
-    body        TEXT NOT NULL,
-    created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+-- Гостевые сессии чата поддержки (токен в localStorage браузера).
+CREATE TABLE IF NOT EXISTS support_guests (
+    id         BIGSERIAL PRIMARY KEY,
+    token_hash TEXT NOT NULL UNIQUE,
+    seen_at    TIMESTAMPTZ,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+-- Чат поддержки на сайте: сообщения пользователя/гостя и ответы админки.
+CREATE TABLE IF NOT EXISTS support_messages (
+    id          BIGSERIAL PRIMARY KEY,
+    user_id     BIGINT REFERENCES users (id) ON DELETE CASCADE,
+    guest_id    BIGINT REFERENCES support_guests (id) ON DELETE CASCADE,
+    author_kind TEXT NOT NULL CHECK (author_kind IN ('user', 'staff')),
+    body        TEXT NOT NULL,
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    CHECK (
+        (user_id IS NOT NULL AND guest_id IS NULL)
+        OR (user_id IS NULL AND guest_id IS NOT NULL)
+    )
+);
+
+-- Старые инсталляции: user_id был NOT NULL, guest_id не было.
+ALTER TABLE support_messages ALTER COLUMN user_id DROP NOT NULL;
+ALTER TABLE support_messages ADD COLUMN IF NOT EXISTS guest_id BIGINT REFERENCES support_guests (id) ON DELETE CASCADE;
+
 CREATE INDEX IF NOT EXISTS idx_support_messages_user
-    ON support_messages (user_id, created_at);
+    ON support_messages (user_id, created_at) WHERE user_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_support_messages_guest
+    ON support_messages (guest_id, created_at) WHERE guest_id IS NOT NULL;
 
 -- Когда пользователь последний раз открывал чат (для бейджа непрочитанных ответов).
 ALTER TABLE users ADD COLUMN IF NOT EXISTS support_seen_at TIMESTAMPTZ;
