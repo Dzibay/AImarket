@@ -14,8 +14,8 @@ const router = createRouter({
     { path: '/', name: 'home', component: HomeView },
     { path: '/login', name: 'login', component: LoginView },
     { path: '/cabinet', name: 'cabinet', component: CabinetView },
-    { path: '/cabinet/support', redirect: { path: '/help', hash: '#help-chat' } },
-    { path: '/support', redirect: { path: '/help', hash: '#help-chat' } },
+    { path: '/cabinet/support', redirect: { path: '/help', query: { chat: '1' } } },
+    { path: '/support', redirect: { path: '/help', query: { chat: '1' } } },
     { path: '/prices', name: 'prices', component: PricesView },
     { path: '/pay/return/:topup/:token', name: 'pay-return', component: PayReturnView },
     { path: '/pay/return', name: 'pay-return-query', component: PayReturnView },
@@ -29,13 +29,16 @@ const router = createRouter({
     { path: '/admin-panel', name: 'admin', component: AdminView },
     { path: '/:pathMatch(.*)*', redirect: '/' },
   ],
-  scrollBehavior(to, from) {
+  scrollBehavior(to, from, savedPosition) {
+    if (DOCS_PAGES.has(to.name)) {
+      if (DOCS_PAGES.has(from?.name)) return false
+      if (savedPosition) return savedPosition
+      return { top: 0, left: 0 }
+    }
     if (to.hash) {
-      return { el: to.hash, top: 20, behavior: 'smooth' }
+      return { el: to.hash, top: 72, behavior: 'smooth' }
     }
-    if (DOCS_PAGES.has(to.name) && DOCS_PAGES.has(from.name)) {
-      return false
-    }
+    if (savedPosition) return savedPosition
     return { top: 0 }
   },
 })

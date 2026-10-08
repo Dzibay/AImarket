@@ -23,17 +23,17 @@
             <span class="nav-label">{{ item.label }}</span>
           </RouterLink>
         </nav>
-        <a href="#help-chat" class="help-card" @click="onHelpCardClick">
+        <button type="button" class="help-card" @click="openSupportFromSide">
           <span class="help-icon"><AppIcon name="headset" :size="18" /></span>
           <span class="help-text">
             <b>Нужна помощь?</b>
             <small>Напишите в поддержку</small>
           </span>
           <AppIcon name="chevron-right" :size="16" />
-        </a>
+        </button>
       </aside>
 
-      <main class="docs-main" ref="mainEl">
+      <main class="docs-main">
         <div v-if="isHelp" class="doc-card help-page">
           <RouterLink to="/docs" class="back-link desktop-back">
             <AppIcon name="arrow-left" :size="15" />
@@ -48,7 +48,7 @@
             <div class="doc-head-text">
               <span class="doc-badge">Справка</span>
               <h1>Справочный центр</h1>
-              <p class="doc-meta">Ответы на частые вопросы и чат с поддержкой</p>
+              <p class="doc-meta">Ответы на частые вопросы и связь с поддержкой</p>
             </div>
           </div>
 
@@ -56,11 +56,11 @@
             <span class="summary-icon"><AppIcon name="help" :size="20" /></span>
             <div>
               <b>Как мы помогаем</b>
-              <p>Сначала загляните в FAQ. Если ответа нет — напишите в чат ниже, можно без авторизации.</p>
+              <p>Сначала загляните в FAQ. Если ответа нет — напишите в чат поддержки справа, можно без авторизации.</p>
             </div>
           </div>
 
-          <div class="faq-list">
+          <div class="faq-list" @click="onFaqClick">
             <details v-for="item in faqItems" :key="item.q">
               <summary>
                 <span>{{ item.q }}</span>
@@ -70,14 +70,13 @@
             </details>
           </div>
 
-          <section id="help-chat" class="help-chat-block">
-            <div class="help-chat-head">
-              <b>Чат поддержки</b>
-              <p>{{ chatLead }}</p>
+          <div class="help-cta">
+            <div>
+              <b>Не нашли ответ?</b>
+              <p>Откроем чат поддержки — можно писать без авторизации.</p>
             </div>
-            <div v-if="chatBooting" class="chat-boot muted">Открываем чат…</div>
-            <SupportChat v-else :blocked="chatBlocked" />
-          </section>
+            <button type="button" class="btn sm" @click="openSupportChat">Написать в поддержку</button>
+          </div>
         </div>
 
         <div v-else-if="data" class="doc-card" :class="{ dim: loading }">
@@ -164,14 +163,12 @@
 </template>
 
 <script setup>
-import { computed, nextTick, ref, watch } from 'vue'
-import { RouterLink, useRouter } from 'vue-router'
+import { computed, ref, watch } from 'vue'
+import { RouterLink } from 'vue-router'
 import SiteHeader from '../components/SiteHeader.vue'
-import SupportChat from '../components/SupportChat.vue'
 import AppIcon from '../components/ui/AppIcon.vue'
 import { fetchLegalPage } from '../api/site'
-import { webApi } from '../api/web'
-import { useSession } from '../composables/useSession'
+import { useSupportWidget } from '../composables/useSupportWidget'
 import { siteFaqItems } from '../utils/siteFaq'
 import { useHead } from '../utils/useHead'
 
@@ -179,24 +176,33 @@ const props = defineProps({
   page: { type: String, required: true },
 })
 
-const router = useRouter()
-const { isLoggedIn } = useSession()
+const { openChat } = useSupportWidget()
 
 const data = ref(null)
 const error = ref(false)
 const loading = ref(false)
 const navOpen = ref(false)
-const mainEl = ref(null)
-const chatBooting = ref(false)
-const chatBlocked = ref(false)
 
 const isHelp = computed(() => props.page === 'help')
-const faqItems = siteFaqItems({ supportHtml: '<a href="/help#help-chat">чат поддержки</a>' })
-const chatLead = computed(() =>
-  isLoggedIn.value
-    ? 'Ответ обычно в течение нескольких минут.'
-    : 'Пишите без входа — диалог сохранится в этом браузере.',
-)
+const faqItems = siteFaqItems({
+  supportHtml: '<a href="/help?chat=1" data-open-support>чат поддержки</a>',
+})
+
+function openSupportChat() {
+  openChat()
+}
+
+function openSupportFromSide() {
+  navOpen.value = false
+  openChat()
+}
+
+function onFaqClick(event) {
+  const link = event.target?.closest?.('a[data-open-support], a[href*="chat=1"]')
+  if (!link) return
+  event.preventDefault()
+  openChat()
+}
 
 const navItems = [
   { page: 'cookies', to: '/cookies', label: 'Политика в отношении cookies', icon: 'cookie' },
@@ -350,12 +356,6 @@ async function load() {
     data.value = null
     loading.value = false
     useHead('Справочный центр — Aimarket', true)
-    await bootChat()
-    await nextTick()
-    scrollMainTop()
-    if (typeof window !== 'undefined' && window.location.hash === '#help-chat') {
-      document.getElementById('help-chat')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
-    }
     return
   }
   loading.value = true
@@ -369,41 +369,6 @@ async function load() {
     useHead('Страница не найдена — Aimarket', true)
   } finally {
     loading.value = false
-    await nextTick()
-    scrollMainTop()
-  }
-}
-
-async function bootChat() {
-  chatBooting.value = true
-  chatBlocked.value = false
-  if (isLoggedIn.value) {
-    try {
-      const profile = await webApi.me()
-      chatBlocked.value = !!profile.blocked
-    } catch {
-      chatBlocked.value = false
-    }
-  }
-  chatBooting.value = false
-}
-
-function onHelpCardClick(event) {
-  navOpen.value = false
-  if (isHelp.value) {
-    event.preventDefault()
-    document.getElementById('help-chat')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
-    return
-  }
-  event.preventDefault()
-  router.push('/help#help-chat')
-}
-
-function scrollMainTop() {
-  if (!mainEl.value) return
-  const top = mainEl.value.getBoundingClientRect().top + window.scrollY - 12
-  if (Math.abs(window.scrollY - top) > 40) {
-    window.scrollTo({ top: Math.max(0, top), behavior: 'instant' in window ? 'instant' : 'auto' })
   }
 }
 
@@ -446,7 +411,7 @@ watch(() => props.page, load, { immediate: true })
 
 .docs-side {
   position: sticky;
-  top: 16px;
+  top: 72px;
   display: flex;
   flex-direction: column;
   gap: 18px;
@@ -521,12 +486,14 @@ watch(() => props.page, load, { immediate: true })
   display: flex;
   align-items: center;
   gap: 10px;
+  width: 100%;
   padding: 12px;
   border-radius: 14px;
   background: rgba(255, 255, 255, 0.72);
   border: 1px solid var(--docs-line);
   color: var(--text);
-  text-decoration: none;
+  text-align: left;
+  font: inherit;
   cursor: pointer;
 }
 .help-icon {
@@ -771,37 +738,18 @@ watch(() => props.page, load, { immediate: true })
   text-underline-offset: 3px;
 }
 .help-page { min-height: 0; }
-.help-chat-block {
-  margin-top: 8px;
-  padding-top: 8px;
-  scroll-margin-top: 20px;
-}
-.help-chat-head {
-  margin-bottom: 12px;
-}
-.help-chat-head b {
-  display: block;
-  margin-bottom: 4px;
-  font-size: 16px;
-}
-.help-chat-head p {
-  margin: 0;
-  color: var(--muted);
-  font-size: 14px;
-}
-.chat-boot {
-  padding: 24px;
-  border: 1px solid var(--docs-line);
-  border-radius: 14px;
+.help-cta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  padding: 16px 18px;
+  border-radius: 16px;
   background: var(--docs-soft-2);
 }
-.help-page :deep(.support-chat) {
-  border: 1px solid var(--docs-line);
-  border-radius: 16px;
-  overflow: hidden;
-  background: #fff;
-  min-height: 420px;
-}
+.help-cta b { display: block; margin-bottom: 4px; }
+.help-cta p { margin: 0; color: var(--muted-2); font-size: 14px; }
 
 .nav-backdrop { display: none; }
 

@@ -1,5 +1,5 @@
 /** Общий FAQ для страницы поддержки и справочного центра в документах. */
-export function siteFaqItems({ supportHtml = '<a href="/help#help-chat">чат поддержки</a>' } = {}) {
+export function siteFaqItems({ supportHtml = '<a href="/help?chat=1">чат поддержки</a>' } = {}) {
   return [
     {
       q: 'Как списываются деньги?',

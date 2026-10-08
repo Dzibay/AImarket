@@ -30,7 +30,16 @@ function logout() {
 </script>
 
 <style scoped>
-.site-header { padding: 18px 0 8px; }
+.site-header {
+  position: sticky;
+  top: 0;
+  z-index: 50;
+  padding: 14px 0;
+  background: rgba(244, 241, 234, 0.96);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border-bottom: 1px solid rgba(28, 25, 21, 0.06);
+}
 .inner {
   display: flex;
   align-items: center;
