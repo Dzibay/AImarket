@@ -219,7 +219,7 @@
           <article class="info">
             <span class="num">05</span>
             <h3>Поддержка</h3>
-            <p>Поможем с подключением и использованием ключа.</p>
+            <p>Кнопка чата справа внизу — пишите без входа, ответим за несколько минут.</p>
           </article>
         </div>
         <button type="button" class="btn block-cta" @click="scrollToTopup">Пополнить баланс</button>

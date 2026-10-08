@@ -33,6 +33,7 @@ const PATHS = {
   plug: '<path d="M9 3v5"/><path d="M15 3v5"/><path d="M6 8h12v3a6 6 0 0 1-12 0z"/><path d="M12 17v4"/>',
   history: '<circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/>',
   help: '<circle cx="12" cy="12" r="8.5"/><path d="M9.5 9.5a2.5 2.5 0 1 1 3.5 2.3c-.7.3-1 .9-1 1.7"/><path d="M12 17h.01"/>',
+  chat: '<path d="M4.5 5.5h15a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H10l-4 3.2V17.5H4.5a2 2 0 0 1-2-2v-8a2 2 0 0 1 2-2z"/>',
   home: '<path d="M4 11l8-7 8 7"/><path d="M6 10v10h12V10"/>',
   'arrow-up': '<path d="M12 19V5"/><path d="M6 11l6-6 6 6"/>',
   'arrow-down': '<path d="M12 5v14"/><path d="M6 13l6 6 6-6"/>',

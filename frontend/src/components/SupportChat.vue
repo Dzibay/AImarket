@@ -2,10 +2,16 @@
   <div class="support-chat" :class="{ compact }">
     <div ref="scroller" class="thread" role="log" aria-live="polite">
       <p v-if="loading && !messages.length" class="muted small center">Загружаем переписку…</p>
-      <div v-else-if="!messages.length" class="empty">
-        <p class="muted">{{ emptyTitle }}</p>
-        <p class="muted small">{{ emptyHint }}</p>
-      </div>
+      <template v-else-if="!messages.length">
+        <div v-if="isGuest" class="bubble theirs welcome">
+          <p class="text">{{ emptyTitle }}</p>
+          <p class="text hint">{{ emptyHint }}</p>
+        </div>
+        <div v-else class="empty">
+          <p class="muted">{{ emptyTitle }}</p>
+          <p class="muted small">{{ emptyHint }}</p>
+        </div>
+      </template>
       <div
         v-for="item in messages"
         :key="item.id"
@@ -74,12 +80,12 @@ const isGuest = computed(() => !isLoggedIn.value)
 
 const emptyTitle = computed(() =>
   isGuest.value
-    ? 'Пишите без авторизации — ответим в течение пары минут.'
+    ? 'Здравствуйте! Пишите без авторизации — ответим в течение пары минут.'
     : 'Напишите вопрос — ответим в этом чате.',
 )
 const emptyHint = computed(() =>
   isGuest.value
-    ? 'Спросите про тарифы, оплату или подключение. Диалог сохранится в этом браузере.'
+    ? 'Спросите про тарифы, оплату или подключение приложений.'
     : 'Кратко опишите проблему: ключ, платёж или подключение приложения.',
 )
 
@@ -246,6 +252,12 @@ defineExpose({ load, refresh: load })
   text-align: center;
   display: grid;
   gap: 6px;
+}
+.welcome { max-width: min(92%, 340px); }
+.welcome .hint {
+  margin-top: 6px;
+  opacity: 0.72;
+  font-size: 0.88rem;
 }
 .bubble {
   max-width: min(86%, 420px);

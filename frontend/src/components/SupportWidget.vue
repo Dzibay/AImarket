@@ -4,12 +4,13 @@
       <div v-if="open" class="panel" role="dialog" aria-label="Чат поддержки">
         <header class="panel-head">
           <div>
-            <strong>Поддержка</strong>
+            <strong>Чат поддержки</strong>
             <p class="muted small">{{ subtitle }}</p>
           </div>
           <button type="button" class="icon-btn" aria-label="Закрыть" @click="open = false">×</button>
         </header>
-        <SupportChat compact class="panel-chat" />
+        <!-- Монтируем при открытии: тогда же создаётся гостевой токен -->
+        <SupportChat v-if="open" compact class="panel-chat" />
       </div>
     </transition>
 
@@ -22,7 +23,7 @@
     >
       <span v-if="unread > 0 && !open" class="badge">{{ unread > 9 ? '9+' : unread }}</span>
       <AppIcon v-if="open" name="chevron" :size="22" class="close-icon" />
-      <AppIcon v-else name="help" :size="22" />
+      <AppIcon v-else name="chat" :size="22" />
     </button>
   </div>
 </template>
@@ -47,8 +48,8 @@ const hidden = computed(() => {
 
 const subtitle = computed(() =>
   isLoggedIn.value
-    ? 'Ответим в этом чате'
-    : 'Без авторизации · обычно за пару минут',
+    ? 'Ответим в течение нескольких минут'
+    : 'Пишите без входа — ответим за пару минут',
 )
 
 function toggle() {
