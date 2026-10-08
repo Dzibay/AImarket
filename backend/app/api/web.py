@@ -23,6 +23,7 @@ from app.db import pool
 from app.history import HISTORY_PAGE, history_payload
 from app.installer import InstallError, create_install_command
 from app.mailer import enabled as mail_enabled
+from app.mailer import send_login_email
 from app.money import bonus_tiers, min_topup_rub, min_topup_usd, rub_to_usd, topup_bonus, usd_price_rub
 from app.payments import ensure_web_key, settle_payment
 from app.settings_store import get_setting, public_base_url, support_username
@@ -70,6 +71,10 @@ class LoginIn(BaseModel):
 
 class LinkLoginIn(BaseModel):
     token: str = Field(min_length=10, max_length=200)
+
+
+class EmailLoginIn(BaseModel):
+    email: str = Field(min_length=3, max_length=200)
 
 
 class InstallIn(BaseModel):
@@ -361,6 +366,45 @@ def login_by_link(body: LinkLoginIn) -> dict:
             (user_id,),
         )
     return {"session": make_session(user_id), "profile": _profile(user_id)}
+
+
+@router.post("/web/login/email")
+def login_by_email(body: EmailLoginIn) -> dict:
+    """Вход по почте: находит или создаёт сайт-аккаунт и шлёт письмо со ссылкой."""
+    email = body.email.strip().lower()
+    if not _EMAIL.match(email):
+        raise HTTPException(status_code=400, detail="email")
+    if not mail_enabled():
+        raise HTTPException(status_code=503, detail="mail")
+    created = False
+    with pool.connection() as conn:
+        existing = conn.execute(
+            """
+            SELECT id, blocked_at FROM users
+            WHERE telegram_id IS NULL AND lower(email) = %s
+            ORDER BY id ASC
+            LIMIT 1
+            """,
+            (email,),
+        ).fetchone()
+        if existing is not None:
+            if existing["blocked_at"] is not None:
+                raise HTTPException(status_code=403, detail="blocked")
+            user_id = int(existing["id"])
+        else:
+            created = True
+            row = conn.execute(
+                """
+                INSERT INTO users (telegram_id, email)
+                VALUES (NULL, %s)
+                RETURNING id
+                """,
+                (email,),
+            ).fetchone()
+            user_id = int(row["id"])
+    if not send_login_email(user_id, created=created):
+        raise HTTPException(status_code=503, detail="mail")
+    return {"ok": True, "created": created}
 
 
 @router.post("/web/login")

@@ -27,6 +27,7 @@ export const webApi = {
   paymentReturn: (topup, token) =>
     request('/api/web/payments/return', { method: 'POST', body: JSON.stringify({ topup, token }) }),
   login: (key) => request('/api/web/login', { method: 'POST', body: JSON.stringify({ key }) }),
+  loginByEmail: (email) => request('/api/web/login/email', { method: 'POST', body: JSON.stringify({ email }) }),
   loginByLink: (token) => request('/api/web/login/link', { method: 'POST', body: JSON.stringify({ token }) }),
   me: () => request('/api/web/me'),
   history: (filter, offset, limit) =>
@@ -64,13 +65,14 @@ export const ERRORS = {
   blocked: 'Доступ заблокирован. Напишите в поддержку.',
   token: 'Ссылка возврата недействительна.',
   'guest-token': 'Сессия чата устарела. Откройте чат снова.',
-  expired: 'Ссылка устарела или уже заменена новой. Войдите по ключу.',
+  expired: 'Ссылка устарела или уже заменена новой. Запросите новое письмо или войдите по ключу.',
   topup: 'Платёж не найден.',
   supplier: 'Временно не хватает лимита у поставщика. Напишите в поддержку.',
   'no-key': 'Ключ ещё не выпущен.',
   empty: 'На балансе нет средств.',
   long: 'Слишком длинное сообщение.',
   message: 'Введите текст сообщения.',
+  mail: 'Почта временно недоступна. Попробуйте позже или войдите по ключу.',
   unauthorized: 'Сессия истекла. Войдите снова.',
 }
 

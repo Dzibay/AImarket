@@ -11,7 +11,7 @@
           <RouterLink to="/cabinet" class="btn quiet sm">Личный кабинет</RouterLink>
           <button type="button" class="link" @click="logout">Выйти</button>
         </template>
-        <RouterLink v-else to="/login" class="btn quiet sm">Войти по ключу</RouterLink>
+        <RouterLink v-else to="/login" class="btn quiet sm">Вход</RouterLink>
       </nav>
     </div>
   </header>

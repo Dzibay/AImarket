@@ -64,7 +64,7 @@
           <p class="page-lead">{{ error }}</p>
           <div class="actions">
             <RouterLink v-if="hasSession" to="/cabinet" class="btn">В личный кабинет</RouterLink>
-            <RouterLink to="/login" class="btn" :class="{ quiet: hasSession }">Войти по ключу</RouterLink>
+            <RouterLink to="/login" class="btn" :class="{ quiet: hasSession }">Вход</RouterLink>
             <RouterLink to="/" class="btn quiet">На главную</RouterLink>
           </div>
         </template>

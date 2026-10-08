@@ -46,6 +46,58 @@ def login_link(token: str) -> str:
     return f"{public_base_url()}/login?t={token}"
 
 
+def send_login_email(user_id: int, *, created: bool = False) -> bool:
+    """Письмо со ссылкой входа в кабинет (для существующих и новых аккаунтов по почте)."""
+    if not enabled():
+        log.info("SMTP не настроен — письмо входа пользователю %s не отправлено", user_id)
+        return False
+    with pool.connection() as conn:
+        row = conn.execute(
+            "SELECT email FROM users WHERE id = %s",
+            (user_id,),
+        ).fetchone()
+    if row is None or not (row["email"] or "").strip():
+        return False
+    email = str(row["email"]).strip()
+    token = issue_email_login_token(user_id)
+    link = login_link(token)
+    support = _support_line()
+    if created:
+        subject = "Вход в Aimarket — ваш аккаунт создан"
+        intro = "Аккаунт Aimarket создан. Войдите по кнопке ниже — ключ появится после первого пополнения."
+    else:
+        subject = "Вход в личный кабинет Aimarket"
+        intro = "Запрошен вход в личный кабинет Aimarket. Нажмите кнопку ниже — ссылка одноразовая."
+    text = (
+        f"{intro}\n\n"
+        f"Войти (действует {settings.email_login_ttl_days} дн.):\n{link}\n\n"
+        f"{support}\n"
+    )
+    body_html = f"""<!DOCTYPE html>
+<html lang="ru"><body style="margin:0;padding:0;background:#f4f1ea;font:16px/1.55 'Segoe UI',system-ui,sans-serif;color:#1c1915">
+  <div style="max-width:560px;margin:0 auto;padding:32px 20px">
+    <p style="margin:0 0 16px;font-weight:700;letter-spacing:-0.03em;font-size:18px">Aimarket</p>
+    <div style="background:#fff;border:1px solid rgba(28,25,21,.08);border-radius:16px;padding:24px">
+      <h1 style="margin:0 0 12px;font-size:22px;letter-spacing:-0.03em">{html.escape(intro)}</h1>
+      <p style="margin:0;color:#4f473d;font-size:15px;line-height:1.5">
+        Если вы не запрашивали вход — просто проигнорируйте это письмо.
+      </p>
+      <p style="margin:24px 0 0;text-align:center">
+        <a href="{html.escape(link)}" style="display:inline-block;padding:14px 26px;border-radius:999px;background:#1c1915;
+           color:#f4f1ea;font-weight:600;text-decoration:none">Войти в личный кабинет</a>
+      </p>
+      <p style="margin:12px 0 0;text-align:center;color:#6b645b;font-size:13px">
+        Кнопка работает {settings.email_login_ttl_days} дн.<br>
+        Если не открывается, скопируйте ссылку: <span style="word-break:break-all">{html.escape(link)}</span>
+      </p>
+    </div>
+    <p style="margin:18px 0 0;color:#6b645b;font-size:13px;text-align:center">{html.escape(support)}</p>
+  </div>
+</body></html>"""
+    send_async(email, subject, text, body_html)
+    return True
+
+
 def send_payment_email(
     user_id: int,
     *,
