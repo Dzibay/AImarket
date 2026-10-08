@@ -9,7 +9,7 @@ from psycopg.errors import UniqueViolation
 from pydantic import BaseModel, Field
 
 from app.auth import check_password, make_token, require_admin
-from app.billing import BillingError, add_usd, block_user, unblock_user
+from app.billing import BillingError, adjust_usd, block_user, unblock_user
 from app.db import pool
 from app.config import settings
 from app.mailer import enabled as mail_enabled
@@ -85,7 +85,7 @@ class SettingsIn(BaseModel):
 
 
 class CreditIn(BaseModel):
-    amount_usd: float = Field(gt=0, le=100000)
+    amount_usd: float = Field(ge=-100000, le=100000)
 
 
 class BlockIn(BaseModel):
@@ -275,13 +275,23 @@ def list_users() -> dict:
 @router.post("/users/{user_id}/credit", dependencies=[Depends(require_admin)])
 def credit_user(user_id: int, body: CreditIn) -> dict:
     amount = Decimal(str(body.amount_usd)).quantize(Decimal("0.01"))
+    if amount == 0:
+        raise HTTPException(status_code=400, detail="empty")
     stamp = datetime.now(_MSK).strftime("%Y-%m-%d %H:%M:%S")
+    action = "начисление" if amount > 0 else "списание"
     try:
-        balance = add_usd(user_id, amount, "credit", f"начисление из админки {stamp}")
+        balance = adjust_usd(user_id, amount, f"{action} из админки {stamp}")
     except BillingError as exc:
-        status = 409 if exc.code == "supplier" else 502
-        raise HTTPException(status_code=status, detail=exc.code) from exc
-    return {"balance_usd": float(balance)}
+        if exc.code == "user":
+            raise HTTPException(status_code=404, detail="user") from exc
+        if exc.code == "empty":
+            raise HTTPException(status_code=400, detail="empty") from exc
+        if exc.code == "balance":
+            raise HTTPException(status_code=400, detail="balance") from exc
+        if exc.code == "supplier":
+            raise HTTPException(status_code=409, detail="supplier") from exc
+        raise HTTPException(status_code=502, detail=exc.code) from exc
+    return {"balance_usd": float(balance), "delta_usd": float(amount)}
 
 
 @router.post("/users/{user_id}/block", dependencies=[Depends(require_admin)])

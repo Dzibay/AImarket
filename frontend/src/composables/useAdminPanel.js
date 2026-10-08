@@ -200,6 +200,8 @@ export function useAdminPanel() {
   const users = ref([])
   const usersSearch = ref('')
   const userCredits = reactive({})
+  const userCreditBusy = reactive({})
+  const userCreditError = reactive({})
 
   const filteredUsers = computed(() => {
     const q = usersSearch.value.trim().toLowerCase()
@@ -964,16 +966,37 @@ export function useAdminPanel() {
 
   async function creditUser(user) {
     const amount = Number(String(userCredits[user.id] || '').replace(',', '.'))
-    if (!amount) return
+    if (!amount || Number.isNaN(amount)) {
+      userCreditError[user.id] = 'Введите сумму (+ или −)'
+      return
+    }
+    if (userCreditBusy[user.id]) return
+    userCreditBusy[user.id] = true
+    userCreditError[user.id] = ''
     try {
-      await api('/api/admin/users/' + user.id + '/credit', {
+      const data = await api('/api/admin/users/' + user.id + '/credit', {
         method: 'POST',
         body: JSON.stringify({ amount_usd: amount }),
       })
       userCredits[user.id] = ''
-      await load()
+      const idx = users.value.findIndex((row) => row.id === user.id)
+      if (idx >= 0 && data.balance_usd != null) {
+        users.value[idx] = { ...users.value[idx], balance_usd: data.balance_usd }
+      }
     } catch (error) {
-      alert(error.message === 'supplier' ? 'Не хватает лимита у поставщика.' : error.message)
+      const code = error.message || 'error'
+      userCreditError[user.id] =
+        code === 'supplier'
+          ? 'Не хватает лимита у поставщика'
+          : code === 'balance'
+            ? 'Нечего списывать — баланс уже 0'
+            : code === 'empty'
+              ? 'Введите ненулевую сумму'
+              : code === 'upstream'
+                ? 'Ошибка поставщика, попробуйте ещё раз'
+                : 'Не удалось изменить баланс'
+    } finally {
+      userCreditBusy[user.id] = false
     }
   }
 
@@ -1227,6 +1250,8 @@ export function useAdminPanel() {
     filteredUsers,
     usersSearch,
     userCredits,
+    userCreditBusy,
+    userCreditError,
     supportThreads,
     supportWaiting,
     supportFilterWaiting,

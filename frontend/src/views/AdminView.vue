@@ -790,7 +790,7 @@
                   <th>Клиент</th>
                   <th class="num">Баланс</th>
                   <th>Ключ</th>
-                  <th>Начислить</th>
+                  <th>Баланс ±</th>
                   <th>Доступ</th>
                   <th class="actions" aria-label="Действия"></th>
                 </tr>
@@ -830,11 +830,26 @@
                   </td>
                   <td class="compact">
                     <div class="credit-cell">
-                      <input v-model="userCredits[item.id]" placeholder="0" inputmode="decimal">
-                      <button type="button" class="icon-btn credit-btn" title="Начислить" @click="creditUser(item)">
-                        <AppIcon name="plus" :size="14" />
+                      <input
+                        v-model="userCredits[item.id]"
+                        placeholder="+10 / −5"
+                        inputmode="decimal"
+                        :disabled="!!userCreditBusy[item.id]"
+                        @keydown.enter.prevent="creditUser(item)"
+                      >
+                      <button
+                        type="button"
+                        class="icon-btn credit-btn"
+                        :class="{ busy: userCreditBusy[item.id] }"
+                        :title="userCreditBusy[item.id] ? 'Сохраняем…' : 'Изменить баланс'"
+                        :disabled="!!userCreditBusy[item.id]"
+                        @click="creditUser(item)"
+                      >
+                        <AppIcon v-if="!userCreditBusy[item.id]" name="plus" :size="14" />
+                        <span v-else class="credit-spinner" aria-hidden="true" />
                       </button>
                     </div>
+                    <p v-if="userCreditError[item.id]" class="error credit-error">{{ userCreditError[item.id] }}</p>
                   </td>
                   <td>
                     <div class="access-cell">
@@ -1125,6 +1140,8 @@ const {
   filteredUsers,
   usersSearch,
   userCredits,
+  userCreditBusy,
+  userCreditError,
   supportThreads,
   supportWaiting,
   supportFilterWaiting,
@@ -2010,7 +2027,7 @@ onMounted(() => {
 .admin-page .users-table th:nth-child(3),
 .admin-page .users-table td:nth-child(3) { width: 140px; }
 .admin-page .users-table th:nth-child(4),
-.admin-page .users-table td:nth-child(4) { width: 120px; }
+.admin-page .users-table td:nth-child(4) { width: 148px; }
 .admin-page .users-table th:nth-child(5),
 .admin-page .users-table td:nth-child(5) { width: 168px; }
 .admin-page .users-table th:nth-child(6),
@@ -2096,7 +2113,7 @@ onMounted(() => {
   gap: 6px;
 }
 .admin-page .credit-cell input {
-  width: 72px;
+  width: 88px;
   padding: 6px 8px;
   font-size: 13px;
 }
@@ -2106,6 +2123,28 @@ onMounted(() => {
   flex: 0 0 30px;
 }
 .admin-page .credit-btn:hover { transform: none; opacity: 0.9; }
+.admin-page .credit-btn.busy,
+.admin-page .credit-btn:disabled {
+  opacity: 0.7;
+  cursor: wait;
+}
+.admin-page .credit-spinner {
+  width: 14px;
+  height: 14px;
+  border: 2px solid rgba(255, 255, 255, 0.35);
+  border-top-color: #fff;
+  border-radius: 50%;
+  display: block;
+  animation: credit-spin 0.7s linear infinite;
+}
+@keyframes credit-spin {
+  to { transform: rotate(360deg); }
+}
+.admin-page .credit-error {
+  margin: 4px 0 0;
+  font-size: 11px;
+  max-width: 140px;
+}
 .admin-page .access-cell {
   display: inline-flex;
   align-items: center;

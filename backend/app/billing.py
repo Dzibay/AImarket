@@ -142,6 +142,58 @@ def add_usd(user_id: int, amount: Decimal, kind: str, note: str, amount_kopecks:
         return updated
 
 
+def adjust_usd(user_id: int, delta: Decimal, note: str = "") -> Decimal:
+    """Изменить баланс на delta (+ начислить / − списать). Не уходит ниже 0."""
+    delta = Decimal(delta).quantize(Decimal("0.01"))
+    if delta == 0:
+        raise BillingError("empty")
+    with billing_lock:
+        with pool.connection() as conn:
+            exists = conn.execute("SELECT id FROM users WHERE id = %s", (user_id,)).fetchone()
+        if exists is None:
+            raise BillingError("user")
+        sync_all()
+        current = _balance(user_id)
+        if delta > 0:
+            _ensure_pool(delta)
+            updated = (current + delta).quantize(Decimal("0.0001"))
+            kind = "credit"
+            ledger_amount = delta
+        else:
+            updated = (current + delta).quantize(Decimal("0.0001"))
+            if updated < 0:
+                updated = Decimal("0.0000")
+            ledger_amount = (updated - current).quantize(Decimal("0.0001"))
+            if ledger_amount == 0:
+                raise BillingError("balance")
+            kind = "adjust"
+        key = _active_key(user_id)
+        if key is not None:
+            try:
+                updated = upstream.update_quota(int(key["upstream_id"]), updated)
+            except UpstreamError as exc:
+                _reraise(exc)
+            _set_key_quota(int(key["id"]), updated)
+            ledger_amount = (updated - current).quantize(Decimal("0.0001"))
+            if ledger_amount == 0:
+                raise BillingError("empty")
+            kind = "credit" if ledger_amount > 0 else "adjust"
+            if ledger_amount > 0:
+                from app.notifications import clear_limit_alert
+
+                clear_limit_alert(int(key["id"]))
+        if ledger_amount > 0:
+            from app.notifications import clear_low_balance_alert
+
+            clear_low_balance_alert(user_id)
+        stamp_note = note.strip() or (
+            "начисление из админки" if ledger_amount > 0 else "списание из админки"
+        )
+        _set_balance(user_id, updated, kind, stamp_note, 0, ledger_amount)
+        return updated
+
+
+
 def issue_key(user_id: int, telegram_id: int | None) -> dict:
     with billing_lock:
         _require_not_blocked(user_id)

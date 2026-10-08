@@ -77,10 +77,9 @@ class RouterCheap:
             self._put_quota(token_id, current, new_units)
         return units_to_usd(new_units)
 
-    def update_quota(self, token_id: int, quota_usd: Decimal) -> None:
-        units = usd_to_units(quota_usd)
-        if units <= 0:
-            raise UpstreamError("лимит ключа слишком маленький")
+    def update_quota(self, token_id: int, quota_usd: Decimal) -> Decimal:
+        """Выставляет абсолютный remain_quota. Допускает 0 (полный сброс лимита)."""
+        units = max(0, usd_to_units(quota_usd))
         with self._lock:
             self._ensure_login()
             current = self._token(token_id)
@@ -91,6 +90,7 @@ class RouterCheap:
             if increase > self._balance_units():
                 raise UpstreamError("на router.cheap не хватает баланса")
             self._put_quota(token_id, current, units)
+        return units_to_usd(units)
 
     def create_child_key(self, name: str, quota_usd: Decimal) -> tuple[int, str]:
         units = usd_to_units(quota_usd)
