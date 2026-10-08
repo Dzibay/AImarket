@@ -215,7 +215,11 @@ def list_users() -> dict:
         rows = conn.execute(
             """
             SELECT u.id, u.telegram_id, u.username, u.first_name, u.email, u.balance_usd,
-                   u.offer_accepted_at, u.blocked_at, u.blocked_reason, k.prefix
+                   u.offer_accepted_at, u.blocked_at, u.blocked_reason, k.prefix,
+                   EXISTS (
+                       SELECT 1 FROM topups t
+                       WHERE t.user_id = u.id AND t.status = 'paid'
+                   ) AS has_paid
             FROM users u
             LEFT JOIN api_keys k ON k.user_id = u.id AND k.revoked_at IS NULL
             ORDER BY u.id DESC
@@ -231,6 +235,8 @@ def list_users() -> dict:
                 "username": row["username"],
                 "first_name": row["first_name"],
                 "balance_usd": float(row["balance_usd"]),
+                "channel": "telegram" if row["telegram_id"] else "web",
+                "has_paid": bool(row["has_paid"]),
                 "offer_accepted": row["offer_accepted_at"] is not None,
                 "blocked": row["blocked_at"] is not None,
                 "blocked_at": row["blocked_at"].isoformat() if row["blocked_at"] is not None else "",

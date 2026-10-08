@@ -52,6 +52,9 @@ const PATHS = {
   tag: '<path d="M12.5 3.5l8 8-7.5 7.5-8-8V3.5z"/><path d="M16.5 8h.01"/>',
   mail: '<rect x="3" y="5" width="18" height="14" rx="2.5"/><path d="M3.5 7l8.5 6 8.5-6"/>',
   telegram: '<path d="M21 4L3 11l6 2 2 6 3-4 4.5 3z"/><path d="M9 13l9-7"/>',
+  search: '<circle cx="11" cy="11" r="6.5"/><path d="M16.5 16.5L21 21"/>',
+  trash: '<path d="M5 7h14"/><path d="M9 7V5.5A1.5 1.5 0 0 1 10.5 4h3A1.5 1.5 0 0 1 15 5.5V7"/><path d="M8 7l.8 12.2A1.5 1.5 0 0 0 10.3 20.5h3.4a1.5 1.5 0 0 0 1.5-1.3L16 7"/><path d="M10 11v6"/><path d="M14 11v6"/>',
+  plus: '<path d="M12 5v14"/><path d="M5 12h14"/>',
 }
 </script>
 

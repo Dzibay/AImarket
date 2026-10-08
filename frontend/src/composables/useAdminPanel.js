@@ -184,6 +184,7 @@ export function useAdminPanel() {
 
   const ledgerCheckCards = ref([])
   const ledgerItems = ref([])
+  const ledgerSearch = ref('')
   const ledgerForm = reactive({
     user_id: '',
     kind: 'credit',
@@ -197,7 +198,28 @@ export function useAdminPanel() {
   const topups = ref([])
 
   const users = ref([])
+  const usersSearch = ref('')
   const userCredits = reactive({})
+
+  const filteredUsers = computed(() => {
+    const q = usersSearch.value.trim().toLowerCase()
+    if (!q) return users.value
+    return users.value.filter((item) => {
+      const hay = [
+        person(item),
+        item.email || '',
+        item.username || '',
+        item.first_name || '',
+        String(item.id || ''),
+        String(item.telegram_id || ''),
+        item.key_prefix || '',
+        item.channel || '',
+      ]
+        .join(' ')
+        .toLowerCase()
+      return hay.includes(q)
+    })
+  })
 
   const referralBot = ref('')
   const referralSiteBase = ref('')
@@ -353,40 +375,72 @@ export function useAdminPanel() {
     const balanceDiff = Number(check.balance_diff_usd || 0)
     const payDiff = Number(check.payments_diff_usd || 0)
     const payDiffRub = Number(check.payments_diff_rub || 0)
+    const bonusUsd = Number(check.payments_bonus_usd || 0)
     ledgerCheckCards.value = [
-      { label: 'Балансы клиентов', value: usd4(check.balances_usd || 0), ok: true },
-      { label: 'Журнал', value: usd4(check.ledger_net_usd || 0), ok: true },
+      { label: 'Балансы клиентов', value: usd4(check.balances_usd || 0), ok: true, tone: 'neutral' },
+      { label: 'Журнал', value: usd4(check.ledger_net_usd || 0), ok: true, tone: 'neutral' },
       {
         label: 'Сверка балансов',
         value: check.balance_ok ? 'OK' : usd4(balanceDiff),
         ok: !!check.balance_ok,
+        tone: check.balance_ok ? 'ok' : 'bad',
       },
       {
         label: 'Оплачено',
-        value:
-          usd(check.payments_usd || 0) +
-          (Number(check.payments_bonus_usd || 0) > 0
-            ? ' +' + usd(check.payments_bonus_usd) + ' бонус'
-            : '') +
-          ' · ' +
-          rub(check.payments_rub || 0),
+        value: usd(check.payments_usd || 0) + ' · ' + rub(check.payments_rub || 0),
+        hint: bonusUsd > 0 ? '+' + usd(bonusUsd) + ' бонус' : '',
         ok: true,
+        tone: 'neutral',
       },
       {
         label: 'ЮKassa в журнале',
         value: usd(check.ledger_topup_usd || 0) + ' · ' + rub(check.ledger_topup_rub || 0),
         ok: true,
+        tone: 'neutral',
       },
       {
         label: 'Сверка платежей',
         value: check.payments_ok ? 'OK' : usd4(payDiff) + ' · ' + rub(payDiffRub),
         ok: !!check.payments_ok,
+        tone: check.payments_ok ? 'ok' : 'bad',
       },
     ]
   }
 
+  const filteredLedgerItems = computed(() => {
+    const q = ledgerSearch.value.trim().toLowerCase()
+    if (!q) return ledgerItems.value
+    return ledgerItems.value.filter((item) => {
+      const hay = [
+        person(item),
+        ledgerKindLabel(item.kind),
+        item.note || '',
+        ledgerAmountText(item),
+        formatRecentAt(item.created_at),
+      ]
+        .join(' ')
+        .toLowerCase()
+      return hay.includes(q)
+    })
+  })
+
   function ledgerKindLabel(kind) {
     return LEDGER_KINDS[kind] || kind
+  }
+
+  function ledgerKindClass(kind) {
+    return ({
+      topup: 'kind-topup',
+      credit: 'kind-credit',
+      spend: 'kind-spend',
+      adjust: 'kind-adjust',
+    })[kind] || 'kind-credit'
+  }
+
+  function ledgerAmountClass(item) {
+    const value = Number(item.amount_usd)
+    if (item.kind === 'spend' || value < 0) return 'amt-out'
+    return 'amt-in'
   }
 
   function ledgerAmountText(item) {
@@ -1006,12 +1060,16 @@ export function useAdminPanel() {
     recentRequests,
     ledgerCheckCards,
     ledgerItems,
+    filteredLedgerItems,
+    ledgerSearch,
     ledgerForm,
     ledgerError,
     ledgerUserOptions,
     ledgerKindOptions,
     topups,
     users,
+    filteredUsers,
+    usersSearch,
     userCredits,
     supportThreads,
     supportWaiting,
@@ -1061,6 +1119,8 @@ export function useAdminPanel() {
     referralSiteUrl,
     referralTopupText,
     ledgerKindLabel,
+    ledgerKindClass,
+    ledgerAmountClass,
     ledgerAmountText,
     formatRecentAt,
     modelRequests,

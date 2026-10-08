@@ -352,20 +352,29 @@
           </div>
         </section>
 
-        <section v-show="activeTab === 'ledger'" class="panel">
-          <div class="panel-head"><h2>Транзакции</h2></div>
-          <div class="cards">
+        <section v-show="activeTab === 'ledger'" class="panel tab-ledger">
+          <div class="panel-head ledger-head">
+            <div>
+              <h2>Транзакции</h2>
+              <p class="muted ledger-sub">История операций и сверка платежей</p>
+            </div>
+            <span class="stat-line">Всего: <strong>{{ ledgerItems.length }}</strong></span>
+          </div>
+
+          <div class="ledger-checks">
             <div
               v-for="card in ledgerCheckCards"
               :key="card.label"
-              class="card"
-              :class="{ bad: !card.ok }"
+              class="ledger-check"
+              :class="card.tone || (card.ok ? 'neutral' : 'bad')"
             >
-              <span>{{ card.label }}</span>
-              <b>{{ card.value }}</b>
+              <span class="ledger-check-label">{{ card.label }}</span>
+              <b class="ledger-check-value">{{ card.value }}</b>
+              <small v-if="card.hint" class="ledger-check-hint">{{ card.hint }}</small>
             </div>
           </div>
-          <div class="block">
+
+          <div class="ledger-create">
             <h3>Новая запись</h3>
             <div class="ledger-form">
               <div class="field">
@@ -393,15 +402,30 @@
                 <label for="ledger-rub">Сумма ₽</label>
                 <input id="ledger-rub" v-model="ledgerForm.amount_rub" inputmode="decimal" placeholder="0">
               </div>
-              <div class="field">
+              <div class="field grow">
                 <label for="ledger-note">Пометка</label>
                 <input id="ledger-note" v-model="ledgerForm.note" placeholder="Необязательно">
               </div>
-              <button type="button" @click="addLedgerEntry">Добавить</button>
+              <button type="button" class="ledger-add" @click="addLedgerEntry">
+                <AppIcon name="plus" :size="15" />
+                Добавить
+              </button>
             </div>
             <p v-if="ledgerError" class="error">{{ ledgerError }}</p>
           </div>
-          <div class="block">
+
+          <div class="ledger-list">
+            <div class="ledger-list-head">
+              <h3>Список транзакций</h3>
+              <label class="ledger-search">
+                <AppIcon name="search" :size="15" />
+                <input
+                  v-model="ledgerSearch"
+                  type="search"
+                  placeholder="Поиск по клиенту или операции…"
+                >
+              </label>
+            </div>
             <div class="table-wrap">
               <table>
                 <thead>
@@ -414,16 +438,29 @@
                   </tr>
                 </thead>
                 <tbody>
-                  <tr v-if="!ledgerItems.length" class="empty">
-                    <td colspan="5">Пока пусто</td>
+                  <tr v-if="!filteredLedgerItems.length" class="empty">
+                    <td colspan="5">{{ ledgerItems.length ? 'Ничего не найдено' : 'Пока пусто' }}</td>
                   </tr>
-                  <tr v-for="item in ledgerItems" :key="item.id">
-                    <td>{{ formatRecentAt(item.created_at) }}</td>
+                  <tr v-for="item in filteredLedgerItems" :key="item.id">
+                    <td class="nowrap muted">{{ formatRecentAt(item.created_at) }}</td>
                     <td>{{ person(item) }}</td>
-                    <td>{{ ledgerKindLabel(item.kind) }}{{ item.note ? ' · ' + item.note : '' }}</td>
-                    <td class="num">{{ ledgerAmountText(item) }}</td>
+                    <td>
+                      <span class="kind-badge" :class="ledgerKindClass(item.kind)">
+                        {{ ledgerKindLabel(item.kind) }}
+                      </span>
+                      <span v-if="item.note" class="ledger-note">{{ item.note }}</span>
+                    </td>
+                    <td class="num" :class="ledgerAmountClass(item)">{{ ledgerAmountText(item) }}</td>
                     <td class="actions">
-                      <button type="button" class="danger sm" @click="deleteLedgerEntry(item.id)">Удалить</button>
+                      <button
+                        type="button"
+                        class="icon-btn danger-ghost"
+                        title="Удалить"
+                        aria-label="Удалить"
+                        @click="deleteLedgerEntry(item.id)"
+                      >
+                        <AppIcon name="trash" :size="15" />
+                      </button>
                     </td>
                   </tr>
                 </tbody>
@@ -509,8 +546,24 @@
           </div>
         </section>
 
-        <section v-show="activeTab === 'users'" class="panel">
-          <div class="panel-head"><h2>Пользователи</h2></div>
+        <section v-show="activeTab === 'users'" class="panel tab-users">
+          <div class="panel-head users-head">
+            <div>
+              <h2>Пользователи</h2>
+              <p class="muted users-sub">Клиенты Telegram и сайта</p>
+            </div>
+            <div class="users-toolbar">
+              <label class="users-search">
+                <AppIcon name="search" :size="15" />
+                <input
+                  v-model="usersSearch"
+                  type="search"
+                  placeholder="Поиск по клиенту, email или ID…"
+                >
+              </label>
+              <span class="stat-line">Всего: <strong>{{ users.length }}</strong></span>
+            </div>
+          </div>
           <div class="table-wrap">
             <table>
               <thead>
@@ -524,41 +577,79 @@
                 </tr>
               </thead>
               <tbody>
-                <tr v-if="!users.length" class="empty">
-                  <td colspan="6">Пока пусто</td>
+                <tr v-if="!filteredUsers.length" class="empty">
+                  <td colspan="6">{{ users.length ? 'Ничего не найдено' : 'Пока пусто' }}</td>
                 </tr>
-                <tr v-for="item in users" :key="item.id">
+                <tr
+                  v-for="item in filteredUsers"
+                  :key="item.id"
+                  :class="{ paid: item.has_paid, blocked: item.blocked }"
+                >
                   <td>
-                    <span>{{ person(item) }}</span>
-                    <span v-if="!item.offer_accepted" class="badge warn">оферта</span>
-                    <span v-if="item.blocked" class="badge bad">blocked</span>
+                    <div class="user-cell">
+                      <span
+                        class="user-channel"
+                        :class="item.channel === 'telegram' ? 'tg' : 'web'"
+                        :title="item.channel === 'telegram' ? 'Telegram' : 'Сайт'"
+                      >
+                        <AppIcon :name="item.channel === 'telegram' ? 'telegram' : 'mail'" :size="14" />
+                      </span>
+                      <div class="user-meta">
+                        <span class="user-name">{{ person(item) }}</span>
+                        <span class="user-badges">
+                          <span v-if="item.has_paid" class="badge ok">оплата</span>
+                          <span v-if="!item.offer_accepted" class="badge warn">оферта</span>
+                          <span v-if="item.blocked" class="badge bad">блок</span>
+                        </span>
+                      </div>
+                    </div>
                   </td>
-                  <td class="num">{{ usd(item.balance_usd) }}</td>
-                  <td>{{ item.key_prefix ? item.key_prefix + '…' : '—' }}</td>
+                  <td class="num balance">{{ usd(item.balance_usd) }}</td>
+                  <td class="key-cell">
+                    <code v-if="item.key_prefix">{{ item.key_prefix }}…</code>
+                    <span v-else class="muted">—</span>
+                  </td>
                   <td class="compact">
-                    <input v-model="userCredits[item.id]" placeholder="$">
-                    <button type="button" class="sm" title="Начислить" @click="creditUser(item)">+</button>
+                    <div class="credit-cell">
+                      <input v-model="userCredits[item.id]" placeholder="0" inputmode="decimal">
+                      <button type="button" class="icon-btn credit-btn" title="Начислить" @click="creditUser(item)">
+                        <AppIcon name="plus" :size="14" />
+                      </button>
+                    </div>
                   </td>
                   <td>
-                    <button
-                      v-if="item.blocked"
-                      type="button"
-                      class="sm"
-                      @click="unblockUser(item)"
-                    >
-                      Разблок.
-                    </button>
-                    <button
-                      v-else
-                      type="button"
-                      class="danger sm"
-                      @click="blockUser(item)"
-                    >
-                      Блок
-                    </button>
+                    <div class="access-cell">
+                      <span class="access-status" :class="item.blocked ? 'off' : 'on'">
+                        {{ item.blocked ? 'Заблок.' : 'Активен' }}
+                      </span>
+                      <button
+                        v-if="item.blocked"
+                        type="button"
+                        class="quiet sm"
+                        @click="unblockUser(item)"
+                      >
+                        Разблок.
+                      </button>
+                      <button
+                        v-else
+                        type="button"
+                        class="quiet sm access-block"
+                        @click="blockUser(item)"
+                      >
+                        Блок
+                      </button>
+                    </div>
                   </td>
                   <td class="actions">
-                    <button type="button" class="danger sm" @click="deleteUser(item)">Удалить</button>
+                    <button
+                      type="button"
+                      class="icon-btn danger-ghost"
+                      title="Удалить"
+                      aria-label="Удалить"
+                      @click="deleteUser(item)"
+                    >
+                      <AppIcon name="trash" :size="15" />
+                    </button>
                   </td>
                 </tr>
               </tbody>
@@ -753,6 +844,7 @@
 import { onMounted } from 'vue'
 import { RouterLink } from 'vue-router'
 import AdminChart from '../components/AdminChart.vue'
+import AppIcon from '../components/ui/AppIcon.vue'
 import { useAdminPanel } from '../composables/useAdminPanel'
 import { useHead } from '../utils/useHead'
 
@@ -789,12 +881,16 @@ const {
   recentRequests,
   ledgerCheckCards,
   ledgerItems,
+  filteredLedgerItems,
+  ledgerSearch,
   ledgerForm,
   ledgerError,
   ledgerUserOptions,
   ledgerKindOptions,
   topups,
   users,
+  filteredUsers,
+  usersSearch,
   userCredits,
   supportThreads,
   supportWaiting,
@@ -844,6 +940,8 @@ const {
   referralSiteUrl,
   referralTopupText,
   ledgerKindLabel,
+  ledgerKindClass,
+  ledgerAmountClass,
   ledgerAmountText,
   formatRecentAt,
   modelRequests,
@@ -1150,15 +1248,332 @@ onMounted(() => {
 }
 .admin-page .stat-line strong { color: var(--text); }
 
+.admin-page .tab-ledger .ledger-head {
+  align-items: flex-start;
+  margin-bottom: 20px;
+}
+.admin-page .ledger-sub { margin: 4px 0 0; }
+.admin-page .ledger-checks {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 10px;
+}
+.admin-page .ledger-check {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  padding: 14px 14px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-soft);
+}
+.admin-page .ledger-check.ok {
+  background: var(--ok-soft);
+  border-color: #c7e3d4;
+}
+.admin-page .ledger-check.bad {
+  background: var(--danger-soft);
+  border-color: #e3b4b4;
+}
+.admin-page .ledger-check-label {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+.admin-page .ledger-check-value {
+  font-size: 18px;
+  font-weight: 650;
+  letter-spacing: -0.03em;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+}
+.admin-page .ledger-check.ok .ledger-check-value { color: var(--ok); }
+.admin-page .ledger-check.bad .ledger-check-value { color: var(--danger); }
+.admin-page .ledger-check-hint {
+  color: var(--muted);
+  font-size: 12px;
+}
+.admin-page .ledger-create,
+.admin-page .ledger-list {
+  margin-top: 18px;
+  padding: 16px 18px 18px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-soft);
+}
+.admin-page .ledger-create h3,
+.admin-page .ledger-list-head h3 {
+  margin: 0 0 12px;
+  font-size: 14px;
+  font-weight: 650;
+}
 .admin-page .ledger-form {
   display: grid;
-  grid-template-columns: minmax(180px, 1.4fr) repeat(4, minmax(110px, 1fr)) auto;
+  grid-template-columns: minmax(160px, 1.5fr) minmax(110px, 0.9fr) repeat(2, minmax(90px, 0.8fr)) minmax(140px, 1.2fr) auto;
   gap: 10px;
   align-items: end;
 }
 .admin-page .ledger-form label { margin: 0 0 6px; }
 .admin-page .ledger-form .field { min-width: 0; }
-.admin-page .ledger-form button { height: 42px; }
+.admin-page .ledger-form .field.grow { min-width: 140px; }
+.admin-page .ledger-add {
+  height: 42px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+.admin-page .ledger-list { background: #fff; }
+.admin-page .ledger-list-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+.admin-page .ledger-list-head h3 { margin: 0; }
+.admin-page .ledger-search {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  padding: 0 12px;
+  min-width: min(280px, 100%);
+  height: 38px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface-soft);
+  color: var(--muted);
+  text-transform: none;
+  letter-spacing: 0;
+  font-weight: 400;
+}
+.admin-page .ledger-search input {
+  width: 100%;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  box-shadow: none;
+  font-size: 13px;
+}
+.admin-page .ledger-search input:focus {
+  outline: none;
+  box-shadow: none;
+}
+.admin-page .ledger-search:focus-within {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(28, 25, 21, 0.08);
+  background: #fff;
+}
+.admin-page .tab-ledger .table-wrap {
+  border-color: var(--border);
+  background: #fff;
+}
+.admin-page .kind-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 650;
+  border: 1px solid transparent;
+  vertical-align: middle;
+}
+.admin-page .kind-badge.kind-topup {
+  background: #eef4ff;
+  color: #2f4f8c;
+  border-color: #d5e0f5;
+}
+.admin-page .kind-badge.kind-credit {
+  background: var(--surface-soft);
+  color: var(--text);
+  border-color: var(--border);
+}
+.admin-page .kind-badge.kind-spend {
+  background: #f4f1ea;
+  color: var(--muted);
+  border-color: var(--border);
+}
+.admin-page .kind-badge.kind-adjust {
+  background: var(--warn-soft);
+  color: var(--warn);
+  border-color: #ecdca8;
+}
+.admin-page .ledger-note {
+  display: inline;
+  margin-left: 8px;
+  color: var(--muted);
+  font-size: 13px;
+}
+.admin-page .amt-in { color: var(--ok); font-variant-numeric: tabular-nums; }
+.admin-page .amt-out { color: var(--muted); font-variant-numeric: tabular-nums; }
+.admin-page button.icon-btn.danger-ghost {
+  background: transparent;
+  color: var(--muted);
+  border: 1px solid transparent;
+}
+.admin-page button.icon-btn.danger-ghost:hover {
+  background: var(--danger-soft);
+  color: var(--danger);
+  border-color: #e3b4b4;
+  transform: none;
+}
+
+.admin-page .tab-users .users-head {
+  align-items: flex-start;
+  margin-bottom: 16px;
+}
+.admin-page .users-sub { margin: 4px 0 0; }
+.admin-page .users-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.admin-page .users-search {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  padding: 0 12px;
+  min-width: min(280px, 100%);
+  height: 38px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface-soft);
+  color: var(--muted);
+  text-transform: none;
+  letter-spacing: 0;
+  font-weight: 400;
+}
+.admin-page .users-search input {
+  width: 100%;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  box-shadow: none;
+  font-size: 13px;
+}
+.admin-page .users-search input:focus {
+  outline: none;
+  box-shadow: none;
+}
+.admin-page .users-search:focus-within {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(28, 25, 21, 0.08);
+  background: #fff;
+}
+.admin-page .tab-users .user-cell {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  min-width: 0;
+}
+.admin-page .user-channel {
+  flex: 0 0 28px;
+  width: 28px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  margin-top: 1px;
+}
+.admin-page .user-channel.tg {
+  background: #e9f4fb;
+  border-color: #c9e0ef;
+  color: #2a6f97;
+}
+.admin-page .user-channel.web {
+  background: #f3efe7;
+  border-color: #ddd4c6;
+  color: #6b645b;
+}
+.admin-page .user-meta {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+.admin-page .user-name {
+  font-weight: 550;
+  overflow-wrap: anywhere;
+}
+.admin-page .user-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.admin-page .user-badges .badge { margin: 0; }
+.admin-page .tab-users tr.paid td {
+  background: #f3f8f4;
+}
+.admin-page .tab-users tr.paid:hover td {
+  background: #eaf3ed;
+}
+.admin-page .tab-users tr.blocked td {
+  opacity: 0.78;
+}
+.admin-page .tab-users td.balance {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+.admin-page .tab-users .key-cell code {
+  font-size: 12px;
+  color: var(--muted);
+  background: var(--surface-soft);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 2px 6px;
+}
+.admin-page .credit-cell {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.admin-page .credit-cell input {
+  width: 72px;
+  padding: 6px 8px;
+  font-size: 13px;
+}
+.admin-page .credit-btn {
+  background: var(--accent);
+  color: #fff;
+}
+.admin-page .credit-btn:hover { transform: none; opacity: 0.9; }
+.admin-page .access-cell {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.admin-page .access-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+}
+.admin-page .access-status::before {
+  content: '';
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: currentColor;
+}
+.admin-page .access-status.on { color: var(--ok); }
+.admin-page .access-status.off { color: var(--danger); }
+.admin-page .access-block { color: var(--danger); border-color: #e3b4b4; }
+@media (max-width: 640px) {
+  .admin-page .users-toolbar { width: 100%; }
+  .admin-page .users-search { width: 100%; min-width: 0; }
+}
 
 .admin-page .kpi-group { margin-bottom: 18px; }
 .admin-page .kpi-title {
@@ -1432,14 +1847,21 @@ onMounted(() => {
 }
 .admin-page .modal-box h2 { margin-bottom: 16px; }
 
+@media (max-width: 1100px) {
+  .admin-page .ledger-checks { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
 @media (max-width: 960px) {
   .admin-page .settings-grid, .admin-page .split { grid-template-columns: 1fr; }
   .admin-page .ledger-form { grid-template-columns: 1fr 1fr; }
-  .admin-page .ledger-form button { grid-column: 1 / -1; width: 100%; }
+  .admin-page .ledger-add { grid-column: 1 / -1; width: 100%; }
 }
 @media (max-width: 640px) {
   .admin-page main { padding: 16px 14px 48px; }
   .admin-page .panel { padding: 18px 16px; }
+  .admin-page .ledger-checks { grid-template-columns: 1fr 1fr; }
   .admin-page .ledger-form { grid-template-columns: 1fr; }
+  .admin-page .ledger-search { width: 100%; min-width: 0; }
+  .admin-page .ledger-create,
+  .admin-page .ledger-list { padding: 14px; }
 }
 </style>
