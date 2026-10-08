@@ -402,7 +402,7 @@
               </button>
             </div>
             <div class="table-wrap">
-              <table class="finance-table">
+              <table class="finance-table finance-ops-table">
                 <thead>
                   <tr>
                     <th>Дата</th>
@@ -429,10 +429,12 @@
                     <td class="finance-note-cell">{{ item.note || '—' }}</td>
                     <td class="num">{{ rub(item.amount_rub) }}</td>
                     <td class="actions">
-                      <button type="button" class="quiet sm" @click="startEditExpense(item)">Изм.</button>
-                      <button type="button" class="icon-btn danger-ghost" title="Удалить" @click="deleteFinanceOperation(item.id, 'расход')">
-                        <AppIcon name="trash" :size="15" />
-                      </button>
+                      <div class="actions-inner">
+                        <button type="button" class="quiet sm" @click="startEditExpense(item)">Изм.</button>
+                        <button type="button" class="icon-btn danger-ghost" title="Удалить" @click="deleteFinanceOperation(item.id, 'расход')">
+                          <AppIcon name="trash" :size="15" />
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 </tbody>
@@ -449,7 +451,7 @@
               </button>
             </div>
             <div class="table-wrap">
-              <table class="finance-table">
+              <table class="finance-table finance-ops-table">
                 <thead>
                   <tr><th>Дата</th><th>Счёт</th><th>Категория</th><th>Комментарий</th><th class="num">Сумма</th><th class="actions"></th></tr>
                 </thead>
@@ -465,9 +467,11 @@
                     <td class="finance-note-cell">{{ item.note || '—' }}</td>
                     <td class="num">{{ rub(item.amount_rub) }}</td>
                     <td class="actions">
-                      <button type="button" class="icon-btn danger-ghost" @click="deleteFinanceOperation(item.id, 'вывод')">
-                        <AppIcon name="trash" :size="15" />
-                      </button>
+                      <div class="actions-inner">
+                        <button type="button" class="icon-btn danger-ghost" @click="deleteFinanceOperation(item.id, 'вывод')">
+                          <AppIcon name="trash" :size="15" />
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 </tbody>
@@ -548,7 +552,7 @@
           <div v-show="financeSection === 'operations'" class="finance-card wide">
             <h3>Все операции</h3>
             <div class="table-wrap">
-              <table class="finance-table">
+              <table class="finance-table finance-ops-table ops-log">
                 <thead>
                   <tr><th>Дата</th><th>Тип</th><th>Счёт</th><th>Категория / куда</th><th>Комментарий</th><th class="num">Сумма</th></tr>
                 </thead>
@@ -2261,16 +2265,63 @@ onMounted(() => {
   color: #fff;
   border-color: var(--accent);
 }
+.admin-page .tab-finance .finance-card .table-wrap {
+  overflow-x: auto;
+}
 .admin-page .finance-table {
   width: 100%;
-  min-width: 720px;
+  min-width: 0;
   table-layout: fixed;
   border-collapse: collapse;
 }
 .admin-page .finance-table th,
 .admin-page .finance-table td {
-  padding: 11px 12px;
+  padding: 10px 12px;
   vertical-align: middle;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.admin-page .finance-ops-table th:nth-child(1),
+.admin-page .finance-ops-table td:nth-child(1) { width: 104px; }
+.admin-page .finance-ops-table th:nth-child(2),
+.admin-page .finance-ops-table td:nth-child(2) { width: 16%; }
+.admin-page .finance-ops-table th:nth-child(3),
+.admin-page .finance-ops-table td:nth-child(3) { width: 20%; }
+.admin-page .finance-ops-table th:nth-child(4),
+.admin-page .finance-ops-table td:nth-child(4) { width: auto; }
+.admin-page .finance-ops-table th:nth-child(5),
+.admin-page .finance-ops-table td:nth-child(5) { width: 100px; }
+.admin-page .finance-ops-table th:nth-child(6),
+.admin-page .finance-ops-table td:nth-child(6) {
+  width: 92px;
+  padding-left: 4px;
+  padding-right: 8px;
+}
+.admin-page .finance-ops-table.ops-log th:nth-child(2),
+.admin-page .finance-ops-table.ops-log td:nth-child(2) { width: 110px; }
+.admin-page .finance-ops-table.ops-log th:nth-child(6),
+.admin-page .finance-ops-table.ops-log td:nth-child(6) {
+  width: 100px;
+  padding-left: 12px;
+  padding-right: 12px;
+}
+.admin-page .finance-table td.num {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  overflow: visible;
+}
+.admin-page .finance-table td.actions {
+  overflow: visible;
+}
+.admin-page .finance-table td.actions .actions-inner {
+  display: inline-flex;
+  gap: 4px;
+  align-items: center;
+  justify-content: flex-end;
+}
+.admin-page .finance-table td.actions .quiet.sm {
+  padding: 5px 8px;
+  font-size: 12px;
 }
 .admin-page .finance-note-cell {
   overflow: hidden;
@@ -2278,6 +2329,12 @@ onMounted(() => {
   white-space: nowrap;
   color: var(--muted);
   font-size: 13px;
+}
+.admin-page .finance-table .cat-chip {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .admin-page .kind-badge.fin-income {
   background: var(--ok-soft);
