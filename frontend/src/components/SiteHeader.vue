@@ -1,6 +1,6 @@
 <template>
   <header class="site-header">
-    <div class="container inner">
+    <div class="inner">
       <RouterLink to="/" class="brand">
         <img src="/favicon-96x96.png" width="36" height="36" alt="">
         <span>Aimarket</span>
@@ -10,7 +10,7 @@
           <RouterLink to="/cabinet" class="btn quiet sm">Личный кабинет</RouterLink>
           <button type="button" class="link" @click="logout">Выйти</button>
         </template>
-        <RouterLink v-else to="/login" class="btn auth-btn sm">Вход/Регистрация</RouterLink>
+        <RouterLink v-else to="/login" class="auth-btn">Вход/Регистрация</RouterLink>
       </nav>
     </div>
   </header>
@@ -45,6 +45,9 @@ function logout() {
   align-items: center;
   justify-content: space-between;
   gap: 16px;
+  width: min(1280px, 100%);
+  margin: 0 auto;
+  padding: 0 28px;
 }
 .brand {
   display: inline-flex;
@@ -73,16 +76,27 @@ function logout() {
   text-underline-offset: 3px;
 }
 .auth-btn {
-  min-height: 42px;
-  padding: 0 18px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 40px;
+  padding: 0 16px;
   border-radius: 999px;
+  border: 1px solid rgba(28, 25, 21, 0.12);
+  background: rgba(255, 255, 255, 0.72);
+  color: var(--text);
+  font: inherit;
   font-size: 14px;
-  font-weight: 650;
+  font-weight: 600;
   letter-spacing: -0.01em;
-  box-shadow: 0 10px 22px rgba(28, 25, 21, 0.14);
+  box-shadow: none;
+  transition: background 0.15s ease, border-color 0.15s ease;
 }
 .auth-btn:hover {
-  transform: translateY(-1px);
-  box-shadow: 0 14px 28px rgba(28, 25, 21, 0.18);
+  background: #fff;
+  border-color: rgba(28, 25, 21, 0.2);
+}
+@media (max-width: 960px) {
+  .inner { padding: 0 16px; }
 }
 </style>
