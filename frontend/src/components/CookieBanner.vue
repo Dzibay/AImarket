@@ -2,11 +2,10 @@
   <div v-if="visible" class="cookie-banner" role="dialog" aria-label="Согласие на cookies">
     <div class="cookie-banner-inner">
       <p>
-        Мы используем cookies для работы сайта и аналитики (Яндекс.Метрика).
-        Подробнее в
-        <RouterLink to="/cookies">политике cookies</RouterLink>.
+        Используем cookies и системы аналитики. Используя сайт, вы соглашаетесь с этим в соответствии с
+        <RouterLink to="/cookies">Политикой cookies</RouterLink>.
       </p>
-      <button type="button" class="cookie-accept" @click="accept">Принять</button>
+      <button type="button" class="cookie-accept" @click="accept">ОК</button>
     </div>
   </div>
 </template>
@@ -43,31 +42,25 @@ function accept() {
 <style scoped>
 .cookie-banner {
   position: fixed;
-  left: 0;
-  right: 0;
-  bottom: 0;
+  left: 16px;
+  bottom: calc(16px + env(safe-area-inset-bottom, 0px));
   z-index: 60;
-  padding: 14px 16px calc(14px + env(safe-area-inset-bottom, 0px));
+  max-width: min(340px, calc(100vw - 32px));
   pointer-events: none;
 }
 .cookie-banner-inner {
   pointer-events: auto;
-  max-width: 920px;
-  margin: 0 auto;
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 14px 18px;
-  padding: 14px 16px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius, 14px);
-  background: rgba(255, 252, 247, 0.96);
-  box-shadow: 0 16px 40px rgba(28, 25, 21, 0.14);
-  backdrop-filter: blur(8px);
+  flex-direction: column;
+  gap: 14px;
+  padding: 18px 18px 16px;
+  border-radius: 18px;
+  background: #fff;
+  box-shadow: 0 12px 36px rgba(28, 25, 21, 0.16);
 }
 .cookie-banner-inner p {
   margin: 0;
-  color: var(--text);
+  color: #333;
   font-size: 14px;
   line-height: 1.45;
 }
@@ -75,29 +68,30 @@ function accept() {
   color: inherit;
   text-decoration: underline;
   text-underline-offset: 2px;
+  font-weight: 600;
 }
 .cookie-accept {
-  flex: 0 0 auto;
   appearance: none;
   border: 0;
-  border-radius: 10px;
-  padding: 10px 16px;
+  width: 100%;
+  border-radius: 12px;
+  padding: 12px 16px;
   font: inherit;
-  font-weight: 650;
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
   cursor: pointer;
-  background: var(--accent, #1c1915);
+  background: #2f9e44;
   color: #fff;
 }
 .cookie-accept:hover {
-  opacity: 0.92;
+  background: #2b8a3e;
 }
 @media (max-width: 640px) {
-  .cookie-banner-inner {
-    flex-direction: column;
-    align-items: stretch;
-  }
-  .cookie-accept {
-    width: 100%;
+  .cookie-banner {
+    left: 12px;
+    right: 12px;
+    max-width: none;
   }
 }
 </style>

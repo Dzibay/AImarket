@@ -494,26 +494,38 @@
             </div>
             <p class="muted small">Для счёта ЮKassa при создании подтянутся все прошлые оплаты.</p>
             <div class="table-wrap" style="margin-top:12px">
-              <table class="finance-table">
+              <table class="finance-table finance-accounts-table">
                 <thead>
-                  <tr><th>Счёт</th><th>Провайдер</th><th class="num">Баланс</th><th></th><th class="actions"></th></tr>
+                  <tr>
+                    <th>Счёт</th>
+                    <th>Провайдер</th>
+                    <th class="num">Баланс</th>
+                    <th class="actions"></th>
+                  </tr>
                 </thead>
                 <tbody>
-                  <tr v-if="!financeAccounts.length" class="empty"><td colspan="5">Создайте хотя бы один счёт</td></tr>
+                  <tr v-if="!financeAccounts.length" class="empty"><td colspan="4">Создайте хотя бы один счёт</td></tr>
                   <tr v-for="a in financeAccounts" :key="a.id">
                     <td>
-                      <b>{{ a.name }}</b>
-                      <span v-if="a.is_default" class="badge ok">дефолт</span>
+                      <div class="account-name">
+                        <b>{{ a.name }}</b>
+                        <span v-if="a.is_default" class="badge ok">дефолт</span>
+                      </div>
                     </td>
                     <td>{{ a.provider_label || '—' }}</td>
                     <td class="num">{{ rub(a.balance_rub) }}</td>
-                    <td>
-                      <button v-if="!a.is_default" type="button" class="quiet sm" @click="setDefaultFinanceAccount(a)">Сделать дефолтным</button>
-                    </td>
                     <td class="actions">
-                      <button type="button" class="icon-btn danger-ghost" @click="deleteFinanceAccount(a)">
-                        <AppIcon name="trash" :size="15" />
-                      </button>
+                      <div class="actions-inner">
+                        <button
+                          v-if="!a.is_default"
+                          type="button"
+                          class="quiet sm"
+                          @click="setDefaultFinanceAccount(a)"
+                        >Дефолт</button>
+                        <button type="button" class="icon-btn danger-ghost" title="Удалить" @click="deleteFinanceAccount(a)">
+                          <AppIcon name="trash" :size="15" />
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 </tbody>
@@ -530,19 +542,34 @@
               </button>
             </div>
             <div class="table-wrap">
-              <table class="finance-table">
+              <table class="finance-table finance-cats-table">
                 <thead>
                   <tr><th>Тип</th><th>Название</th><th>Цвет</th><th class="actions"></th></tr>
                 </thead>
                 <tbody>
                   <tr v-for="c in (financeSummary?.categories || [])" :key="c.id">
-                    <td>{{ c.kind === 'expense' ? 'Расход' : 'Вывод' }}</td>
-                    <td><input v-model="c.name" @change="saveFinanceCategory(c)"></td>
-                    <td><input v-model="c.color" type="color" @change="saveFinanceCategory(c)"></td>
+                    <td class="nowrap">{{ c.kind === 'expense' ? 'Расход' : 'Вывод' }}</td>
+                    <td>
+                      <input
+                        v-model="c.name"
+                        class="cat-name-input"
+                        @change="saveFinanceCategory(c)"
+                      >
+                    </td>
+                    <td>
+                      <input
+                        v-model="c.color"
+                        class="cat-color-input"
+                        type="color"
+                        @change="saveFinanceCategory(c)"
+                      >
+                    </td>
                     <td class="actions">
-                      <button type="button" class="icon-btn danger-ghost" @click="archiveFinanceCategory(c)">
-                        <AppIcon name="trash" :size="15" />
-                      </button>
+                      <div class="actions-inner">
+                        <button type="button" class="icon-btn danger-ghost" title="Удалить" @click="archiveFinanceCategory(c)">
+                          <AppIcon name="trash" :size="15" />
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 </tbody>
@@ -2070,6 +2097,11 @@ onMounted(() => {
   transform: none;
 }
 
+.admin-page .tab-finance {
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+}
 .admin-page .tab-finance .finance-head {
   align-items: flex-start;
   margin-bottom: 18px;
@@ -2266,12 +2298,19 @@ onMounted(() => {
   color: #fff;
   border-color: var(--accent);
 }
+.admin-page .tab-finance .finance-card {
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+}
 .admin-page .tab-finance .finance-card .table-wrap {
+  width: 100%;
+  max-width: 100%;
   overflow-x: auto;
 }
 .admin-page .finance-table {
   width: 100%;
-  min-width: 0;
+  min-width: 0 !important;
   table-layout: fixed;
   border-collapse: collapse;
 }
@@ -2282,6 +2321,14 @@ onMounted(() => {
   overflow: hidden;
   text-overflow: ellipsis;
 }
+.admin-page .finance-table input,
+.admin-page .finance-table select {
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+}
+
+/* expenses / withdrawals / operations */
 .admin-page .finance-ops-table th:nth-child(1),
 .admin-page .finance-ops-table td:nth-child(1) { width: 104px; }
 .admin-page .finance-ops-table th:nth-child(2),
@@ -2306,6 +2353,67 @@ onMounted(() => {
   padding-left: 12px;
   padding-right: 12px;
 }
+
+/* accounts */
+.admin-page .finance-accounts-table th:nth-child(1),
+.admin-page .finance-accounts-table td:nth-child(1) { width: auto; }
+.admin-page .finance-accounts-table th:nth-child(2),
+.admin-page .finance-accounts-table td:nth-child(2) { width: 22%; }
+.admin-page .finance-accounts-table th:nth-child(3),
+.admin-page .finance-accounts-table td:nth-child(3) { width: 120px; }
+.admin-page .finance-accounts-table th:nth-child(4),
+.admin-page .finance-accounts-table td:nth-child(4) {
+  width: 118px;
+  padding-left: 4px;
+  padding-right: 8px;
+}
+.admin-page .finance-accounts-table .account-name {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  flex-wrap: wrap;
+}
+.admin-page .finance-accounts-table .account-name b {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+/* categories */
+.admin-page .finance-cats-table th:nth-child(1),
+.admin-page .finance-cats-table td:nth-child(1) { width: 96px; }
+.admin-page .finance-cats-table th:nth-child(2),
+.admin-page .finance-cats-table td:nth-child(2) { width: auto; }
+.admin-page .finance-cats-table th:nth-child(3),
+.admin-page .finance-cats-table td:nth-child(3) {
+  width: 72px;
+  text-align: center;
+  overflow: visible;
+}
+.admin-page .finance-cats-table th:nth-child(4),
+.admin-page .finance-cats-table td:nth-child(4) {
+  width: 52px;
+  padding-left: 4px;
+  padding-right: 8px;
+}
+.admin-page .finance-cats-table .cat-name-input {
+  width: 100%;
+  min-width: 0;
+  padding: 7px 10px;
+  font-size: 13px;
+}
+.admin-page .finance-cats-table .cat-color-input {
+  width: 40px;
+  height: 32px;
+  min-width: 40px;
+  max-width: 40px;
+  padding: 2px;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
 .admin-page .finance-table td.num {
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
