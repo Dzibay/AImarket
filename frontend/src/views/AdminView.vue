@@ -1201,21 +1201,52 @@ onMounted(() => {
   align-items: center;
   gap: 8px;
   margin: 0;
-  color: var(--muted);
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface-soft);
+  color: var(--text);
   font-size: 13px;
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
+  line-height: 1.2;
   cursor: pointer;
+  user-select: none;
+}
+.admin-page .support-filter:hover {
+  border-color: var(--border-strong);
+  background: #fff;
+}
+.admin-page .support-filter input[type='checkbox'] {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  padding: 0;
+  flex: 0 0 16px;
+  border: 1px solid var(--border-strong);
+  border-radius: 4px;
+  accent-color: var(--accent);
+  box-shadow: none;
+  cursor: pointer;
+}
+.admin-page .support-filter .badge {
+  margin: 0;
 }
 .admin-page .support-layout {
   display: grid;
   grid-template-columns: minmax(220px, 0.9fr) minmax(0, 1.4fr);
   gap: 14px;
-  min-height: 480px;
+  height: min(640px, calc(100vh - 210px));
+  min-height: 420px;
+  align-items: stretch;
 }
 .admin-page .support-list {
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   overflow: auto;
-  max-height: 640px;
+  min-height: 0;
+  height: 100%;
   background: var(--surface-soft);
 }
 .admin-page .support-item {
@@ -1266,18 +1297,21 @@ onMounted(() => {
   border-radius: var(--radius-sm);
   display: flex;
   flex-direction: column;
-  min-height: 480px;
+  min-height: 0;
+  height: 100%;
   background: #fff;
   overflow: hidden;
 }
 .admin-page .support-chat-head {
+  flex-shrink: 0;
   padding: 12px 14px;
   border-bottom: 1px solid var(--border);
   background: var(--surface-soft);
 }
 .admin-page .support-chat-head p { margin: 2px 0 0; }
 .admin-page .admin-support-thread {
-  flex: 1;
+  flex: 1 1 0;
+  min-height: 0;
   overflow-y: auto;
   padding: 14px;
   display: flex;
@@ -1311,19 +1345,25 @@ onMounted(() => {
 }
 .admin-page .support-bubble.staff time { color: rgba(255, 255, 255, 0.7); }
 .admin-page .support-composer {
+  flex-shrink: 0;
   border-top: 1px solid var(--border);
   padding: 12px;
   display: grid;
   gap: 8px;
+  background: #fff;
 }
 .admin-page .support-composer textarea {
   width: 100%;
   min-height: 72px;
+  max-height: 160px;
   resize: vertical;
   border: 1px solid var(--border-strong);
   border-radius: var(--radius-sm);
   padding: 10px 12px;
   font: inherit;
+}
+.admin-page .support-composer .row {
+  margin-top: 0;
 }
 .admin-page .support-placeholder {
   margin: auto;
@@ -1331,8 +1371,40 @@ onMounted(() => {
   text-align: center;
 }
 @media (max-width: 900px) {
-  .admin-page .support-layout { grid-template-columns: 1fr; }
-  .admin-page .support-list { max-height: 240px; }
+  .admin-page .panel-head {
+    align-items: flex-start;
+  }
+  .admin-page .support-filter {
+    width: 100%;
+    justify-content: flex-start;
+    border-radius: var(--radius-sm);
+  }
+  .admin-page .support-layout {
+    grid-template-columns: 1fr;
+    height: auto;
+    min-height: 0;
+    gap: 12px;
+  }
+  .admin-page .support-list {
+    height: auto;
+    max-height: 200px;
+  }
+  .admin-page .support-chat-pane {
+    height: min(480px, calc(100dvh - 280px));
+    min-height: 320px;
+  }
+  .admin-page .support-composer {
+    padding: 10px;
+  }
+  .admin-page .support-composer textarea {
+    min-height: 64px;
+  }
+  .admin-page .support-composer button {
+    width: 100%;
+  }
+  .admin-page .support-bubble {
+    max-width: 92%;
+  }
 }
 
 .admin-page .modal {

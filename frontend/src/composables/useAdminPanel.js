@@ -363,7 +363,13 @@ export function useAdminPanel() {
       },
       {
         label: 'Оплачено',
-        value: usd(check.payments_usd || 0) + ' · ' + rub(check.payments_rub || 0),
+        value:
+          usd(check.payments_usd || 0) +
+          (Number(check.payments_bonus_usd || 0) > 0
+            ? ' +' + usd(check.payments_bonus_usd) + ' бонус'
+            : '') +
+          ' · ' +
+          rub(check.payments_rub || 0),
         ok: true,
       },
       {

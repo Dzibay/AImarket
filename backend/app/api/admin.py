@@ -599,7 +599,10 @@ def _ledger_check(conn) -> dict:
     balances = conn.execute("SELECT COALESCE(SUM(balance_usd), 0) AS total FROM users").fetchone()
     paid = conn.execute(
         """
-        SELECT COALESCE(SUM(amount_usd), 0) AS usd, COALESCE(SUM(amount_kopecks), 0) AS kop
+        SELECT
+            COALESCE(SUM(amount_usd), 0) AS usd,
+            COALESCE(SUM(bonus_usd), 0) AS bonus_usd,
+            COALESCE(SUM(amount_kopecks), 0) AS kop
         FROM topups
         WHERE status = 'paid'
         """
@@ -608,10 +611,13 @@ def _ledger_check(conn) -> dict:
     customer = Decimal(balances["total"])
     topup_usd = Decimal(book["topup_usd"])
     paid_usd = Decimal(paid["usd"])
+    # В ledger kind=topup пишется amount_usd + bonus_usd (см. payments.settle).
+    bonus_usd = Decimal(paid["bonus_usd"] or 0)
+    credited_usd = paid_usd + bonus_usd
     topup_rub = Decimal(int(book["topup_kop"] or 0)) / Decimal(100)
     paid_rub = Decimal(int(paid["kop"] or 0)) / Decimal(100)
     balance_diff = (customer - net).quantize(Decimal("0.0001"))
-    payment_diff_usd = (paid_usd - topup_usd).quantize(Decimal("0.0001"))
+    payment_diff_usd = (credited_usd - topup_usd).quantize(Decimal("0.0001"))
     payment_diff_rub = (paid_rub - topup_rub).quantize(Decimal("0.01"))
     return {
         "balances_usd": float(customer),
@@ -619,6 +625,7 @@ def _ledger_check(conn) -> dict:
         "balance_diff_usd": float(balance_diff),
         "balance_ok": balance_diff == 0,
         "payments_usd": float(paid_usd),
+        "payments_bonus_usd": float(bonus_usd),
         "ledger_topup_usd": float(topup_usd),
         "payments_diff_usd": float(payment_diff_usd),
         "payments_rub": float(paid_rub),
