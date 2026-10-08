@@ -426,15 +426,15 @@
                 >
               </label>
             </div>
-            <div class="table-wrap">
-              <table>
+            <div class="table-wrap ledger-table-wrap">
+              <table class="ledger-table">
                 <thead>
                   <tr>
                     <th>Когда</th>
                     <th>Клиент</th>
                     <th>Операция</th>
                     <th class="num">Сумма</th>
-                    <th class="actions"></th>
+                    <th class="actions" aria-label="Действия"></th>
                   </tr>
                 </thead>
                 <tbody>
@@ -442,15 +442,33 @@
                     <td colspan="5">{{ ledgerItems.length ? 'Ничего не найдено' : 'Пока пусто' }}</td>
                   </tr>
                   <tr v-for="item in filteredLedgerItems" :key="item.id">
-                    <td class="nowrap muted">{{ formatRecentAt(item.created_at) }}</td>
-                    <td>{{ person(item) }}</td>
+                    <td class="nowrap muted ledger-when">{{ formatRecentAt(item.created_at) }}</td>
                     <td>
-                      <span class="kind-badge" :class="ledgerKindClass(item.kind)">
-                        {{ ledgerKindLabel(item.kind) }}
-                      </span>
-                      <span v-if="item.note" class="ledger-note">{{ item.note }}</span>
+                      <div class="user-cell compact">
+                        <span
+                          class="user-channel"
+                          :class="item.telegram_id ? 'tg' : 'web'"
+                          :title="item.telegram_id ? 'Telegram' : 'Сайт'"
+                        >
+                          <AppIcon :name="item.telegram_id ? 'telegram' : 'mail'" :size="13" />
+                        </span>
+                        <span class="user-name">{{ person(item) }}</span>
+                      </div>
                     </td>
-                    <td class="num" :class="ledgerAmountClass(item)">{{ ledgerAmountText(item) }}</td>
+                    <td>
+                      <div class="ledger-op">
+                        <span class="kind-badge" :class="ledgerKindClass(item.kind)">
+                          {{ ledgerKindLabel(item.kind) }}
+                        </span>
+                        <span v-if="ledgerNoteText(item)" class="ledger-note" :title="ledgerNoteText(item)">
+                          {{ ledgerNoteText(item) }}
+                        </span>
+                      </div>
+                    </td>
+                    <td class="num ledger-amt" :class="ledgerAmountClass(item)">
+                      <span class="ledger-usd">{{ ledgerAmountUsd(item) }}</span>
+                      <span v-if="ledgerAmountRub(item)" class="ledger-rub">{{ ledgerAmountRub(item) }}</span>
+                    </td>
                     <td class="actions">
                       <button
                         type="button"
@@ -564,8 +582,8 @@
               <span class="stat-line">Всего: <strong>{{ users.length }}</strong></span>
             </div>
           </div>
-          <div class="table-wrap">
-            <table>
+          <div class="table-wrap users-table-wrap">
+            <table class="users-table">
               <thead>
                 <tr>
                   <th>Клиент</th>
@@ -573,7 +591,7 @@
                   <th>Ключ</th>
                   <th>Начислить</th>
                   <th>Доступ</th>
-                  <th class="actions"></th>
+                  <th class="actions" aria-label="Действия"></th>
                 </tr>
               </thead>
               <tbody>
@@ -942,7 +960,10 @@ const {
   ledgerKindLabel,
   ledgerKindClass,
   ledgerAmountClass,
+  ledgerAmountUsd,
+  ledgerAmountRub,
   ledgerAmountText,
+  ledgerNoteText,
   formatRecentAt,
   modelRequests,
   payerAmount,
@@ -1155,8 +1176,18 @@ onMounted(() => {
 .admin-page tbody tr:hover td { background: rgba(250, 247, 242, 0.65); }
 .admin-page td.num, .admin-page th.num { text-align: right; white-space: nowrap; }
 .admin-page td.nowrap { white-space: nowrap; }
-.admin-page td.actions, .admin-page th.actions { width: 1%; white-space: nowrap; }
-.admin-page td.actions { display: flex; gap: 6px; justify-content: flex-end; flex-wrap: wrap; }
+.admin-page td.actions, .admin-page th.actions {
+  width: 1%;
+  white-space: nowrap;
+  text-align: right;
+  vertical-align: middle;
+}
+.admin-page td.actions .actions-inner {
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+  justify-content: flex-end;
+}
 .admin-page .inline-form { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-bottom: 14px; }
 .admin-page .inline-form input, .admin-page .inline-form select { width: auto; min-width: 160px; flex: 1 1 160px; max-width: 280px; }
 .admin-page .referral-toolbar { margin-bottom: 14px; }
@@ -1374,15 +1405,69 @@ onMounted(() => {
   border-color: var(--border);
   background: #fff;
 }
+.admin-page .ledger-table {
+  min-width: 720px;
+  table-layout: fixed;
+}
+.admin-page .ledger-table th:nth-child(1),
+.admin-page .ledger-table td:nth-child(1) { width: 132px; }
+.admin-page .ledger-table th:nth-child(2),
+.admin-page .ledger-table td:nth-child(2) { width: 28%; }
+.admin-page .ledger-table th:nth-child(3),
+.admin-page .ledger-table td:nth-child(3) { width: auto; }
+.admin-page .ledger-table th:nth-child(4),
+.admin-page .ledger-table td:nth-child(4) { width: 128px; }
+.admin-page .ledger-table th:nth-child(5),
+.admin-page .ledger-table td:nth-child(5) { width: 48px; }
+.admin-page .ledger-table th,
+.admin-page .ledger-table td {
+  padding: 12px 14px;
+  vertical-align: middle;
+}
+.admin-page .ledger-table td.actions {
+  display: table-cell;
+  padding-left: 4px;
+  padding-right: 10px;
+  text-align: right;
+}
+.admin-page .ledger-table .user-cell.compact {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.admin-page .ledger-table .user-cell.compact .user-channel {
+  width: 24px;
+  height: 24px;
+  flex-basis: 24px;
+  border-radius: 7px;
+  margin-top: 0;
+}
+.admin-page .ledger-table .user-name {
+  font-weight: 500;
+  font-size: 13px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.admin-page .ledger-op {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
 .admin-page .kind-badge {
+  flex: 0 0 auto;
   display: inline-flex;
   align-items: center;
-  padding: 2px 8px;
+  justify-content: center;
+  min-width: 68px;
+  padding: 3px 8px;
   border-radius: 999px;
   font-size: 11px;
   font-weight: 650;
   border: 1px solid transparent;
-  vertical-align: middle;
+  line-height: 1.2;
 }
 .admin-page .kind-badge.kind-topup {
   background: #eef4ff;
@@ -1405,11 +1490,29 @@ onMounted(() => {
   border-color: #ecdca8;
 }
 .admin-page .ledger-note {
-  display: inline;
-  margin-left: 8px;
+  min-width: 0;
   color: var(--muted);
   font-size: 13px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
+.admin-page .ledger-amt {
+  display: grid;
+  justify-items: end;
+  gap: 2px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.admin-page .ledger-usd { font-weight: 600; }
+.admin-page .ledger-rub {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 400;
+}
+.admin-page .amt-in .ledger-usd { color: var(--ok); }
+.admin-page .amt-out .ledger-usd { color: var(--muted); }
+.admin-page .amt-zero .ledger-usd { color: var(--muted); font-weight: 500; }
 .admin-page .amt-in { color: var(--ok); font-variant-numeric: tabular-nums; }
 .admin-page .amt-out { color: var(--muted); font-variant-numeric: tabular-nums; }
 .admin-page button.icon-btn.danger-ghost {
@@ -1468,7 +1571,33 @@ onMounted(() => {
   box-shadow: 0 0 0 3px rgba(28, 25, 21, 0.08);
   background: #fff;
 }
-.admin-page .tab-users .user-cell {
+.admin-page .users-table {
+  min-width: 860px;
+  table-layout: fixed;
+  width: 100%;
+}
+.admin-page .users-table th,
+.admin-page .users-table td {
+  padding: 12px 14px;
+  vertical-align: middle;
+}
+.admin-page .users-table th:nth-child(1),
+.admin-page .users-table td:nth-child(1) { width: 30%; }
+.admin-page .users-table th:nth-child(2),
+.admin-page .users-table td:nth-child(2) { width: 96px; }
+.admin-page .users-table th:nth-child(3),
+.admin-page .users-table td:nth-child(3) { width: 140px; }
+.admin-page .users-table th:nth-child(4),
+.admin-page .users-table td:nth-child(4) { width: 120px; }
+.admin-page .users-table th:nth-child(5),
+.admin-page .users-table td:nth-child(5) { width: 168px; }
+.admin-page .users-table th:nth-child(6),
+.admin-page .users-table td:nth-child(6) {
+  width: 52px;
+  padding-left: 4px;
+  padding-right: 12px;
+}
+.admin-page .user-cell {
   display: flex;
   align-items: flex-start;
   gap: 10px;
@@ -1502,7 +1631,9 @@ onMounted(() => {
 }
 .admin-page .user-name {
   font-weight: 550;
-  overflow-wrap: anywhere;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .admin-page .user-badges {
   display: flex;
@@ -1510,13 +1641,13 @@ onMounted(() => {
   gap: 4px;
 }
 .admin-page .user-badges .badge { margin: 0; }
-.admin-page .tab-users tr.paid td {
+.admin-page .tab-users tr.paid > td {
   background: #f3f8f4;
 }
-.admin-page .tab-users tr.paid:hover td {
+.admin-page .tab-users tr.paid:hover > td {
   background: #eaf3ed;
 }
-.admin-page .tab-users tr.blocked td {
+.admin-page .tab-users tr.blocked > td {
   opacity: 0.78;
 }
 .admin-page .tab-users td.balance {
@@ -1524,12 +1655,18 @@ onMounted(() => {
   font-weight: 600;
 }
 .admin-page .tab-users .key-cell code {
+  display: inline-block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   font-size: 12px;
   color: var(--muted);
   background: var(--surface-soft);
   border: 1px solid var(--border);
   border-radius: 6px;
   padding: 2px 6px;
+  vertical-align: middle;
 }
 .admin-page .credit-cell {
   display: inline-flex;
@@ -1544,13 +1681,15 @@ onMounted(() => {
 .admin-page .credit-btn {
   background: var(--accent);
   color: #fff;
+  flex: 0 0 30px;
 }
 .admin-page .credit-btn:hover { transform: none; opacity: 0.9; }
 .admin-page .access-cell {
-  display: flex;
+  display: inline-flex;
   align-items: center;
   gap: 8px;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
+  white-space: nowrap;
 }
 .admin-page .access-status {
   display: inline-flex;

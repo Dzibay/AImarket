@@ -439,18 +439,38 @@ export function useAdminPanel() {
 
   function ledgerAmountClass(item) {
     const value = Number(item.amount_usd)
+    if (Math.abs(value) < 0.00005) return 'amt-zero'
     if (item.kind === 'spend' || value < 0) return 'amt-out'
     return 'amt-in'
   }
 
-  function ledgerAmountText(item) {
+  function ledgerAmountUsd(item) {
     const value = Number(item.amount_usd)
+    if (Math.abs(value) < 0.00005) return '$0.00'
     const sign = item.kind === 'spend' || value < 0 ? '−' : '+'
-    let text = sign + '$' + Math.abs(value).toFixed(2)
-    if (item.kind === 'topup' && item.amount_rub) {
-      text += ' · ' + Number(item.amount_rub).toFixed(2) + ' ₽'
+    return sign + '$' + Math.abs(value).toFixed(2)
+  }
+
+  function ledgerAmountRub(item) {
+    if (item.kind !== 'topup') return ''
+    const rubles = Number(item.amount_rub || 0)
+    if (!rubles) return ''
+    return rubles.toFixed(2) + ' ₽'
+  }
+
+  function ledgerAmountText(item) {
+    const usdPart = ledgerAmountUsd(item)
+    const rubPart = ledgerAmountRub(item)
+    return rubPart ? usdPart + ' · ' + rubPart : usdPart
+  }
+
+  function ledgerNoteText(item) {
+    const note = String(item.note || '').trim()
+    if (!note) return ''
+    if (item.kind === 'topup') {
+      return note.replace(/^юkassa\s+/i, '').trim()
     }
-    return text
+    return note
   }
 
   function formatRecentAt(at) {
@@ -1121,7 +1141,10 @@ export function useAdminPanel() {
     ledgerKindLabel,
     ledgerKindClass,
     ledgerAmountClass,
+    ledgerAmountUsd,
+    ledgerAmountRub,
     ledgerAmountText,
+    ledgerNoteText,
     formatRecentAt,
     modelRequests,
     payerAmount,
