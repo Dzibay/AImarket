@@ -55,6 +55,12 @@ const PATHS = {
   search: '<circle cx="11" cy="11" r="6.5"/><path d="M16.5 16.5L21 21"/>',
   trash: '<path d="M5 7h14"/><path d="M9 7V5.5A1.5 1.5 0 0 1 10.5 4h3A1.5 1.5 0 0 1 15 5.5V7"/><path d="M8 7l.8 12.2A1.5 1.5 0 0 0 10.3 20.5h3.4a1.5 1.5 0 0 0 1.5-1.3L16 7"/><path d="M10 11v6"/><path d="M14 11v6"/>',
   plus: '<path d="M12 5v14"/><path d="M5 12h14"/>',
+  cookie: '<circle cx="12" cy="12" r="8.5"/><circle cx="9" cy="10" r="1" fill="currentColor" stroke="none"/><circle cx="14" cy="9" r="0.9" fill="currentColor" stroke="none"/><circle cx="11" cy="14.5" r="1.1" fill="currentColor" stroke="none"/><circle cx="15.5" cy="13.5" r="0.8" fill="currentColor" stroke="none"/>',
+  file: '<path d="M7 3.5h7l4 4V20a1.5 1.5 0 0 1-1.5 1.5h-9.5A1.5 1.5 0 0 1 5.5 20V5A1.5 1.5 0 0 1 7 3.5z"/><path d="M14 3.5V8h4.5"/><path d="M9 12h6"/><path d="M9 16h6"/>',
+  headset: '<path d="M5 13v-1a7 7 0 0 1 14 0v1"/><path d="M5 13v3.5A1.5 1.5 0 0 0 6.5 18H8v-5H5z"/><path d="M19 13v3.5a1.5 1.5 0 0 1-1.5 1.5H16v-5h3z"/><path d="M16 18.5c0 1.4-1.3 2.5-3 2.5"/>',
+  calendar: '<rect x="3.5" y="5" width="17" height="15.5" rx="2"/><path d="M3.5 10h17"/><path d="M8 3.5v3"/><path d="M16 3.5v3"/>',
+  'arrow-left': '<path d="M19 12H5"/><path d="M10 7l-5 5 5 5"/>',
+  'chevron-right': '<path d="M9 6l6 6-6 6"/>',
 }
 </script>
 

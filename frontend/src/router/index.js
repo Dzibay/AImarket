@@ -19,6 +19,7 @@ const router = createRouter({
     { path: '/prices', name: 'prices', component: PricesView },
     { path: '/pay/return/:topup/:token', name: 'pay-return', component: PayReturnView },
     { path: '/pay/return', name: 'pay-return-query', component: PayReturnView },
+    { path: '/docs', redirect: '/cookies' },
     { path: '/privacy', name: 'privacy', component: LegalView, props: { page: 'privacy' } },
     { path: '/consent', name: 'consent', component: LegalView, props: { page: 'consent' } },
     { path: '/offer', name: 'offer', component: LegalView, props: { page: 'offer' } },
