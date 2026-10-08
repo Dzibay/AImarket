@@ -1,19 +1,6 @@
 <template>
   <div class="docs-page">
-    <header class="docs-top">
-      <RouterLink to="/" class="brand">
-        <img src="/favicon-96x96.png" width="32" height="32" alt="">
-        <span>Aimarket</span>
-      </RouterLink>
-      <nav class="top-nav">
-        <RouterLink to="/prices" class="nav-text">Цены</RouterLink>
-        <template v-if="isLoggedIn">
-          <RouterLink to="/cabinet" class="btn quiet sm">Личный кабинет</RouterLink>
-          <button type="button" class="nav-text linkish" @click="logout">Выйти</button>
-        </template>
-        <RouterLink v-else to="/login" class="btn quiet sm">Вход</RouterLink>
-      </nav>
-    </header>
+    <SiteHeader />
 
     <div class="docs-shell">
       <aside class="docs-side" :class="{ open: navOpen }">
@@ -179,6 +166,7 @@
 <script setup>
 import { computed, nextTick, ref, watch } from 'vue'
 import { RouterLink, useRouter } from 'vue-router'
+import SiteHeader from '../components/SiteHeader.vue'
 import SupportChat from '../components/SupportChat.vue'
 import AppIcon from '../components/ui/AppIcon.vue'
 import { fetchLegalPage } from '../api/site'
@@ -192,7 +180,7 @@ const props = defineProps({
 })
 
 const router = useRouter()
-const { isLoggedIn, clearSession } = useSession()
+const { isLoggedIn } = useSession()
 
 const data = ref(null)
 const error = ref(false)
@@ -431,11 +419,6 @@ function download() {
   URL.revokeObjectURL(url)
 }
 
-function logout() {
-  clearSession()
-  router.push('/')
-}
-
 watch(() => props.page, load, { immediate: true })
 </script>
 
@@ -449,48 +432,6 @@ watch(() => props.page, load, { immediate: true })
     radial-gradient(ellipse 80% 50% at 10% 0%, rgba(243, 235, 228, 0.9), transparent 55%),
     var(--bg);
   color: var(--text);
-}
-.docs-top {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  padding: 16px 28px 8px;
-  max-width: 1280px;
-  margin: 0 auto;
-}
-.brand {
-  display: inline-flex;
-  align-items: center;
-  gap: 10px;
-  font-weight: 700;
-  letter-spacing: -0.03em;
-  font-size: 18px;
-}
-.brand img {
-  width: 32px;
-  height: 32px;
-  border-radius: 9px;
-}
-.top-nav {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-}
-.nav-text {
-  background: none;
-  border: 0;
-  padding: 0;
-  font: inherit;
-  font-size: 14px;
-  font-weight: 600;
-  color: var(--muted-2);
-  cursor: pointer;
-}
-.linkish {
-  color: var(--muted);
-  text-decoration: underline;
-  text-underline-offset: 3px;
 }
 
 .docs-shell {
@@ -865,7 +806,6 @@ watch(() => props.page, load, { immediate: true })
 .nav-backdrop { display: none; }
 
 @media (max-width: 960px) {
-  .docs-top { padding: 14px 16px 6px; }
   .docs-shell {
     grid-template-columns: 1fr;
     padding: 8px 16px 40px;

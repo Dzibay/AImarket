@@ -6,12 +6,11 @@
         <span>Aimarket</span>
       </RouterLink>
       <nav class="nav">
-        <RouterLink to="/prices" class="nav-link">Цены</RouterLink>
         <template v-if="isLoggedIn">
           <RouterLink to="/cabinet" class="btn quiet sm">Личный кабинет</RouterLink>
           <button type="button" class="link" @click="logout">Выйти</button>
         </template>
-        <RouterLink v-else to="/login" class="btn quiet sm">Вход</RouterLink>
+        <RouterLink v-else to="/login" class="btn auth-btn sm">Вход/Регистрация</RouterLink>
       </nav>
     </div>
   </header>
@@ -52,9 +51,7 @@ function logout() {
   border-radius: 10px;
   box-shadow: 0 8px 24px rgba(28, 25, 21, 0.08);
 }
-.nav { display: flex; align-items: center; gap: 14px; }
-.nav-link { font-size: 14px; font-weight: 600; color: var(--muted-2); }
-.nav-link.router-link-active { color: var(--text); }
+.nav { display: flex; align-items: center; gap: 12px; }
 .link {
   background: none;
   border: 0;
@@ -65,5 +62,18 @@ function logout() {
   cursor: pointer;
   text-decoration: underline;
   text-underline-offset: 3px;
+}
+.auth-btn {
+  min-height: 42px;
+  padding: 0 18px;
+  border-radius: 999px;
+  font-size: 14px;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+  box-shadow: 0 10px 22px rgba(28, 25, 21, 0.14);
+}
+.auth-btn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 14px 28px rgba(28, 25, 21, 0.18);
 }
 </style>
