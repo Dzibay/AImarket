@@ -43,7 +43,7 @@ const { unread, startPolling, stopPolling, refreshUnread } = useSupportUnread()
 
 const hidden = computed(() => {
   const path = String(route.path || '')
-  return path.startsWith('/admin') || path === '/cabinet/support' || path === '/support'
+  return path.startsWith('/admin') || path === '/help' || path === '/support' || path === '/cabinet/support'
 })
 
 const subtitle = computed(() =>

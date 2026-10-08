@@ -6,8 +6,6 @@ import LoginView from '../views/LoginView.vue'
 import PayReturnView from '../views/PayReturnView.vue'
 import CabinetView from '../views/CabinetView.vue'
 import PricesView from '../views/PricesView.vue'
-import SupportView from '../views/SupportView.vue'
-
 const DOCS_PAGES = new Set(['privacy', 'consent', 'offer', 'cookies', 'help'])
 
 const router = createRouter({
@@ -16,8 +14,8 @@ const router = createRouter({
     { path: '/', name: 'home', component: HomeView },
     { path: '/login', name: 'login', component: LoginView },
     { path: '/cabinet', name: 'cabinet', component: CabinetView },
-    { path: '/cabinet/support', name: 'cabinet-support', component: SupportView },
-    { path: '/support', name: 'support', component: SupportView },
+    { path: '/cabinet/support', redirect: { path: '/help', hash: '#help-chat' } },
+    { path: '/support', redirect: { path: '/help', hash: '#help-chat' } },
     { path: '/prices', name: 'prices', component: PricesView },
     { path: '/pay/return/:topup/:token', name: 'pay-return', component: PayReturnView },
     { path: '/pay/return', name: 'pay-return-query', component: PayReturnView },
@@ -32,6 +30,9 @@ const router = createRouter({
     { path: '/:pathMatch(.*)*', redirect: '/' },
   ],
   scrollBehavior(to, from) {
+    if (to.hash) {
+      return { el: to.hash, top: 20, behavior: 'smooth' }
+    }
     if (DOCS_PAGES.has(to.name) && DOCS_PAGES.has(from.name)) {
       return false
     }

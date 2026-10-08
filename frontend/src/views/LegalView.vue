@@ -36,18 +36,18 @@
             <span class="nav-label">{{ item.label }}</span>
           </RouterLink>
         </nav>
-        <RouterLink to="/support" class="help-card" @click="navOpen = false">
+        <a href="#help-chat" class="help-card" @click="onHelpCardClick">
           <span class="help-icon"><AppIcon name="headset" :size="18" /></span>
           <span class="help-text">
             <b>Нужна помощь?</b>
             <small>Напишите в поддержку</small>
           </span>
           <AppIcon name="chevron-right" :size="16" />
-        </RouterLink>
+        </a>
       </aside>
 
       <main class="docs-main" ref="mainEl">
-        <div v-if="isHelp" class="doc-card">
+        <div v-if="isHelp" class="doc-card help-page">
           <RouterLink to="/docs" class="back-link desktop-back">
             <AppIcon name="arrow-left" :size="15" />
             Назад к документам
@@ -61,7 +61,7 @@
             <div class="doc-head-text">
               <span class="doc-badge">Справка</span>
               <h1>Справочный центр</h1>
-              <p class="doc-meta">Ответы на частые вопросы и связь с поддержкой</p>
+              <p class="doc-meta">Ответы на частые вопросы и чат с поддержкой</p>
             </div>
           </div>
 
@@ -69,7 +69,7 @@
             <span class="summary-icon"><AppIcon name="help" :size="20" /></span>
             <div>
               <b>Как мы помогаем</b>
-              <p>Сначала загляните в FAQ ниже. Если ответа нет — напишите в чат поддержки, ответим в течение нескольких минут.</p>
+              <p>Сначала загляните в FAQ. Если ответа нет — напишите в чат ниже, можно без авторизации.</p>
             </div>
           </div>
 
@@ -83,13 +83,14 @@
             </details>
           </div>
 
-          <div class="help-cta">
-            <div>
-              <b>Не нашли ответ?</b>
-              <p>Откройте чат поддержки — можно писать без авторизации.</p>
+          <section id="help-chat" class="help-chat-block">
+            <div class="help-chat-head">
+              <b>Чат поддержки</b>
+              <p>{{ chatLead }}</p>
             </div>
-            <RouterLink to="/support" class="btn sm">Написать в поддержку</RouterLink>
-          </div>
+            <div v-if="chatBooting" class="chat-boot muted">Открываем чат…</div>
+            <SupportChat v-else :blocked="chatBlocked" />
+          </section>
         </div>
 
         <div v-else-if="data" class="doc-card" :class="{ dim: loading }">
@@ -178,8 +179,10 @@
 <script setup>
 import { computed, nextTick, ref, watch } from 'vue'
 import { RouterLink, useRouter } from 'vue-router'
+import SupportChat from '../components/SupportChat.vue'
 import AppIcon from '../components/ui/AppIcon.vue'
 import { fetchLegalPage } from '../api/site'
+import { webApi } from '../api/web'
 import { useSession } from '../composables/useSession'
 import { siteFaqItems } from '../utils/siteFaq'
 import { useHead } from '../utils/useHead'
@@ -196,9 +199,16 @@ const error = ref(false)
 const loading = ref(false)
 const navOpen = ref(false)
 const mainEl = ref(null)
+const chatBooting = ref(false)
+const chatBlocked = ref(false)
 
 const isHelp = computed(() => props.page === 'help')
-const faqItems = siteFaqItems()
+const faqItems = siteFaqItems({ supportHtml: '<a href="/help#help-chat">чат поддержки</a>' })
+const chatLead = computed(() =>
+  isLoggedIn.value
+    ? 'Ответ обычно в течение нескольких минут.'
+    : 'Пишите без входа — диалог сохранится в этом браузере.',
+)
 
 const navItems = [
   { page: 'cookies', to: '/cookies', label: 'Политика в отношении cookies', icon: 'cookie' },
@@ -352,8 +362,12 @@ async function load() {
     data.value = null
     loading.value = false
     useHead('Справочный центр — Aimarket', true)
+    await bootChat()
     await nextTick()
     scrollMainTop()
+    if (typeof window !== 'undefined' && window.location.hash === '#help-chat') {
+      document.getElementById('help-chat')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    }
     return
   }
   loading.value = true
@@ -370,6 +384,31 @@ async function load() {
     await nextTick()
     scrollMainTop()
   }
+}
+
+async function bootChat() {
+  chatBooting.value = true
+  chatBlocked.value = false
+  if (isLoggedIn.value) {
+    try {
+      const profile = await webApi.me()
+      chatBlocked.value = !!profile.blocked
+    } catch {
+      chatBlocked.value = false
+    }
+  }
+  chatBooting.value = false
+}
+
+function onHelpCardClick(event) {
+  navOpen.value = false
+  if (isHelp.value) {
+    event.preventDefault()
+    document.getElementById('help-chat')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    return
+  }
+  event.preventDefault()
+  router.push('/help#help-chat')
 }
 
 function scrollMainTop() {
@@ -546,6 +585,8 @@ watch(() => props.page, load, { immediate: true })
   background: rgba(255, 255, 255, 0.72);
   border: 1px solid var(--docs-line);
   color: var(--text);
+  text-decoration: none;
+  cursor: pointer;
 }
 .help-icon {
   width: 36px;
@@ -788,18 +829,38 @@ watch(() => props.page, load, { immediate: true })
   text-decoration: underline;
   text-underline-offset: 3px;
 }
-.help-cta {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  flex-wrap: wrap;
-  padding: 16px 18px;
-  border-radius: 16px;
+.help-page { min-height: 0; }
+.help-chat-block {
+  margin-top: 8px;
+  padding-top: 8px;
+  scroll-margin-top: 20px;
+}
+.help-chat-head {
+  margin-bottom: 12px;
+}
+.help-chat-head b {
+  display: block;
+  margin-bottom: 4px;
+  font-size: 16px;
+}
+.help-chat-head p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 14px;
+}
+.chat-boot {
+  padding: 24px;
+  border: 1px solid var(--docs-line);
+  border-radius: 14px;
   background: var(--docs-soft-2);
 }
-.help-cta b { display: block; margin-bottom: 4px; }
-.help-cta p { margin: 0; color: var(--muted-2); font-size: 14px; }
+.help-page :deep(.support-chat) {
+  border: 1px solid var(--docs-line);
+  border-radius: 16px;
+  overflow: hidden;
+  background: #fff;
+  min-height: 420px;
+}
 
 .nav-backdrop { display: none; }
 
