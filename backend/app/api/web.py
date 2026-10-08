@@ -27,6 +27,7 @@ from app.money import bonus_tiers, min_topup_rub, min_topup_usd, rub_to_usd, top
 from app.payments import ensure_web_key, settle_payment
 from app.settings_store import get_setting, public_base_url, support_username
 from app.referrals import attribute_user
+from app.support import list_messages, post_user_message, unread_count
 from app.telegram_link import bot_start_url
 from app.usage_stats import usage_period_stats
 from app.web_auth import key_hash, make_session, require_web_user
@@ -66,6 +67,10 @@ class InstallIn(BaseModel):
     app: str = Field(min_length=1, max_length=32)
     os: str = Field(min_length=1, max_length=16)
     action: str = Field(default="setup", max_length=16)
+
+
+class SupportMessageIn(BaseModel):
+    body: str = Field(min_length=1, max_length=4000)
 
 
 def _config_payload() -> dict:
@@ -425,3 +430,29 @@ def rotate_key(user_id: int = Depends(require_web_user)) -> dict:
         status = {"blocked": 403, "offer": 403, "no-key": 409, "empty": 402, "supplier": 409}.get(exc.code, 502)
         raise HTTPException(status_code=status, detail=exc.code) from exc
     return {"secret": result["secret"], "profile": _profile(user_id)}
+
+
+@router.get("/web/support/messages")
+def support_messages(user_id: int = Depends(require_web_user)) -> dict:
+    _user_row(user_id)
+    return list_messages(user_id, mark_seen=True)
+
+
+@router.get("/web/support/unread")
+def support_unread(user_id: int = Depends(require_web_user)) -> dict:
+    _user_row(user_id)
+    return {"unread": unread_count(user_id)}
+
+
+@router.post("/web/support/messages")
+def support_send(body: SupportMessageIn, user_id: int = Depends(require_web_user)) -> dict:
+    try:
+        message = post_user_message(user_id, body.body)
+    except LookupError:
+        raise HTTPException(status_code=401, detail="unauthorized") from None
+    except PermissionError:
+        raise HTTPException(status_code=403, detail="blocked") from None
+    except ValueError as exc:
+        code = str(exc) if str(exc) in {"message", "long"} else "message"
+        raise HTTPException(status_code=400, detail=code) from None
+    return {"message": message}

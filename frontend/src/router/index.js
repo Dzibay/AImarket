@@ -6,6 +6,7 @@ import LoginView from '../views/LoginView.vue'
 import PayReturnView from '../views/PayReturnView.vue'
 import CabinetView from '../views/CabinetView.vue'
 import PricesView from '../views/PricesView.vue'
+import SupportView from '../views/SupportView.vue'
 
 const router = createRouter({
   history: createWebHistory(),
@@ -13,6 +14,7 @@ const router = createRouter({
     { path: '/', name: 'home', component: HomeView },
     { path: '/login', name: 'login', component: LoginView },
     { path: '/cabinet', name: 'cabinet', component: CabinetView },
+    { path: '/cabinet/support', name: 'support', component: SupportView },
     { path: '/prices', name: 'prices', component: PricesView },
     { path: '/pay/return/:topup/:token', name: 'pay-return', component: PayReturnView },
     { path: '/pay/return', name: 'pay-return-query', component: PayReturnView },

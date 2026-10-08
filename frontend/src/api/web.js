@@ -36,6 +36,9 @@ export const webApi = {
   reissueKey: () => request('/api/web/keys/reissue', { method: 'POST' }),
   installCommand: (app, os, action = 'setup') =>
     request('/api/web/install', { method: 'POST', body: JSON.stringify({ app, os, action }) }),
+  supportMessages: () => request('/api/web/support/messages'),
+  supportUnread: () => request('/api/web/support/unread'),
+  supportSend: (body) => request('/api/web/support/messages', { method: 'POST', body: JSON.stringify({ body }) }),
 }
 
 export const ERRORS = {
@@ -52,6 +55,8 @@ export const ERRORS = {
   supplier: 'Временно не хватает лимита у поставщика. Напишите в поддержку.',
   'no-key': 'Ключ ещё не выпущен.',
   empty: 'На балансе нет средств.',
+  long: 'Слишком длинное сообщение.',
+  message: 'Введите текст сообщения.',
   unauthorized: 'Сессия истекла. Войдите снова.',
 }
 

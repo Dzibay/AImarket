@@ -212,14 +212,30 @@ export function useAdminPanel() {
   const groupError = ref('')
   const copiedReferralIds = ref({})
 
-  const tabs = [
+  const supportThreads = ref([])
+  const supportWaiting = ref(0)
+  const supportFilterWaiting = ref(false)
+  const supportActiveId = ref(null)
+  const supportUser = ref(null)
+  const supportMessages = ref([])
+  const supportDraft = ref('')
+  const supportError = ref('')
+  const supportSending = ref(false)
+  const supportLoading = ref(false)
+  let supportPollTimer = null
+
+  const tabs = computed(() => [
     { id: 'analytics', label: 'Аналитика' },
     { id: 'settings', label: 'Настройки' },
     { id: 'payments', label: 'Платежи' },
     { id: 'ledger', label: 'Транзакции' },
     { id: 'users', label: 'Пользователи' },
+    {
+      id: 'support',
+      label: supportWaiting.value > 0 ? `Поддержка (${supportWaiting.value})` : 'Поддержка',
+    },
     { id: 'referrals', label: 'Рефералы' },
-  ]
+  ])
 
   const periodOptions = [
     { days: 7, label: '7 дней' },
@@ -312,6 +328,7 @@ export function useAdminPanel() {
   }
 
   function logout() {
+    stopSupportPoll()
     showLogin()
     password.value = ''
     loginError.value = ''
@@ -523,6 +540,7 @@ export function useAdminPanel() {
 
     await loadReferrals()
     await loadAnalytics()
+    await loadSupportThreads()
     authPhase.value = 'in'
     bootError.value = ''
   }
@@ -554,6 +572,101 @@ export function useAdminPanel() {
 
   function setTab(tab) {
     activeTab.value = tab
+    if (tab === 'support') {
+      loadSupportThreads()
+      startSupportPoll()
+    } else {
+      stopSupportPoll()
+    }
+  }
+
+  function supportPerson(row) {
+    if (!row) return '—'
+    if (row.email) return row.email
+    return person(row)
+  }
+
+  function supportPreview(text) {
+    const value = String(text || '').replace(/\s+/g, ' ').trim()
+    if (value.length <= 72) return value
+    return value.slice(0, 70) + '…'
+  }
+
+  async function loadSupportThreads() {
+    try {
+      const data = await api(
+        '/api/admin/support/threads' + (supportFilterWaiting.value ? '?waiting=true' : ''),
+      )
+      supportThreads.value = data.items || []
+      supportWaiting.value = Number(data.waiting || 0)
+    } catch {
+      /* сеть */
+    }
+  }
+
+  async function openSupportThread(userId, { quiet = false } = {}) {
+    supportActiveId.value = userId
+    if (!quiet) {
+      supportError.value = ''
+      supportLoading.value = true
+    }
+    try {
+      const data = await api('/api/admin/support/threads/' + userId)
+      const prevLen = supportMessages.value.length
+      const prevLast = supportMessages.value.at(-1)?.id
+      supportUser.value = data.user
+      supportMessages.value = data.messages || []
+      const grew = supportMessages.value.length !== prevLen
+        || supportMessages.value.at(-1)?.id !== prevLast
+      if (!quiet || grew) {
+        await nextTick()
+        const scroller = document.querySelector('.admin-support-thread')
+        if (scroller) scroller.scrollTop = scroller.scrollHeight
+      }
+    } catch (error) {
+      if (!quiet) supportError.value = error.message || 'error'
+    } finally {
+      if (!quiet) supportLoading.value = false
+    }
+  }
+
+  async function sendSupportReply() {
+    const body = supportDraft.value.trim()
+    if (!body || !supportActiveId.value || supportSending.value) return
+    supportSending.value = true
+    supportError.value = ''
+    try {
+      const data = await api('/api/admin/support/threads/' + supportActiveId.value + '/reply', {
+        method: 'POST',
+        body: JSON.stringify({ body }),
+      })
+      supportMessages.value = [...supportMessages.value, data.message]
+      supportDraft.value = ''
+      await loadSupportThreads()
+      await nextTick()
+      const scroller = document.querySelector('.admin-support-thread')
+      if (scroller) scroller.scrollTop = scroller.scrollHeight
+    } catch (error) {
+      supportError.value = error.message || 'error'
+    } finally {
+      supportSending.value = false
+    }
+  }
+
+  function startSupportPoll() {
+    stopSupportPoll()
+    supportPollTimer = setInterval(() => {
+      if (document.visibilityState !== 'visible' || supportSending.value) return
+      loadSupportThreads()
+      if (supportActiveId.value) openSupportThread(supportActiveId.value, { quiet: true })
+    }, 15000)
+  }
+
+  function stopSupportPoll() {
+    if (supportPollTimer) {
+      clearInterval(supportPollTimer)
+      supportPollTimer = null
+    }
   }
 
   async function setPeriod(days) {
@@ -878,6 +991,21 @@ export function useAdminPanel() {
     topups,
     users,
     userCredits,
+    supportThreads,
+    supportWaiting,
+    supportFilterWaiting,
+    supportActiveId,
+    supportUser,
+    supportMessages,
+    supportDraft,
+    supportError,
+    supportSending,
+    supportLoading,
+    loadSupportThreads,
+    openSupportThread,
+    sendSupportReply,
+    supportPerson,
+    supportPreview,
     referralGroups,
     referralRows,
     referralModalOpen,

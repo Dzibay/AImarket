@@ -25,6 +25,7 @@ from app.referrals import (
     set_link_group,
 )
 from app.settings_store import get_setting, normalize_base_url, offer_url, public_base_url, set_setting
+from app.support import list_messages, list_threads, post_staff_message, waiting_count
 from app.telegram_link import bot_username
 from app.upstream import UpstreamError, upstream
 
@@ -90,6 +91,10 @@ class ReferralGroupIn(BaseModel):
 
 class ReferralGroupAssignIn(BaseModel):
     group_id: int | None = Field(default=None, gt=0)
+
+
+class SupportReplyIn(BaseModel):
+    body: str = Field(min_length=1, max_length=4000)
 
 
 _LEDGER_KINDS = {"topup", "credit", "spend", "adjust"}
@@ -763,3 +768,51 @@ def delete_referral_group_admin(group_id: int) -> dict:
     if not delete_group(group_id):
         raise HTTPException(status_code=404, detail="group")
     return {"ok": True}
+
+
+@router.get("/support/threads", dependencies=[Depends(require_admin)])
+def support_threads(waiting: bool = Query(default=False)) -> dict:
+    return {"items": list_threads(waiting_only=waiting), "waiting": waiting_count()}
+
+
+@router.get("/support/waiting", dependencies=[Depends(require_admin)])
+def support_waiting() -> dict:
+    return {"waiting": waiting_count()}
+
+
+@router.get("/support/threads/{user_id}", dependencies=[Depends(require_admin)])
+def support_thread(user_id: int) -> dict:
+    with pool.connection() as conn:
+        user = conn.execute(
+            """
+            SELECT id, email, username, first_name, telegram_id, blocked_at
+            FROM users WHERE id = %s
+            """,
+            (user_id,),
+        ).fetchone()
+    if user is None:
+        raise HTTPException(status_code=404, detail="user")
+    payload = list_messages(user_id, mark_seen=False)
+    return {
+        "user": {
+            "id": int(user["id"]),
+            "email": user["email"] or "",
+            "username": user["username"] or "",
+            "first_name": user["first_name"] or "",
+            "telegram_id": int(user["telegram_id"]) if user["telegram_id"] else None,
+            "blocked": user["blocked_at"] is not None,
+        },
+        **payload,
+    }
+
+
+@router.post("/support/threads/{user_id}/reply", dependencies=[Depends(require_admin)])
+def support_reply(user_id: int, body: SupportReplyIn) -> dict:
+    try:
+        message = post_staff_message(user_id, body.body)
+    except LookupError:
+        raise HTTPException(status_code=404, detail="user") from None
+    except ValueError as exc:
+        code = str(exc) if str(exc) in {"message", "long"} else "message"
+        raise HTTPException(status_code=400, detail=code) from None
+    return {"message": message}

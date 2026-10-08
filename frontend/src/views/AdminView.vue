@@ -421,6 +421,80 @@
           </div>
         </section>
 
+        <section v-show="activeTab === 'support'" class="panel">
+          <div class="panel-head">
+            <h2>Поддержка</h2>
+            <label class="support-filter">
+              <input
+                v-model="supportFilterWaiting"
+                type="checkbox"
+                @change="loadSupportThreads"
+              >
+              Только ждут ответа
+              <span v-if="supportWaiting" class="badge warn">{{ supportWaiting }}</span>
+            </label>
+          </div>
+          <div class="support-layout">
+            <div class="support-list">
+              <button
+                v-for="item in supportThreads"
+                :key="item.user_id"
+                type="button"
+                class="support-item"
+                :class="{ on: supportActiveId === item.user_id, waiting: item.waiting }"
+                @click="openSupportThread(item.user_id)"
+              >
+                <span class="support-item-top">
+                  <b>{{ supportPerson(item) }}</b>
+                  <span v-if="item.waiting" class="badge warn">{{ item.pending }}</span>
+                </span>
+                <span class="muted small">{{ supportPreview(item.last_body) }}</span>
+                <span class="muted small">{{ formatRecentAt(item.last_at) }}</span>
+              </button>
+              <p v-if="!supportThreads.length" class="muted small empty-hint">Диалогов пока нет</p>
+            </div>
+            <div class="support-chat-pane">
+              <template v-if="supportActiveId && supportUser">
+                <div class="support-chat-head">
+                  <div>
+                    <strong>{{ supportPerson(supportUser) }}</strong>
+                    <p class="muted small">#{{ supportUser.id }}<template v-if="supportUser.blocked"> · заблокирован</template></p>
+                  </div>
+                </div>
+                <div class="admin-support-thread">
+                  <p v-if="supportLoading && !supportMessages.length" class="muted small">Загрузка…</p>
+                  <div
+                    v-for="msg in supportMessages"
+                    :key="msg.id"
+                    class="support-bubble"
+                    :class="msg.author === 'staff' ? 'staff' : 'user'"
+                  >
+                    <p>{{ msg.body }}</p>
+                    <time>{{ formatRecentAt(msg.created_at) }}</time>
+                  </div>
+                </div>
+                <form class="support-composer" @submit.prevent="sendSupportReply">
+                  <textarea
+                    v-model="supportDraft"
+                    rows="3"
+                    maxlength="4000"
+                    placeholder="Ответ поддержки…"
+                    :disabled="supportSending"
+                    @keydown.enter.exact.prevent="sendSupportReply"
+                  />
+                  <div class="row">
+                    <button type="submit" :disabled="supportSending || !supportDraft.trim()">
+                      {{ supportSending ? 'Отправка…' : 'Ответить' }}
+                    </button>
+                    <span v-if="supportError" class="error">{{ supportError }}</span>
+                  </div>
+                </form>
+              </template>
+              <p v-else class="muted support-placeholder">Выберите диалог слева</p>
+            </div>
+          </div>
+        </section>
+
         <section v-show="activeTab === 'users'" class="panel">
           <div class="panel-head"><h2>Пользователи</h2></div>
           <div class="table-wrap">
@@ -708,6 +782,21 @@ const {
   topups,
   users,
   userCredits,
+  supportThreads,
+  supportWaiting,
+  supportFilterWaiting,
+  supportActiveId,
+  supportUser,
+  supportMessages,
+  supportDraft,
+  supportError,
+  supportSending,
+  supportLoading,
+  loadSupportThreads,
+  openSupportThread,
+  sendSupportReply,
+  supportPerson,
+  supportPreview,
   referralGroups,
   referralRows,
   referralModalOpen,
@@ -1092,6 +1181,129 @@ onMounted(() => {
 .admin-page .axis b { flex: 1 0 10px; font-weight: 400; font-size: 11px; color: var(--muted); text-align: center; }
 
 .admin-page .split { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+
+.admin-page .support-filter {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+  cursor: pointer;
+}
+.admin-page .support-layout {
+  display: grid;
+  grid-template-columns: minmax(220px, 0.9fr) minmax(0, 1.4fr);
+  gap: 14px;
+  min-height: 480px;
+}
+.admin-page .support-list {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  overflow: auto;
+  max-height: 640px;
+  background: var(--surface-soft);
+}
+.admin-page .support-item {
+  width: 100%;
+  display: grid;
+  gap: 4px;
+  padding: 12px 12px;
+  border: 0;
+  border-bottom: 1px solid var(--border);
+  background: transparent;
+  text-align: left;
+  font: inherit;
+  cursor: pointer;
+}
+.admin-page .support-item:hover { background: rgba(255, 255, 255, 0.7); }
+.admin-page .support-item.on { background: #fff; box-shadow: inset 3px 0 0 var(--accent); }
+.admin-page .support-item-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.admin-page .support-item-top b {
+  font-size: 13px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.admin-page .empty-hint { padding: 18px 12px; margin: 0; }
+.admin-page .support-chat-pane {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  display: flex;
+  flex-direction: column;
+  min-height: 480px;
+  background: #fff;
+  overflow: hidden;
+}
+.admin-page .support-chat-head {
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface-soft);
+}
+.admin-page .support-chat-head p { margin: 2px 0 0; }
+.admin-page .admin-support-thread {
+  flex: 1;
+  overflow-y: auto;
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  background: var(--surface-soft);
+}
+.admin-page .support-bubble {
+  max-width: 85%;
+  padding: 8px 10px;
+  border-radius: 12px;
+  display: grid;
+  gap: 3px;
+}
+.admin-page .support-bubble p {
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 14px;
+}
+.admin-page .support-bubble time { font-size: 11px; color: var(--muted); }
+.admin-page .support-bubble.user {
+  align-self: flex-start;
+  background: #fff;
+  border: 1px solid var(--border);
+}
+.admin-page .support-bubble.staff {
+  align-self: flex-end;
+  background: var(--accent);
+  color: #fff;
+}
+.admin-page .support-bubble.staff time { color: rgba(255, 255, 255, 0.7); }
+.admin-page .support-composer {
+  border-top: 1px solid var(--border);
+  padding: 12px;
+  display: grid;
+  gap: 8px;
+}
+.admin-page .support-composer textarea {
+  width: 100%;
+  min-height: 72px;
+  resize: vertical;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  padding: 10px 12px;
+  font: inherit;
+}
+.admin-page .support-placeholder {
+  margin: auto;
+  padding: 24px;
+  text-align: center;
+}
+@media (max-width: 900px) {
+  .admin-page .support-layout { grid-template-columns: 1fr; }
+  .admin-page .support-list { max-height: 240px; }
+}
 
 .admin-page .modal {
   position: fixed;

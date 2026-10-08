@@ -46,10 +46,11 @@
                   <AppIcon name="refresh" :size="15" :class="{ spin: loading }" />
                   {{ loading ? 'Обновляем…' : 'Обновить данные' }}
                 </button>
-                <a v-if="supportLabel" class="side-link" :href="supportHref" target="_blank" rel="noopener">
-                  <AppIcon :name="profile.support_username ? 'telegram' : 'mail'" :size="15" />
-                  Поддержка
-                </a>
+                <RouterLink to="/cabinet/support" class="side-link">
+                  <AppIcon name="help" :size="15" />
+                  Написать в поддержку
+                  <span v-if="supportUnread > 0" class="nav-badge">{{ supportUnread > 9 ? '9+' : supportUnread }}</span>
+                </RouterLink>
               </div>
             </div>
           </aside>
@@ -67,7 +68,7 @@
 
             <div v-if="profile.blocked" class="notice bad">
               Доступ заблокирован<template v-if="profile.blocked_reason">: {{ profile.blocked_reason }}</template>.
-              Напишите в поддержку<template v-if="supportLabel"> — <a :href="supportHref" target="_blank" rel="noopener">{{ supportLabel }}</a></template>.
+              Напишите в <RouterLink to="/cabinet/support">чат поддержки</RouterLink><template v-if="supportLabel"> или {{ supportLabel }}</template>.
             </div>
 
             <section id="overview" class="anchor">
@@ -315,24 +316,21 @@
                 <div class="card soft support">
                   <h3 class="card-title sm">Поддержка</h3>
                   <p class="muted small">
-                    Не получается подключить приложение, не зачислился платёж или потерялся ключ — напишите нам.
+                    Не получается подключить приложение, не зачислился платёж или потерялся ключ — напишите в чат.
                     Укажите почту, на которую оплачивали, и дату платежа.
                   </p>
                   <div class="contacts">
+                    <RouterLink to="/cabinet/support" class="contact">
+                      <AppIcon name="help" :size="16" /><span>Открыть чат</span>
+                      <span v-if="supportUnread > 0" class="nav-badge">{{ supportUnread > 9 ? '9+' : supportUnread }}</span>
+                    </RouterLink>
                     <a v-if="profile.support_username" class="contact" :href="`https://t.me/${profile.support_username}`" target="_blank" rel="noopener">
                       <AppIcon name="telegram" :size="16" /><span>@{{ profile.support_username }}</span><AppIcon name="external" :size="14" class="ext" />
                     </a>
                     <a v-if="profile.support_email" class="contact" :href="`mailto:${profile.support_email}`">
                       <AppIcon name="mail" :size="16" /><span>{{ profile.support_email }}</span>
                     </a>
-                    <a v-if="profile.bot_url" class="contact" :href="profile.bot_url" target="_blank" rel="noopener">
-                      <AppIcon name="send" :size="16" /><span>Telegram-бот</span><AppIcon name="external" :size="14" class="ext" />
-                    </a>
-                    <span v-if="!profile.support_username && !profile.support_email" class="muted small">Контакты поддержки скоро появятся.</span>
                   </div>
-                  <p v-if="profile.bot_url" class="muted small">
-                    Аккаунты сайта и бота раздельные — баланс, пополненный здесь, в боте не отображается.
-                  </p>
                   <p class="muted small docs">
                     <RouterLink to="/offer">Оферта</RouterLink> · <RouterLink to="/privacy">Политика</RouterLink> ·
                     <RouterLink to="/consent">Согласие</RouterLink>
@@ -359,6 +357,7 @@ import TopupForm from '../components/TopupForm.vue'
 import AppIcon from '../components/ui/AppIcon.vue'
 import { errorText, webApi } from '../api/web'
 import { useSession } from '../composables/useSession'
+import { useSupportUnread } from '../composables/useSupportUnread'
 import { toast } from '../composables/useToast'
 import { dateTime, rub, tokens, usd, usdSmart } from '../utils/format'
 import { useHead } from '../utils/useHead'
@@ -366,6 +365,7 @@ import { useHead } from '../utils/useHead'
 const PAGE = 10
 const router = useRouter()
 const { isLoggedIn } = useSession()
+const { unread: supportUnread, refreshUnread } = useSupportUnread()
 
 const profile = ref(null)
 const loading = ref(false)
@@ -471,7 +471,8 @@ const onboarding = computed(() => {
 const faq = computed(() => {
   const p = profile.value || {}
   const base = (p.api_base_url || 'https://router.cheap/v1').replace(/\/+$/, '')
-  const support = supportLabel.value ? `<a href="${supportHref.value}" target="_blank" rel="noopener">${supportLabel.value}</a>` : 'поддержку'
+  const support = '<a href="/cabinet/support">чат поддержки</a>'
+    + (supportLabel.value ? ` или <a href="${supportHref.value}" target="_blank" rel="noopener">${supportLabel.value}</a>` : '')
   const minUsd = Number(p.min_topup_usd || 0)
   const bonusLine = tiers.value.length
     ? `<p>Бонусы к пополнению: ${tiers.value.map((t) => `от ${usd(t.min_usd, 0)} — +${t.percent}%`).join(', ')}. Бонус зачисляется вместе с платежом и тратится как обычный баланс.</p>`
@@ -653,6 +654,7 @@ onMounted(async () => {
     router.replace('/login')
     return
   }
+  refreshUnread()
   await Promise.all([load(), fetchHistory(0)])
   const hash = window.location.hash.replace('#', '')
   if (hash && sections.some((item) => item.id === hash)) {
@@ -714,6 +716,20 @@ onBeforeUnmount(() => {
 }
 .side-link:hover { color: var(--text); }
 .side-link:disabled { cursor: default; }
+.nav-badge {
+  margin-left: auto;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: var(--danger);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  display: inline-grid;
+  place-items: center;
+  line-height: 1;
+}
 .spin { animation: spin 0.9s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
 

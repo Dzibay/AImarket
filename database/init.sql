@@ -162,6 +162,21 @@ CREATE TABLE IF NOT EXISTS install_tokens (
 
 CREATE INDEX IF NOT EXISTS idx_install_tokens_expires ON install_tokens (expires_at);
 
+-- Чат поддержки на сайте: сообщения пользователя и ответы админки.
+CREATE TABLE IF NOT EXISTS support_messages (
+    id          BIGSERIAL PRIMARY KEY,
+    user_id     BIGINT NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+    author_kind TEXT NOT NULL CHECK (author_kind IN ('user', 'staff')),
+    body        TEXT NOT NULL,
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_support_messages_user
+    ON support_messages (user_id, created_at);
+
+-- Когда пользователь последний раз открывал чат (для бейджа непрочитанных ответов).
+ALTER TABLE users ADD COLUMN IF NOT EXISTS support_seen_at TIMESTAMPTZ;
+
 -- Настройки админки: корневой ключ, цена, продавец, текст оферты.
 CREATE TABLE IF NOT EXISTS app_settings (
     key   TEXT PRIMARY KEY,
