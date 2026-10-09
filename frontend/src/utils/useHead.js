@@ -1,5 +1,7 @@
+import { decorateTitleDuringAlert } from '../composables/useSupportNotify'
+
 export function useHead(title, noindex = false) {
-  document.title = title
+  document.title = decorateTitleDuringAlert(title)
   let robots = document.querySelector('meta[name="robots"]')
   if (noindex) {
     if (!robots) {

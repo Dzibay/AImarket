@@ -38,6 +38,7 @@ import {
   armSupportNotifyAudio,
   clearSupportNotify,
   notifySupportReply,
+  setSupportAttention,
 } from '../composables/useSupportNotify'
 import { useSupportUnread } from '../composables/useSupportUnread'
 import { useSupportWidget } from '../composables/useSupportWidget'
@@ -50,6 +51,15 @@ const { open, closeChat, toggleChat, openChat } = useSupportWidget()
 
 const hidden = computed(() => String(route.path || '').startsWith('/admin'))
 let unreadPrimed = false
+
+function syncAttention(count, { sound = false } = {}) {
+  if (open.value || count <= 0) {
+    clearSupportNotify()
+    return
+  }
+  if (sound) notifySupportReply(count)
+  else setSupportAttention(count)
+}
 
 const subtitle = computed(() =>
   isLoggedIn.value
@@ -95,20 +105,22 @@ watch(open, (value) => {
   if (value) {
     clearSupportNotify()
     refreshUnread()
+    return
   }
+  if (unread.value > 0) setSupportAttention(unread.value)
 })
 
 watch(unread, (next, prev) => {
   if (!unreadPrimed) {
     unreadPrimed = true
+    syncAttention(next, { sound: false })
     return
   }
-  if (next <= 0) {
+  if (next <= 0 || open.value) {
     clearSupportNotify()
     return
   }
-  if (open.value) return
-  if (next > (prev || 0)) notifySupportReply(next)
+  syncAttention(next, { sound: next > (prev || 0) })
 })
 
 watch(isLoggedIn, () => {
@@ -116,12 +128,20 @@ watch(isLoggedIn, () => {
   startPolling()
 })
 
+function onVisibility() {
+  if (document.visibilityState === 'hidden' && unread.value > 0 && !open.value) {
+    setSupportAttention(unread.value)
+  }
+}
+
 onMounted(() => {
   armSupportNotifyAudio()
   startPolling()
+  document.addEventListener('visibilitychange', onVisibility)
 })
 
 onBeforeUnmount(() => {
+  document.removeEventListener('visibilitychange', onVisibility)
   clearSupportNotify()
   stopPolling()
 })
