@@ -55,6 +55,7 @@ import {
   resetGuestSupportToken,
 } from '../composables/useGuestSupport'
 import { getSession, useSession } from '../composables/useSession'
+import { clearSupportNotify } from '../composables/useSupportNotify'
 import { useSupportUnread } from '../composables/useSupportUnread'
 import { dateTime } from '../utils/format'
 
@@ -176,22 +177,33 @@ async function scrollBottom() {
   if (el) el.scrollTop = el.scrollHeight
 }
 
+async function pullMessages({ markRead = false } = {}) {
+  if (sending.value || !ready.value) return
+  try {
+    const data = await fetchMessages()
+    const next = data.messages || []
+    const grew = next.length !== messages.value.length
+      || (next.at(-1)?.id !== messages.value.at(-1)?.id)
+    messages.value = next
+    if (markRead) {
+      clearUnread()
+      clearSupportNotify()
+      if (grew) await scrollBottom()
+    } else if (grew) {
+      // Вкладка в фоне при открытом чате — не сбрасываем unread, чтобы сработал бейдж.
+      await refreshUnread()
+    }
+  } catch {
+    /* тихо */
+  }
+}
+
 function startPoll() {
   stopPoll()
-  pollTimer = setInterval(async () => {
-    if (document.visibilityState !== 'visible' || sending.value || !ready.value) return
-    try {
-      const data = await fetchMessages()
-      const next = data.messages || []
-      const grew = next.length !== messages.value.length
-        || (next.at(-1)?.id !== messages.value.at(-1)?.id)
-      messages.value = next
-      clearUnread()
-      if (grew) await scrollBottom()
-    } catch {
-      /* тихо */
-    }
-  }, 12000)
+  pollTimer = setInterval(() => {
+    const viewing = document.visibilityState === 'visible'
+    pullMessages({ markRead: viewing })
+  }, 8000)
 }
 
 function stopPoll() {
@@ -201,15 +213,24 @@ function stopPoll() {
   }
 }
 
-watch(messages, () => scrollBottom())
+async function onVisibility() {
+  if (document.visibilityState !== 'visible' || !ready.value) return
+  await pullMessages({ markRead: true })
+}
+
+watch(messages, () => {
+  if (document.visibilityState === 'visible') scrollBottom()
+})
 
 onMounted(async () => {
   await load()
   startPoll()
+  document.addEventListener('visibilitychange', onVisibility)
   input.value?.focus()
 })
 
 onBeforeUnmount(() => {
+  document.removeEventListener('visibilitychange', onVisibility)
   stopPoll()
   refreshUnread()
 })

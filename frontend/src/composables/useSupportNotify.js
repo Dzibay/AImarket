@@ -1,62 +1,12 @@
-/** Звук + бейдж на favicon + префикс в title при ответе поддержки. */
+/** Бейдж на favicon + префикс в title при ответе поддержки. */
 
-let audioCtx = null
-let audioReady = false
 let flashTimer = null
 let savedTitle = ''
-let unlockBound = false
 /** @type {{ el: HTMLLinkElement, href: string, type: string, sizes: string }[]} */
 let faviconSnapshots = []
 let alerting = false
 let alertCount = 0
 let badgeObjectUrl = ''
-
-function unlockAudio() {
-  try {
-    const Ctx = window.AudioContext || window.webkitAudioContext
-    if (!Ctx) return
-    if (!audioCtx) audioCtx = new Ctx()
-    if (audioCtx.state === 'suspended') audioCtx.resume()
-    audioReady = true
-  } catch {
-    /* браузер блокирует автозвук */
-  }
-}
-
-/** Разрешить звук после первого клика/клавиши на сайте. */
-export function armSupportNotifyAudio() {
-  if (unlockBound || typeof window === 'undefined') return
-  unlockBound = true
-  const once = () => {
-    unlockAudio()
-    window.removeEventListener('pointerdown', once)
-    window.removeEventListener('keydown', once)
-  }
-  window.addEventListener('pointerdown', once, { once: true, passive: true })
-  window.addEventListener('keydown', once, { once: true })
-}
-
-function playChime() {
-  try {
-    unlockAudio()
-    if (!audioCtx || !audioReady) return
-    const t = audioCtx.currentTime
-    const osc = audioCtx.createOscillator()
-    const gain = audioCtx.createGain()
-    osc.type = 'sine'
-    osc.frequency.setValueAtTime(784, t)
-    osc.frequency.setValueAtTime(1046.5, t + 0.09)
-    gain.gain.setValueAtTime(0.0001, t)
-    gain.gain.exponentialRampToValueAtTime(0.05, t + 0.02)
-    gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.38)
-    osc.connect(gain)
-    gain.connect(audioCtx.destination)
-    osc.start(t)
-    osc.stop(t + 0.42)
-  } catch {
-    /* ignore */
-  }
-}
 
 function stripNotifyPrefix(title) {
   return String(title || '')
@@ -182,7 +132,7 @@ function startTitleFlash(count) {
   }, 1000)
 }
 
-/** Показать бейдж на вкладке (без звука) — для уже существующих unread. */
+/** Бейдж на вкладке + мигание title при непрочитанном ответе. */
 export function setSupportAttention(count = 1) {
   const n = Math.max(1, Number(count) || 1)
   alerting = true
@@ -190,12 +140,6 @@ export function setSupportAttention(count = 1) {
   if (!savedTitle) savedTitle = stripNotifyPrefix(document.title)
   paintBadgedFavicon(n)
   startTitleFlash(n)
-}
-
-/** Новый непрочитанный ответ: звук + бейдж + мигание title. */
-export function notifySupportReply(count = 1) {
-  playChime()
-  setSupportAttention(count)
 }
 
 export function clearSupportNotify() {
@@ -210,11 +154,6 @@ export function clearSupportNotify() {
     savedTitle = ''
   }
   restoreFavicon()
-}
-
-/** Активно ли оповещение (чтобы useHead не затирал title). */
-export function isSupportNotifyActive() {
-  return alerting
 }
 
 /** Подмешать префикс, если страница меняет title через useHead. */

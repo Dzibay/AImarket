@@ -35,9 +35,7 @@ import AppIcon from './ui/AppIcon.vue'
 import SupportChat from './SupportChat.vue'
 import { useSession } from '../composables/useSession'
 import {
-  armSupportNotifyAudio,
   clearSupportNotify,
-  notifySupportReply,
   setSupportAttention,
 } from '../composables/useSupportNotify'
 import { useSupportUnread } from '../composables/useSupportUnread'
@@ -52,13 +50,17 @@ const { open, closeChat, toggleChat, openChat } = useSupportWidget()
 const hidden = computed(() => String(route.path || '').startsWith('/admin'))
 let unreadPrimed = false
 
-function syncAttention(count, { sound = false } = {}) {
-  if (open.value || count <= 0) {
+/** Чат на экране и вкладка активна — бейдж не нужен. */
+function chatIsActivelyViewed() {
+  return open.value && document.visibilityState === 'visible'
+}
+
+function syncAttention(count) {
+  if (count <= 0 || chatIsActivelyViewed()) {
     clearSupportNotify()
     return
   }
-  if (sound) notifySupportReply(count)
-  else setSupportAttention(count)
+  setSupportAttention(count)
 }
 
 const subtitle = computed(() =>
@@ -103,24 +105,20 @@ watch(
 
 watch(open, (value) => {
   if (value) {
-    clearSupportNotify()
+    if (document.visibilityState === 'visible') clearSupportNotify()
     refreshUnread()
     return
   }
-  if (unread.value > 0) setSupportAttention(unread.value)
+  syncAttention(unread.value)
 })
 
-watch(unread, (next, prev) => {
+watch(unread, (next) => {
   if (!unreadPrimed) {
     unreadPrimed = true
-    syncAttention(next, { sound: false })
+    syncAttention(next)
     return
   }
-  if (next <= 0 || open.value) {
-    clearSupportNotify()
-    return
-  }
-  syncAttention(next, { sound: next > (prev || 0) })
+  syncAttention(next)
 })
 
 watch(isLoggedIn, () => {
@@ -129,13 +127,10 @@ watch(isLoggedIn, () => {
 })
 
 function onVisibility() {
-  if (document.visibilityState === 'hidden' && unread.value > 0 && !open.value) {
-    setSupportAttention(unread.value)
-  }
+  syncAttention(unread.value)
 }
 
 onMounted(() => {
-  armSupportNotifyAudio()
   startPolling()
   document.addEventListener('visibilitychange', onVisibility)
 })
