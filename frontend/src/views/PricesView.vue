@@ -48,6 +48,8 @@
                   <th>Контекст</th>
                   <th class="num">Вход, USD</th>
                   <th class="num">Вход, ₽</th>
+                  <th class="num">Кэш, USD</th>
+                  <th class="num">Кэш, ₽</th>
                   <th class="num">Выход, USD</th>
                   <th class="num">Выход, ₽</th>
                 </tr>
@@ -60,6 +62,11 @@
                   <td class="num">
                     <span class="price-cell"><b>{{ tokenRub(ourRubPerMillion(model.input, usdPriceRub)) }}</b><s>{{ tokenRub(referenceRubPerMillion(model.input, usdPriceRub)) }}</s></span>
                   </td>
+                  <td class="num"><span class="price-usd">{{ cacheUsd(model.cache) }}</span></td>
+                  <td class="num">
+                    <span v-if="model.cache != null" class="price-cell"><b>{{ tokenRub(ourRubPerMillion(model.cache, usdPriceRub)) }}</b><s>{{ tokenRub(referenceRubPerMillion(model.cache, usdPriceRub)) }}</s></span>
+                    <span v-else class="price-usd">—</span>
+                  </td>
                   <td class="num"><span class="price-usd">{{ tokenUsd(model.output) }}</span></td>
                   <td class="num">
                     <span class="price-cell"><b>{{ tokenRub(ourRubPerMillion(model.output, usdPriceRub)) }}</b><s>{{ tokenRub(referenceRubPerMillion(model.output, usdPriceRub)) }}</s></span>
@@ -71,9 +78,11 @@
         </section>
 
         <p class="footnote">
-          Баланс ведётся в долларах; с баланса списывается 10% от USD-тарифа в таблице.
+          Баланс ведётся в долларах; с баланса списывается 10% от USD-тарифа в таблице
+          (вход, кэш промпта и выход — по отдельности).
           Рубли — пересчёт для удобства при пополнении, курс как на главной ({{ rateLabel }}/$).
-          Цены могут меняться. Модели генерации изображений в таблицу не входят.
+          Источник каталога: router.cheap/pricing, снимок {{ priceAsOf }}. Цены могут меняться.
+          Модели генерации изображений в таблицу не входят.
         </p>
       </div>
     </main>
@@ -88,6 +97,7 @@ import SiteFooter from '../components/SiteFooter.vue'
 import SiteHeader from '../components/SiteHeader.vue'
 import { useWebConfig } from '../composables/useWebConfig'
 import {
+  PRICE_AS_OF,
   families,
   ourRubPerMillion,
   referenceRubPerMillion,
@@ -97,6 +107,11 @@ import { useHead } from '../utils/useHead'
 
 const { usdPriceRub, loadConfig } = useWebConfig()
 const rateLabel = computed(() => (usdPriceRub.value > 0 ? rub(usdPriceRub.value) : '…'))
+const priceAsOf = PRICE_AS_OF
+
+function cacheUsd(value) {
+  return value == null ? '—' : tokenUsd(value)
+}
 
 const query = ref('')
 const familyId = ref('all')
@@ -170,7 +185,7 @@ onMounted(async () => {
 .group-head h2 { margin: 0; font-size: 1.15rem; letter-spacing: -0.03em; }
 .group-head p { margin: 0; color: var(--muted); font-size: 13px; }
 .table-wrap { overflow: auto; }
-table { width: 100%; border-collapse: collapse; min-width: 820px; }
+table { width: 100%; border-collapse: collapse; min-width: 980px; }
 .price-usd { font-size: 15px; font-variant-numeric: tabular-nums; color: var(--muted-2); }
 th, td { text-align: left; padding: 12px 14px; border-top: 1px solid var(--border); vertical-align: middle; }
 th {

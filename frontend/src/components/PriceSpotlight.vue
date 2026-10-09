@@ -4,7 +4,7 @@
       <p class="eyebrow">Цены</p>
       <h2>Флагманские модели — на 90% дешевле</h2>
       <p class="lead">
-        За 1 млн токенов: USD — как в OpenRouter; ₽ — тот же тариф × курс {{ rateLabel }}/$.
+        За 1 млн токенов: USD — как в каталоге; ₽ — тот же тариф × курс {{ rateLabel }}/$.
       </p>
     </div>
 
@@ -23,6 +23,15 @@
               <b>{{ tokenRub(ourRubPerMillion(item.input, usdPriceRub)) }}</b>
               <s>{{ tokenRub(referenceRubPerMillion(item.input, usdPriceRub)) }}</s>
             </dd>
+          </div>
+          <div>
+            <dt>Кэш</dt>
+            <dd class="usd-ref">{{ item.cache == null ? '—' : tokenUsd(item.cache) }}</dd>
+            <dd v-if="item.cache != null" class="rub-pay">
+              <b>{{ tokenRub(ourRubPerMillion(item.cache, usdPriceRub)) }}</b>
+              <s>{{ tokenRub(referenceRubPerMillion(item.cache, usdPriceRub)) }}</s>
+            </dd>
+            <dd v-else class="rub-pay muted">—</dd>
           </div>
           <div>
             <dt>Выход</dt>
@@ -66,6 +75,7 @@ const cards = flagships.map((item) => {
     ...item,
     brand: model.family.id === 'kimi' ? 'china' : model.family.id,
     input: model.input,
+    cache: model.cache,
     output: model.output,
   }
 })
@@ -120,13 +130,17 @@ const cards = flagships.map((item) => {
 }
 .blurb { color: var(--muted); font-size: 12px; font-weight: 600; }
 .model h3 { margin: 0 0 14px; font-size: 1.05rem; letter-spacing: -0.03em; overflow-wrap: anywhere; }
-dl { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 0; }
+dl { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin: 0; }
 dt { color: var(--muted); font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.03em; }
 dd { margin: 2px 0 0; display: flex; flex-direction: column; }
 dd.usd-ref { color: var(--muted-2); font-size: 13px; font-variant-numeric: tabular-nums; margin-bottom: 4px; }
-dd.rub-pay b { font-size: 20px; letter-spacing: -0.03em; font-variant-numeric: tabular-nums; }
-dd.rub-pay s { color: var(--muted); font-size: 13px; font-variant-numeric: tabular-nums; }
+dd.rub-pay b { font-size: 18px; letter-spacing: -0.03em; font-variant-numeric: tabular-nums; }
+dd.rub-pay s { color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+dd.rub-pay.muted { color: var(--muted); font-size: 18px; }
 .more { margin-top: 18px; }
 @media (max-width: 900px) { .grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
-@media (max-width: 560px) { .grid { grid-template-columns: 1fr; } }
+@media (max-width: 560px) {
+  .grid { grid-template-columns: 1fr; }
+  dl { grid-template-columns: 1fr 1fr; }
+}
 </style>

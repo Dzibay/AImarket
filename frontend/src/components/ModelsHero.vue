@@ -160,12 +160,10 @@ const families = [
     featured: [
       { name: 'gpt-6.1-sol', tag: 'Самая мощная' },
       { name: 'gpt-5.5', tag: 'Лучший баланс' },
-      { name: 'gpt-5.4-mini', tag: 'Быстрая' },
+      { name: 'gpt-6-luna', tag: 'Быстрая' },
       { name: 'gpt-image-2.5', tag: 'Изображения' },
     ],
     models: [
-      'gpt-5.4',
-      'gpt-5.4-mini',
       'gpt-5.5',
       'gpt-5.6-luna',
       'gpt-5.6-sol',
@@ -196,6 +194,7 @@ const families = [
       'claude-fable-5',
       'claude-fable-5-1',
       'claude-haiku-4-5',
+      'claude-opus-4-6',
       'claude-opus-4-7',
       'claude-opus-4-8',
       'claude-opus-5',
