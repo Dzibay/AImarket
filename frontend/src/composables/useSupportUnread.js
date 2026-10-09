@@ -38,11 +38,12 @@ export function useSupportUnread() {
     unread.value = 0
   }
 
-  function startPolling(ms = 45000) {
+  function startPolling(ms = 20000) {
     stopPolling()
     refreshUnread()
+    // Опрашиваем и в фоне — иначе не узнать про ответ на другой вкладке.
     pollTimer = setInterval(() => {
-      if (document.visibilityState === 'visible') refreshUnread()
+      refreshUnread()
     }, ms)
   }
 

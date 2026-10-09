@@ -16,8 +16,9 @@
     <button
       type="button"
       class="fab"
+      :class="{ alert: unread > 0 && !open }"
       :aria-expanded="open"
-      :aria-label="open ? 'Закрыть чат' : 'Открыть чат поддержки'"
+      :aria-label="open ? 'Закрыть чат' : unread > 0 ? `Открыть чат, ${unread} новых` : 'Открыть чат поддержки'"
       @click="toggleChat"
     >
       <span v-if="unread > 0 && !open" class="badge">{{ unread > 9 ? '9+' : unread }}</span>
@@ -33,6 +34,11 @@ import { useRoute, useRouter } from 'vue-router'
 import AppIcon from './ui/AppIcon.vue'
 import SupportChat from './SupportChat.vue'
 import { useSession } from '../composables/useSession'
+import {
+  armSupportNotifyAudio,
+  clearSupportNotify,
+  notifySupportReply,
+} from '../composables/useSupportNotify'
 import { useSupportUnread } from '../composables/useSupportUnread'
 import { useSupportWidget } from '../composables/useSupportWidget'
 
@@ -43,6 +49,7 @@ const { unread, startPolling, stopPolling, refreshUnread } = useSupportUnread()
 const { open, closeChat, toggleChat, openChat } = useSupportWidget()
 
 const hidden = computed(() => String(route.path || '').startsWith('/admin'))
+let unreadPrimed = false
 
 const subtitle = computed(() =>
   isLoggedIn.value
@@ -85,18 +92,39 @@ watch(
 )
 
 watch(open, (value) => {
-  if (value) refreshUnread()
+  if (value) {
+    clearSupportNotify()
+    refreshUnread()
+  }
+})
+
+watch(unread, (next, prev) => {
+  if (!unreadPrimed) {
+    unreadPrimed = true
+    return
+  }
+  if (next <= 0) {
+    clearSupportNotify()
+    return
+  }
+  if (open.value) return
+  if (next > (prev || 0)) notifySupportReply(next)
 })
 
 watch(isLoggedIn, () => {
+  unreadPrimed = false
   startPolling()
 })
 
 onMounted(() => {
+  armSupportNotifyAudio()
   startPolling()
 })
 
-onBeforeUnmount(stopPolling)
+onBeforeUnmount(() => {
+  clearSupportNotify()
+  stopPolling()
+})
 </script>
 
 <style scoped>
@@ -125,6 +153,9 @@ onBeforeUnmount(stopPolling)
   transition: transform 0.15s ease, box-shadow 0.15s ease;
 }
 .fab:hover { transform: translateY(-2px); box-shadow: 0 20px 40px rgba(28, 25, 21, 0.26); }
+.fab.alert {
+  animation: fab-pulse 1.6s ease-in-out infinite;
+}
 .close-icon { transform: rotate(180deg); }
 .badge {
   position: absolute;
@@ -141,6 +172,15 @@ onBeforeUnmount(stopPolling)
   display: grid;
   place-items: center;
   box-shadow: 0 0 0 2px var(--bg);
+  animation: badge-pop 0.35s ease;
+}
+@keyframes fab-pulse {
+  0%, 100% { box-shadow: 0 16px 36px rgba(28, 25, 21, 0.22), 0 0 0 0 rgba(141, 43, 43, 0.35); }
+  50% { box-shadow: 0 16px 36px rgba(28, 25, 21, 0.22), 0 0 0 10px rgba(141, 43, 43, 0); }
+}
+@keyframes badge-pop {
+  from { transform: scale(0.6); opacity: 0.4; }
+  to { transform: scale(1); opacity: 1; }
 }
 .panel {
   width: min(380px, calc(100vw - 32px));
