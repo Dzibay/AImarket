@@ -157,21 +157,60 @@ def _create_topic(token: str, chat_id: int, name: str) -> int | None:
 
 
 def _send_topic_message(token: str, chat_id: int, topic_id: int, text: str) -> None:
-    # Telegram лимит ~4096 символов.
-    chunk = text if len(text) <= 4000 else text[:3990] + "…"
-    try:
-        _telegram_call(
-            token,
-            "sendMessage",
-            {
-                "chat_id": str(chat_id),
-                "message_thread_id": str(topic_id),
-                "text": chunk,
-                "parse_mode": "HTML",
-            },
-        )
-    except (urllib.error.URLError, TimeoutError, OSError, json.JSONDecodeError) as exc:
-        log.warning("sendMessage в тему %s failed: %s", topic_id, exc)
+    for chunk in _split_telegram_text(text):
+        try:
+            _telegram_call(
+                token,
+                "sendMessage",
+                {
+                    "chat_id": str(chat_id),
+                    "message_thread_id": str(topic_id),
+                    "text": chunk,
+                    "parse_mode": "HTML",
+                },
+            )
+        except (urllib.error.URLError, TimeoutError, OSError, json.JSONDecodeError) as exc:
+            log.warning("sendMessage в тему %s failed: %s", topic_id, exc)
+            return
+
+
+def _split_telegram_text(text: str, limit: int = 4000) -> list[str]:
+    """Режет длинный текст на куски под лимит Telegram, по возможности по абзацам."""
+    raw = (text or "").strip()
+    if not raw:
+        return []
+    if len(raw) <= limit:
+        return [raw]
+    chunks: list[str] = []
+    rest = raw
+    while rest:
+        if len(rest) <= limit:
+            chunks.append(rest)
+            break
+        cut = rest.rfind("\n\n", 0, limit)
+        if cut < limit // 2:
+            cut = rest.rfind("\n", 0, limit)
+        if cut < limit // 2:
+            cut = limit
+        chunks.append(rest[:cut].rstrip())
+        rest = rest[cut:].lstrip()
+    return chunks
+
+
+def _format_guest_history(guest_messages: list[dict]) -> str:
+    """Одна сводка всей гостевой переписки для переноса в тему аккаунта."""
+    if not guest_messages:
+        return "<i>Сообщений в гостевом чате не было.</i>"
+    blocks: list[str] = []
+    for item in guest_messages:
+        author = "👤 Пользователь" if item.get("author") == "user" else "💬 Поддержка"
+        body = html.escape(str(item.get("body") or "").strip())
+        when = html.escape(str(item.get("created_at") or "").strip())
+        head = author
+        if when:
+            head += f" · <i>{when}</i>"
+        blocks.append(f"{head}\n{body}" if body else head)
+    return "\n\n".join(blocks)
 
 
 def _telegram_call(token: str, method: str, fields: dict[str, str]) -> dict:
@@ -283,10 +322,12 @@ def _after_guest_claim(
     if row is None:
         return
     label = _user_label(row)
+    # Итоговое имя темы — email/имя аккаунта (без «Гость #N»).
+    topic_title = label[:128] or f"Клиент #{user_id}"
 
-    # У пользователя ещё не было темы — забираем гостевую и помечаем 🔄.
+    # У пользователя ещё не было темы — забираем гостевую и переименовываем.
     if guest_topic_id is not None and user_topic_id is None:
-        _rename_topic(token, chat_id, guest_topic_id, f"🔄 {label}"[:128])
+        _rename_topic(token, chat_id, guest_topic_id, topic_title)
         _send_topic_message(
             token,
             chat_id,
@@ -298,37 +339,29 @@ def _after_guest_claim(
         )
         return
 
-    # У аккаунта уже есть тема — переносим историю туда и удаляем гостевую.
+    # У аккаунта уже есть тема — одной сводкой переносим историю и удаляем гостевую.
     if user_topic_id is not None and (guest_topic_id is not None or guest_messages):
-        header = (
-            f"📦 <b>Перенесено из гостевого диалога</b> Гость #{guest_id}\n"
-            f"Аккаунт: <b>{html.escape(label)}</b> <code>user:{user_id}</code>"
-        )
-        if not guest_messages:
-            header += "\n<i>Сообщений в гостевом чате не было.</i>"
-        _send_topic_message(token, chat_id, user_topic_id, header)
-        for item in guest_messages:
-            author = "👤 Пользователь" if item.get("author") == "user" else "💬 Поддержка"
-            body = html.escape(str(item.get("body") or ""))
-            when = html.escape(str(item.get("created_at") or ""))
-            chunk = f"{author}"
-            if when:
-                chunk += f" · <i>{when}</i>"
-            chunk += f"\n{body}"
-            _send_topic_message(token, chat_id, user_topic_id, chunk)
-        _send_topic_message(
-            token,
-            chat_id,
-            user_topic_id,
+        # Тема могла остаться с именем «Гость #…» после прошлого переноса — всегда обновляем.
+        _rename_topic(token, chat_id, user_topic_id, topic_title)
+        history = _format_guest_history(guest_messages)
+        footer = (
             "✅ Перенос завершён. Гостевая тема удалена."
             if guest_topic_id is not None
-            else "✅ Перенос завершён.",
+            else "✅ Перенос завершён."
         )
+        digest = (
+            f"📦 <b>Перенесено из гостевого диалога</b> Гость #{guest_id}\n"
+            f"Аккаунт: <b>{html.escape(label)}</b> <code>user:{user_id}</code>\n\n"
+            f"{history}\n\n"
+            f"{footer}"
+        )
+        _send_topic_message(token, chat_id, user_topic_id, digest)
         if guest_topic_id is not None:
             _delete_topic(token, chat_id, guest_topic_id)
 
 
 def _rename_topic(token: str, chat_id: int, topic_id: int, title: str) -> None:
+    name = (title or "").strip()[:128] or "Поддержка"
     try:
         _telegram_call(
             token,
@@ -336,11 +369,12 @@ def _rename_topic(token: str, chat_id: int, topic_id: int, title: str) -> None:
             {
                 "chat_id": str(chat_id),
                 "message_thread_id": str(topic_id),
-                "name": title[:128],
+                "name": name,
             },
         )
+        log.info("тема %s переименована в %r", topic_id, name)
     except (urllib.error.URLError, TimeoutError, OSError, json.JSONDecodeError) as exc:
-        log.warning("editForumTopic %s failed: %s", topic_id, exc)
+        log.warning("editForumTopic %s → %r failed: %s", topic_id, name, exc)
 
 
 def _delete_topic(token: str, chat_id: int, topic_id: int) -> None:
