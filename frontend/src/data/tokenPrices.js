@@ -84,7 +84,7 @@ export const families = [
       { id: "kimi-k2.6", context: 256000, input: 0.95, cache: 0.16, output: 4 },
       { id: "kimi-k2.7-code", context: 256000, input: 0.95, cache: 0.19, output: 4 },
       { id: "kimi-k2.7-code-highspeed", context: 256000, input: 1.9, cache: 0.38, output: 8 },
-      { id: "kimi-k3", context: 1000000, input: 3, cache: 0.3, output: 15 },
+      { id: "kimi-k3", context: 1048576, input: 3, cache: 0.3, output: 15 },
       { id: "qwen3.8-flash", context: 1000000, input: 0.15, cache: 0.016, output: 0.47 },
       { id: "qwen3.8-max", context: 1000000, input: 2, cache: 0.25, output: 6 },
       { id: "glm-5.1", context: 200000, input: 1.4, cache: 0.26, output: 4.4 },
