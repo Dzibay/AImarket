@@ -5,10 +5,11 @@ let audioReady = false
 let flashTimer = null
 let savedTitle = ''
 let unlockBound = false
-let originalFaviconHref = ''
-let faviconLink = null
+/** @type {{ el: HTMLLinkElement, href: string, type: string, sizes: string }[]} */
+let faviconSnapshots = []
 let alerting = false
 let alertCount = 0
+let badgeObjectUrl = ''
 
 function unlockAudio() {
   try {
@@ -64,26 +65,36 @@ function stripNotifyPrefix(title) {
     .replace(/^Ответ поддержки\s*[·•|]\s*/i, '')
 }
 
-function ensureFaviconLink() {
-  if (faviconLink && document.head.contains(faviconLink)) return faviconLink
-  faviconLink = document.querySelector("link[rel='icon']")
-    || document.querySelector("link[rel='shortcut icon']")
-  if (!faviconLink) {
-    faviconLink = document.createElement('link')
-    faviconLink.rel = 'icon'
-    faviconLink.href = '/favicon-96x96.png'
-    document.head.append(faviconLink)
+function listFaviconLinks() {
+  return [...document.querySelectorAll("link[rel='icon'], link[rel='shortcut icon']")]
+}
+
+function snapshotFavicons() {
+  if (faviconSnapshots.length) return
+  const links = listFaviconLinks()
+  if (!links.length) {
+    const el = document.createElement('link')
+    el.rel = 'icon'
+    el.type = 'image/png'
+    el.href = '/favicon-96x96.png'
+    document.head.append(el)
+    faviconSnapshots = [{ el, href: el.href, type: el.type || '', sizes: el.sizes?.value || '' }]
+    return
   }
-  if (!originalFaviconHref) originalFaviconHref = faviconLink.href
-  return faviconLink
+  faviconSnapshots = links.map((el) => ({
+    el,
+    href: el.getAttribute('href') || el.href,
+    type: el.getAttribute('type') || '',
+    sizes: el.getAttribute('sizes') || '',
+  }))
 }
 
 function paintBadgedFavicon(count) {
-  const link = ensureFaviconLink()
-  const src = originalFaviconHref || '/favicon-96x96.png'
+  snapshotFavicons()
   const img = new Image()
   img.decoding = 'async'
   img.onload = () => {
+    if (!alerting) return
     try {
       const size = 64
       const canvas = document.createElement('canvas')
@@ -93,23 +104,36 @@ function paintBadgedFavicon(count) {
       if (!ctx) return
       ctx.clearRect(0, 0, size, size)
       ctx.drawImage(img, 0, 0, size, size)
-      const r = 14
-      const cx = size - r - 2
-      const cy = r + 2
+      // Красный кружок с числом — справа снизу у иконки вкладки.
+      const r = 15
+      const cx = size - r - 1
+      const cy = size - r - 1
       ctx.beginPath()
       ctx.arc(cx, cy, r, 0, Math.PI * 2)
-      ctx.fillStyle = '#8d2b2b'
+      ctx.fillStyle = '#c43c3c'
       ctx.fill()
       ctx.lineWidth = 3
       ctx.strokeStyle = '#fff'
       ctx.stroke()
       const label = count > 9 ? '9+' : String(Math.max(1, count))
       ctx.fillStyle = '#fff'
-      ctx.font = 'bold 22px system-ui, sans-serif'
+      ctx.font = 'bold 24px system-ui,Segoe UI,sans-serif'
       ctx.textAlign = 'center'
       ctx.textBaseline = 'middle'
       ctx.fillText(label, cx, cy + 1)
-      link.href = canvas.toDataURL('image/png')
+
+      canvas.toBlob((blob) => {
+        if (!blob || !alerting) return
+        if (badgeObjectUrl) URL.revokeObjectURL(badgeObjectUrl)
+        badgeObjectUrl = URL.createObjectURL(blob)
+        const href = badgeObjectUrl
+        // Подменяем все favicon (png/svg/ico), иначе браузер может оставить SVG.
+        for (const item of faviconSnapshots) {
+          item.el.type = 'image/png'
+          item.el.removeAttribute('sizes')
+          item.el.href = href
+        }
+      }, 'image/png')
     } catch {
       /* ignore */
     }
@@ -117,12 +141,22 @@ function paintBadgedFavicon(count) {
   img.onerror = () => {
     /* keep default icon */
   }
-  img.src = src
+  img.src = '/favicon-96x96.png'
 }
 
 function restoreFavicon() {
-  if (!faviconLink || !originalFaviconHref) return
-  faviconLink.href = originalFaviconHref
+  for (const item of faviconSnapshots) {
+    if (!document.head.contains(item.el)) continue
+    if (item.type) item.el.type = item.type
+    else item.el.removeAttribute('type')
+    if (item.sizes) item.el.setAttribute('sizes', item.sizes)
+    else item.el.removeAttribute('sizes')
+    item.el.href = item.href
+  }
+  if (badgeObjectUrl) {
+    URL.revokeObjectURL(badgeObjectUrl)
+    badgeObjectUrl = ''
+  }
 }
 
 function applyTitle(count, flashOn) {
