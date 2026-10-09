@@ -499,9 +499,12 @@ def rotate_key(user_id: int = Depends(require_web_user)) -> dict:
 
 
 @router.get("/web/support/messages")
-def support_messages(user_id: int = Depends(require_web_user)) -> dict:
+def support_messages(
+    user_id: int = Depends(require_web_user),
+    mark_seen: bool = True,
+) -> dict:
     _user_row(user_id)
-    return list_messages(user_id, mark_seen=True)
+    return list_messages(user_id, mark_seen=mark_seen)
 
 
 @router.get("/web/support/unread")
@@ -543,11 +546,11 @@ def support_guest_session(body: GuestSessionIn) -> dict:
 
 
 @router.get("/web/support/guest/messages")
-def support_guest_messages(token: str = "") -> dict:
+def support_guest_messages(token: str = "", mark_seen: bool = True) -> dict:
     if not token.strip():
         raise HTTPException(status_code=400, detail="guest-token")
     try:
-        return list_guest_messages(token, mark_seen=True)
+        return list_guest_messages(token, mark_seen=mark_seen)
     except LookupError:
         raise HTTPException(status_code=404, detail="guest-token") from None
 

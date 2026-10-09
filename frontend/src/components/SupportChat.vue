@@ -74,6 +74,8 @@ const error = ref('')
 const scroller = ref(null)
 const input = ref(null)
 let pollTimer = null
+let pullSeq = 0
+let pulling = false
 let guestToken = ''
 const { clearUnread, refreshUnread } = useSupportUnread()
 
@@ -101,9 +103,9 @@ async function ensureAccess() {
   ready.value = Boolean(guestToken)
 }
 
-async function fetchMessages() {
-  if (getSession()) return webApi.supportMessages()
-  return webApi.supportGuestMessages(guestToken || getGuestSupportToken())
+async function fetchMessages(markSeen = true) {
+  if (getSession()) return webApi.supportMessages(markSeen)
+  return webApi.supportGuestMessages(guestToken || getGuestSupportToken(), markSeen)
 }
 
 async function postMessage(body) {
@@ -178,32 +180,41 @@ async function scrollBottom() {
 }
 
 async function pullMessages({ markRead = false } = {}) {
-  if (sending.value || !ready.value) return
+  if (sending.value || !ready.value || pulling) return
+  const seq = ++pullSeq
+  pulling = true
   try {
-    const data = await fetchMessages()
+    const data = await fetchMessages(markRead)
+    if (seq !== pullSeq) return
     const next = data.messages || []
-    const grew = next.length !== messages.value.length
-      || (next.at(-1)?.id !== messages.value.at(-1)?.id)
+    const lastId = messages.value.at(-1)?.id
+    const nextLastId = next.at(-1)?.id
+    const grew = next.length !== messages.value.length || nextLastId !== lastId
     messages.value = next
     if (markRead) {
       clearUnread()
       clearSupportNotify()
       if (grew) await scrollBottom()
     } else if (grew) {
-      // Вкладка в фоне при открытом чате — не сбрасываем unread, чтобы сработал бейдж.
+      // Вкладка в фоне — не помечаем прочитанным, чтобы сработали бейдж и unread.
       await refreshUnread()
     }
   } catch {
     /* тихо */
+  } finally {
+    if (seq === pullSeq) pulling = false
   }
 }
 
 function startPoll() {
   stopPoll()
-  pollTimer = setInterval(() => {
+  const tick = () => {
     const viewing = document.visibilityState === 'visible'
     pullMessages({ markRead: viewing })
-  }, 8000)
+  }
+  // Сразу после открытия и дальше чаще — иначе ответ «висит», пока чат открыт.
+  tick()
+  pollTimer = setInterval(tick, 4000)
 }
 
 function stopPoll() {
@@ -211,11 +222,15 @@ function stopPoll() {
     clearInterval(pollTimer)
     pollTimer = null
   }
+  pullSeq += 1
+  pulling = false
 }
 
 async function onVisibility() {
-  if (document.visibilityState !== 'visible' || !ready.value) return
-  await pullMessages({ markRead: true })
+  if (!ready.value) return
+  if (document.visibilityState === 'visible') {
+    await pullMessages({ markRead: true })
+  }
 }
 
 watch(messages, () => {

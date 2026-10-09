@@ -12,7 +12,7 @@ async function request(path, options = {}) {
   const headers = { 'Content-Type': 'application/json', ...(options.headers || {}) }
   const session = getSession()
   if (session) headers.Authorization = `Bearer ${session}`
-  const response = await fetch(path, { ...options, headers })
+  const response = await fetch(path, { cache: 'no-store', ...options, headers })
   const body = await response.json().catch(() => ({}))
   if (response.status === 401 && session && !path.endsWith('/login')) {
     clearSession()
@@ -37,15 +37,18 @@ export const webApi = {
   reissueKey: () => request('/api/web/keys/reissue', { method: 'POST' }),
   installCommand: (app, os, action = 'setup') =>
     request('/api/web/install', { method: 'POST', body: JSON.stringify({ app, os, action }) }),
-  supportMessages: () => request('/api/web/support/messages'),
+  supportMessages: (markSeen = true) =>
+    request(`/api/web/support/messages?mark_seen=${markSeen ? 'true' : 'false'}`),
   supportUnread: () => request('/api/web/support/unread'),
   supportClaim: (token) =>
     request('/api/web/support/claim', { method: 'POST', body: JSON.stringify({ token }) }),
   supportSend: (body) => request('/api/web/support/messages', { method: 'POST', body: JSON.stringify({ body }) }),
   supportGuestSession: (token = '') =>
     request('/api/web/support/guest/session', { method: 'POST', body: JSON.stringify({ token }) }),
-  supportGuestMessages: (token) =>
-    request(`/api/web/support/guest/messages?token=${encodeURIComponent(token)}`),
+  supportGuestMessages: (token, markSeen = true) =>
+    request(
+      `/api/web/support/guest/messages?token=${encodeURIComponent(token)}&mark_seen=${markSeen ? 'true' : 'false'}`,
+    ),
   supportGuestUnread: (token) =>
     request(`/api/web/support/guest/unread?token=${encodeURIComponent(token)}`),
   supportGuestSend: (token, body) =>
