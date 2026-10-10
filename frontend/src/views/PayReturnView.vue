@@ -38,6 +38,20 @@
           </p>
         </template>
 
+        <template v-else-if="state === 'awaiting_supplier'">
+          <h1 class="page-title">Оплата получена</h1>
+          <p class="page-lead">
+            Платёж прошёл в ЮKassa, зачисление на баланс займёт немного времени.
+            Страница проверяет статус автоматически — обновите её через несколько минут или зайдите в кабинет позже.
+          </p>
+          <p v-if="error" class="notice">{{ error }}</p>
+          <div class="card soft">
+            <button type="button" class="btn quiet sm" :disabled="checking" @click="check">
+              {{ checking ? 'Проверяем…' : 'Проверить сейчас' }}
+            </button>
+          </div>
+        </template>
+
         <template v-else-if="state === 'pending'">
           <h1 class="page-title">Платёж ещё обрабатывается</h1>
           <p class="page-lead">
@@ -128,6 +142,9 @@ async function check() {
         topup_id: topup,
       })
       stop()
+    } else if (result.status === 'awaiting_supplier') {
+      state.value = 'awaiting_supplier'
+      if (attempts.value < 24 && !timer) timer = setTimeout(() => { timer = null; check() }, 15000)
     } else if (result.status === 'pending') {
       state.value = 'pending'
       if (attempts.value < 12 && !timer) timer = setTimeout(() => { timer = null; check() }, 5000)

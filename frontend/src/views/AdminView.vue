@@ -606,6 +606,11 @@
 
         <section v-show="activeTab === 'payments'" class="panel">
           <div class="panel-head"><h2>Платежи</h2></div>
+          <p v-if="awaitingSupplierCount > 0" class="notice bad topup-supplier-alert">
+            {{ awaitingSupplierCount }} {{ awaitingSupplierCount === 1 ? 'платёж оплачен' : 'платежа оплачены' }} в ЮKassa,
+            но не зачислен — не хватает баланса на router.cheap. Пополните поставщика и нажмите «Зачислить».
+          </p>
+          <p v-if="topupSettleError" class="notice bad">{{ topupSettleError }}</p>
           <div class="table-wrap">
             <table>
               <thead>
@@ -614,18 +619,30 @@
                   <th>Клиент</th>
                   <th class="num">Сумма</th>
                   <th>Статус</th>
+                  <th></th>
                 </tr>
               </thead>
               <tbody>
                 <tr v-if="!topups.length" class="empty">
-                  <td colspan="4">Пока пусто</td>
+                  <td colspan="5">Пока пусто</td>
                 </tr>
-                <tr v-for="item in topups" :key="item.id">
+                <tr v-for="item in topups" :key="item.id" :class="{ 'row-alert': item.status === 'awaiting_supplier' }">
                   <td class="nowrap">{{ formatRecentAt(item.created_at) }}</td>
                   <td>{{ person(item) }}</td>
                   <td class="num">{{ topupAmount(item) }}</td>
                   <td>
-                    <span :class="['badge', statusBadgeClass(item.status)]">{{ item.status || '—' }}</span>
+                    <span :class="['badge', statusBadgeClass(item.status)]">{{ topupStatusLabel(item.status) }}</span>
+                  </td>
+                  <td class="actions-cell">
+                    <button
+                      v-if="item.status === 'awaiting_supplier'"
+                      type="button"
+                      class="btn sm"
+                      :disabled="topupSettleBusy[item.id]"
+                      @click="settleTopup(item)"
+                    >
+                      {{ topupSettleBusy[item.id] ? 'Зачисляем…' : 'Зачислить' }}
+                    </button>
                   </td>
                 </tr>
               </tbody>
@@ -865,7 +882,6 @@
                         <span class="user-name">{{ person(item) }}</span>
                         <span class="user-badges">
                           <span v-if="item.has_paid" class="badge ok">оплата</span>
-                          <span v-if="!item.offer_accepted" class="badge warn">оферта</span>
                           <span v-if="item.blocked" class="badge bad">блок</span>
                         </span>
                       </div>
@@ -1459,6 +1475,11 @@ const {
   closeCreditModal,
   submitCreditModal,
   topups,
+  awaitingSupplierCount,
+  topupSettleBusy,
+  topupSettleError,
+  settleTopup,
+  topupStatusLabel,
   users,
   filteredUsers,
   usersSearch,
@@ -1793,6 +1814,19 @@ onMounted(() => {
 .admin-page .badge.warn { background: var(--warn-soft); color: var(--warn); border-color: #ecdca8; }
 .admin-page .badge.neutral { background: var(--surface-soft); color: var(--muted); border-color: var(--border); }
 .admin-page .badge.bad { background: var(--danger-soft); color: var(--danger); border-color: #e3b4b4; }
+
+.admin-page .notice.bad {
+  margin: 0 0 14px;
+  padding: 12px 14px;
+  border-radius: var(--radius-sm);
+  background: var(--danger-soft);
+  color: var(--danger);
+  border: 1px solid #e3b4b4;
+  font-size: 14px;
+  line-height: 1.45;
+}
+.admin-page tr.row-alert td { background: #fff8f6; }
+.admin-page .actions-cell { white-space: nowrap; text-align: right; }
 
 .admin-page .settings-grid {
   display: grid;

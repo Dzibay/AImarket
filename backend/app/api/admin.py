@@ -821,7 +821,7 @@ def list_topups() -> dict:
     with pool.connection() as conn:
         rows = conn.execute(
             """
-            SELECT t.id, t.amount_kopecks, t.amount_usd, t.status, t.created_at,
+            SELECT t.id, t.amount_kopecks, t.amount_usd, t.bonus_usd, t.status, t.payment_id, t.created_at,
                    u.telegram_id, u.username, u.first_name, u.email
             FROM topups t
             JOIN users u ON u.id = t.user_id
@@ -829,22 +829,56 @@ def list_topups() -> dict:
             LIMIT 200
             """
         ).fetchall()
+    items = [
+        {
+            "id": row["id"],
+            "telegram_id": row["telegram_id"],
+            "email": row["email"] or "",
+            "username": row["username"],
+            "first_name": row["first_name"],
+            "amount_rub": row["amount_kopecks"] / 100,
+            "amount_usd": float(row["amount_usd"]),
+            "bonus_usd": float(row["bonus_usd"] or 0),
+            "status": row["status"],
+            "payment_id": row["payment_id"] or "",
+            "created_at": row["created_at"].isoformat(),
+        }
+        for row in rows
+    ]
     return {
-        "items": [
-            {
-                "id": row["id"],
-                "telegram_id": row["telegram_id"],
-                "email": row["email"] or "",
-                "username": row["username"],
-                "first_name": row["first_name"],
-                "amount_rub": row["amount_kopecks"] / 100,
-                "amount_usd": float(row["amount_usd"]),
-                "status": row["status"],
-                "created_at": row["created_at"].isoformat(),
-            }
-            for row in rows
-        ]
+        "items": items,
+        "awaiting_supplier_count": sum(1 for item in items if item["status"] == "awaiting_supplier"),
     }
+
+
+@router.post("/topups/{topup_id}/settle", dependencies=[Depends(require_admin)])
+def settle_topup_admin(topup_id: int) -> dict:
+    """Повторно зачисляет оплаченный платёж после пополнения баланса поставщика."""
+    from app.payments import settle_payment
+    from app.yookassa import YooKassaError
+
+    with pool.connection() as conn:
+        row = conn.execute(
+            "SELECT payment_id, status FROM topups WHERE id = %s",
+            (topup_id,),
+        ).fetchone()
+    if row is None:
+        raise HTTPException(status_code=404, detail="topup")
+    if row["status"] == "paid":
+        return {"result": "already", "status": "paid"}
+    if not row["payment_id"]:
+        raise HTTPException(status_code=400, detail="no-payment")
+    if row["status"] not in ("pending", "awaiting_supplier"):
+        raise HTTPException(status_code=409, detail="status")
+    try:
+        result = settle_payment(str(row["payment_id"]))
+    except YooKassaError as exc:
+        raise HTTPException(status_code=502, detail="yookassa") from exc
+    except BillingError as exc:
+        raise HTTPException(status_code=409, detail=exc.code) from exc
+    with pool.connection() as conn:
+        fresh = conn.execute("SELECT status FROM topups WHERE id = %s", (topup_id,)).fetchone()
+    return {"result": result, "status": str(fresh["status"]) if fresh else result}
 
 
 @router.get("/referrals", dependencies=[Depends(require_admin)])

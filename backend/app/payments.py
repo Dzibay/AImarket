@@ -8,6 +8,17 @@ from app.yookassa import YooKassaError, get_payment
 
 log = logging.getLogger("app.payments")
 
+def _mark_awaiting_supplier(topup_id: int) -> None:
+    with pool.connection() as conn:
+        conn.execute(
+            """
+            UPDATE topups
+            SET status = 'awaiting_supplier', decided_at = COALESCE(decided_at, NOW())
+            WHERE id = %s AND status IN ('pending', 'awaiting_supplier')
+            """,
+            (topup_id,),
+        )
+
 
 def ensure_web_key(user_id: int) -> bool:
     """Выпускает ключ пользователю сайта после первой оплаты. True — ключ есть."""
@@ -89,14 +100,23 @@ def settle_payment(payment_id: str) -> str:
             f"ЮKassa {payment_id}",
             int(row["amount_kopecks"]),
         )
-    except BillingError:
+    except BillingError as exc:
+        if exc.code == "supplier":
+            _mark_awaiting_supplier(topup_id)
+            log.warning(
+                "платёж %s (#%s): не хватает баланса поставщика для %.4f USD",
+                payment_id,
+                topup_id,
+                credited_usd,
+            )
+            return "awaiting_supplier"
         raise
     with pool.connection() as conn:
         credited = conn.execute(
             """
             UPDATE topups
             SET status = 'paid', decided_at = COALESCE(decided_at, NOW())
-            WHERE id = %s AND status = 'pending'
+            WHERE id = %s AND status IN ('pending', 'awaiting_supplier')
             RETURNING id
             """,
             (topup_id,),

@@ -56,9 +56,21 @@ export function person(row) {
 export function statusBadgeClass(status) {
   const value = String(status || '').toLowerCase()
   if (value === 'paid') return 'ok'
-  if (value === 'pending' || value === 'оферта') return 'warn'
+  if (value === 'awaiting_supplier') return 'bad'
+  if (value === 'pending') return 'warn'
   if (value === 'failed' || value === 'rejected' || value === 'blocked') return 'bad'
   return 'neutral'
+}
+
+export function topupStatusLabel(status) {
+  const labels = {
+    pending: 'Ожидает оплаты',
+    awaiting_supplier: 'Ждёт поставщика',
+    paid: 'Зачислен',
+    failed: 'Ошибка',
+    rejected: 'Отклонён',
+  }
+  return labels[String(status || '').toLowerCase()] || status || '—'
 }
 
 function referralErrorText(code) {
@@ -199,6 +211,9 @@ export function useAdminPanel() {
   const ledgerUserOptions = ref([])
 
   const topups = ref([])
+  const awaitingSupplierCount = ref(0)
+  const topupSettleBusy = ref({})
+  const topupSettleError = ref('')
 
   const users = ref([])
   const usersSearch = ref('')
@@ -344,7 +359,12 @@ export function useAdminPanel() {
     { id: 'analytics', label: 'Аналитика' },
     { id: 'settings', label: 'Настройки' },
     { id: 'finance', label: 'Финансы' },
-    { id: 'payments', label: 'Платежи' },
+    {
+      id: 'payments',
+      label: awaitingSupplierCount.value > 0
+        ? `Платежи (${awaitingSupplierCount.value})`
+        : 'Платежи',
+    },
     { id: 'ledger', label: 'Транзакции' },
     { id: 'users', label: 'Пользователи' },
     {
@@ -708,6 +728,7 @@ export function useAdminPanel() {
 
     const topupsData = await api('/api/admin/topups')
     topups.value = topupsData.items
+    awaitingSupplierCount.value = Number(topupsData.awaiting_supplier_count || 0)
 
     const selectedUser = ledgerForm.user_id
     const usersData = await api('/api/admin/users')
@@ -1516,7 +1537,30 @@ export function useAdminPanel() {
   }
 
   function topupAmount(item) {
-    return rub(item.amount_rub) + ' · ' + usd(item.amount_usd)
+    const bonus = Number(item.bonus_usd || 0)
+    const base = rub(item.amount_rub) + ' · ' + usd(item.amount_usd)
+    return bonus > 0 ? `${base} (+${usd(bonus)} бонус)` : base
+  }
+
+  async function settleTopup(item) {
+    if (!item?.id || topupSettleBusy.value[item.id]) return
+    topupSettleError.value = ''
+    topupSettleBusy.value = { ...topupSettleBusy.value, [item.id]: true }
+    try {
+      const result = await api(`/api/admin/topups/${item.id}/settle`, { method: 'POST' })
+      if (result.result === 'awaiting_supplier' || result.status === 'awaiting_supplier') {
+        topupSettleError.value = 'Баланса поставщика всё ещё не хватает — пополните router.cheap и попробуйте снова.'
+      }
+      const topupsData = await api('/api/admin/topups')
+      topups.value = topupsData.items
+      awaitingSupplierCount.value = Number(topupsData.awaiting_supplier_count || 0)
+    } catch (err) {
+      topupSettleError.value = err?.message || 'Не удалось зачислить платёж'
+    } finally {
+      const next = { ...topupSettleBusy.value }
+      delete next[item.id]
+      topupSettleBusy.value = next
+    }
   }
 
   onMounted(() => {
@@ -1611,6 +1655,11 @@ export function useAdminPanel() {
     closeCreditModal,
     submitCreditModal,
     topups,
+    awaitingSupplierCount,
+    topupSettleBusy,
+    topupSettleError,
+    settleTopup,
+    topupStatusLabel,
     users,
     filteredUsers,
     usersSearch,

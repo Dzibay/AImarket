@@ -259,13 +259,15 @@ def check_topup(telegram_id: int, topup_id: int) -> dict:
     if topup is None:
         raise HTTPException(status_code=404, detail="topup")
     status = str(topup["status"])
-    if status == "pending" and topup["payment_id"]:
+    if status in ("pending", "awaiting_supplier") and topup["payment_id"]:
         try:
             result = settle_payment(str(topup["payment_id"]))
         except (YooKassaError, BillingError):
-            result = "pending"
+            result = status
         if result in {"credited", "already"}:
             status = "paid"
+        elif result == "awaiting_supplier":
+            status = "awaiting_supplier"
     with pool.connection() as conn:
         fresh = _user_or_404(conn, telegram_id)
     return {

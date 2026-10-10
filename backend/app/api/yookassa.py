@@ -33,10 +33,15 @@ async def webhook(request: Request) -> dict:
     if not payment_id:
         return {"ok": True}
     try:
-        settle_payment(str(payment_id))
-    except (YooKassaError, BillingError) as exc:
-        log.warning("вебхук ЮKassa %s: %s", payment_id, exc)
+        result = settle_payment(str(payment_id))
+    except YooKassaError as exc:
+        log.warning("вебхук ЮKassa %s: %s", payment_id, exc.message)
         raise HTTPException(status_code=500, detail="retry") from exc
+    except BillingError as exc:
+        log.warning("вебхук ЮKassa %s: %s", payment_id, exc.code)
+        raise HTTPException(status_code=500, detail="retry") from exc
+    if result == "awaiting_supplier":
+        log.warning("вебхук ЮKassa %s: оплата принята, ждём пополнения поставщика", payment_id)
     return {"ok": True}
 
 

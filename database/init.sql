@@ -130,6 +130,8 @@ CREATE INDEX IF NOT EXISTS idx_usage_user_time ON usage (user_id, created_at DES
 
 -- ---------------------------------------------------------------------------
 -- Пополнения ЮKassa
+-- status: pending | awaiting_supplier | paid | failed | rejected
+-- awaiting_supplier — оплата в ЮKassa прошла, но не хватило баланса router.cheap
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS topups (
     id                BIGSERIAL PRIMARY KEY,

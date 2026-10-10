@@ -193,7 +193,7 @@ def _settle_pending(user_id: int) -> None:
         rows = conn.execute(
             """
             SELECT payment_id FROM topups
-            WHERE user_id = %s AND status = 'pending' AND payment_id IS NOT NULL
+            WHERE user_id = %s AND status IN ('pending', 'awaiting_supplier') AND payment_id IS NOT NULL
               AND created_at >= NOW() - INTERVAL '2 days'
             ORDER BY id DESC LIMIT 3
             """,
@@ -307,20 +307,24 @@ def payment_return(body: ReturnIn) -> dict:
     if not row["fresh"]:
         raise HTTPException(status_code=410, detail="expired")
     status = str(row["status"])
-    if status == "pending" and row["payment_id"]:
+    if status in ("pending", "awaiting_supplier") and row["payment_id"]:
         try:
             result = settle_payment(str(row["payment_id"]))
         except (YooKassaError, BillingError) as exc:
             log.warning("возврат с оплаты %s: %s", body.topup, exc)
-            result = "pending"
+            result = status
         if result in {"credited", "already"}:
             status = "paid"
+        elif result == "awaiting_supplier":
+            status = "awaiting_supplier"
         elif result == "pending":
             # Вебхук мог уже зачислить параллельно — перечитаем статус.
             with pool.connection() as conn:
                 again = conn.execute("SELECT status FROM topups WHERE id = %s", (body.topup,)).fetchone()
             if again and again["status"] == "paid":
                 status = "paid"
+            elif again and again["status"] == "awaiting_supplier":
+                status = "awaiting_supplier"
     user_id = int(row["user_id"])
     profile = _profile(user_id) if status == "paid" else None
     session = ""
@@ -468,14 +472,17 @@ def check_topup(topup_id: int, user_id: int = Depends(require_web_user)) -> dict
     if topup is None:
         raise HTTPException(status_code=404, detail="topup")
     status = str(topup["status"])
-    if status == "pending" and topup["payment_id"]:
+    if status in ("pending", "awaiting_supplier") and topup["payment_id"]:
         try:
             result = settle_payment(str(topup["payment_id"]))
         except (YooKassaError, BillingError):
-            result = "pending"
+            result = status
         if result in {"credited", "already"}:
             status = "paid"
-    return {"status": status, "amount_usd": float(topup["amount_usd"]), "profile": _profile(user_id)}
+        elif result == "awaiting_supplier":
+            status = "awaiting_supplier"
+    profile = _profile(user_id) if status == "paid" else None
+    return {"status": status, "amount_usd": float(topup["amount_usd"]), "profile": profile}
 
 
 @router.post("/web/install")
