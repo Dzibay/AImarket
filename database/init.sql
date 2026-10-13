@@ -12,7 +12,7 @@ CREATE TABLE IF NOT EXISTS users (
     first_name                  TEXT NOT NULL DEFAULT '',
     email                       TEXT NOT NULL DEFAULT '',
     balance_kopecks             BIGINT NOT NULL DEFAULT 0 CHECK (balance_kopecks >= 0),
-    balance_usd                 NUMERIC(12, 4) NOT NULL DEFAULT 0 CHECK (balance_usd >= 0),
+    balance_usd                 NUMERIC(12, 4) NOT NULL DEFAULT 0,
     offer_accepted_at           TIMESTAMPTZ,
     offer_reminder_sent_at      TIMESTAMPTZ,
     blocked_at                  TIMESTAMPTZ,
@@ -31,6 +31,8 @@ CREATE TABLE IF NOT EXISTS users (
 );
 
 ALTER TABLE users ADD COLUMN IF NOT EXISTS balance_usd NUMERIC(12, 4) NOT NULL DEFAULT 0;
+-- Сверка с router.cheap может вернуть отрицательный remain_quota (overspend).
+ALTER TABLE users DROP CONSTRAINT IF EXISTS users_balance_usd_check;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS offer_accepted_at TIMESTAMPTZ;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS blocked_at TIMESTAMPTZ;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS blocked_reason TEXT NOT NULL DEFAULT '';
