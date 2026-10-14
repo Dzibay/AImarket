@@ -5,7 +5,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 
 from app.billing import BillingError
 from app.db import pool
-from app.payments import settle_payment
+from app.payments import recover_paid_topup, settle_payment
 from app.telegram_link import bot_start_url
 from app.yookassa import YooKassaError
 
@@ -32,14 +32,36 @@ async def webhook(request: Request) -> dict:
     payment_id = payment.get("id") if isinstance(payment, dict) else ""
     if not payment_id:
         return {"ok": True}
+    topup_id = 0
+    user_id = 0
+    metadata = payment.get("metadata") if isinstance(payment.get("metadata"), dict) else {}
+    try:
+        topup_id = int(metadata.get("topup_id") or 0)
+    except (TypeError, ValueError):
+        topup_id = 0
+    if topup_id:
+        with pool.connection() as conn:
+            row = conn.execute("SELECT user_id FROM topups WHERE id = %s", (topup_id,)).fetchone()
+        if row:
+            user_id = int(row["user_id"])
     try:
         result = settle_payment(str(payment_id))
     except YooKassaError as exc:
         log.warning("вебхук ЮKassa %s: %s", payment_id, exc.message)
         raise HTTPException(status_code=500, detail="retry") from exc
     except BillingError as exc:
+        if exc.code == "supplier" and topup_id and user_id:
+            recover_paid_topup(topup_id, str(payment_id), user_id)
+            log.warning("вебхук ЮKassa %s: оплата принята, ждём пополнения поставщика", payment_id)
+            return {"ok": True}
         log.warning("вебхук ЮKassa %s: %s", payment_id, exc.code)
         raise HTTPException(status_code=500, detail="retry") from exc
+    except Exception:
+        log.exception("вебхук ЮKassa %s", payment_id)
+        if topup_id and user_id:
+            recover_paid_topup(topup_id, str(payment_id), user_id)
+            return {"ok": True}
+        raise HTTPException(status_code=500, detail="retry")
     if result == "awaiting_supplier":
         log.warning("вебхук ЮKassa %s: оплата принята, ждём пополнения поставщика", payment_id)
     return {"ok": True}

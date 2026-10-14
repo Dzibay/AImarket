@@ -98,6 +98,68 @@ def send_login_email(user_id: int, *, created: bool = False) -> bool:
     return True
 
 
+def send_payment_delayed_email(
+    user_id: int,
+    *,
+    amount_usd: Decimal,
+    bonus_usd: Decimal,
+) -> bool:
+    """Оплата в ЮKassa прошла, но ключ ещё не выпущен — даём вход в кабинет по ссылке."""
+    if not enabled():
+        log.info("SMTP не настроен — письмо о задержке пользователю %s не отправлено", user_id)
+        return False
+    with pool.connection() as conn:
+        row = conn.execute(
+            "SELECT email FROM users WHERE id = %s",
+            (user_id,),
+        ).fetchone()
+    if row is None or not (row["email"] or "").strip():
+        return False
+    email = str(row["email"]).strip()
+    token = issue_email_login_token(user_id)
+    link = login_link(token)
+    support = _support_line()
+    amount = f"${amount_usd:.2f}"
+    bonus_line = f" + бонус ${bonus_usd:.2f}" if bonus_usd > 0 else ""
+    intro = "Оплата получена — личный кабинет уже доступен."
+    text = (
+        f"{intro}\n\n"
+        f"Сумма: {amount}{bonus_line}\n\n"
+        "Ключ доступа пока не выпущен — не хватает лимита у поставщика API. "
+        "Зайдите в кабинет по ссылке ниже и напишите в поддержку — мы зачислим баланс и выпустим ключ.\n\n"
+        f"Войти (действует {settings.email_login_ttl_days} дн.):\n{link}\n\n"
+        f"{support}\n"
+    )
+    body_html = f"""<!DOCTYPE html>
+<html lang="ru"><body style="margin:0;padding:0;background:#f4f1ea;font:16px/1.55 'Segoe UI',system-ui,sans-serif;color:#1c1915">
+  <div style="max-width:560px;margin:0 auto;padding:32px 20px">
+    <p style="margin:0 0 16px;font-weight:700;letter-spacing:-0.03em;font-size:18px">Aimarket</p>
+    <div style="background:#fff;border:1px solid rgba(28,25,21,.08);border-radius:16px;padding:24px">
+      <h1 style="margin:0 0 12px;font-size:22px;letter-spacing:-0.03em">{html.escape(intro)}</h1>
+      <p style="margin:0 0 12px;color:#4f473d;font-size:15px;line-height:1.5">
+        Сумма: <b>{amount}{html.escape(bonus_line)}</b>
+      </p>
+      <p style="margin:0;padding:12px 14px;border:1px solid #ecdca8;border-radius:10px;background:#faf3dd;
+                color:#5c4300;font-size:14px;line-height:1.5">
+        Ключ доступа пока не выпущен — временная проблема с поставщиком API.
+        Войдите в кабинет и напишите в поддержку: мы зачислим баланс и выпустим ключ.
+      </p>
+      <p style="margin:24px 0 0;text-align:center">
+        <a href="{html.escape(link)}" style="display:inline-block;padding:14px 26px;border-radius:999px;background:#1c1915;
+           color:#f4f1ea;font-weight:600;text-decoration:none">Войти в личный кабинет</a>
+      </p>
+      <p style="margin:12px 0 0;text-align:center;color:#6b645b;font-size:13px">
+        Кнопка работает {settings.email_login_ttl_days} дн.<br>
+        Если не открывается, скопируйте ссылку: <span style="word-break:break-all">{html.escape(link)}</span>
+      </p>
+    </div>
+    <p style="margin:18px 0 0;color:#6b645b;font-size:13px;text-align:center">{html.escape(support)}</p>
+  </div>
+</body></html>"""
+    send_async(email, "Оплата Aimarket — войдите в кабинет", text, body_html)
+    return True
+
+
 def send_payment_email(
     user_id: int,
     *,

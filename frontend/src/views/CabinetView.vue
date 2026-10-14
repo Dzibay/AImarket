@@ -172,7 +172,11 @@
               <div v-else class="card">
                 <h2 class="card-title">Ключ доступа</h2>
                 <p class="muted">
-                  <template v-if="profile.balance_usd > 0">
+                  <template v-if="profile.awaiting_supplier || profile.key_error === 'supplier'">
+                    Оплата получена, но ключ доступа пока не выпущен — временная проблема с поставщиком API.
+                    Напишите в <RouterLink to="#support">поддержку</RouterLink>, мы зачислим баланс и выпустим ключ.
+                  </template>
+                  <template v-else-if="profile.balance_usd > 0">
                     Ключ выпускается — нажмите «Обновить данные» через минуту. Если он так и не появился, напишите в поддержку.
                   </template>
                   <template v-else>
@@ -437,7 +441,12 @@ const lowBalance = computed(() => {
 const status = computed(() => {
   const p = profile.value || {}
   if (p.blocked) return { kind: 'bad', text: 'Доступ заблокирован' }
-  if (!p.key) return p.balance_usd > 0 ? { kind: 'warn', text: 'Ключ выпускается' } : { kind: 'warn', text: 'Ключ появится после пополнения' }
+  if (!p.key) {
+    if (p.awaiting_supplier || p.key_error === 'supplier') {
+      return { kind: 'warn', text: 'Ключ временно недоступен — напишите в поддержку' }
+    }
+    return p.balance_usd > 0 ? { kind: 'warn', text: 'Ключ выпускается' } : { kind: 'warn', text: 'Ключ появится после пополнения' }
+  }
   if (p.balance_usd <= 0) return { kind: 'bad', text: 'Баланс исчерпан' }
   if (lowBalance.value) return { kind: 'warn', text: 'Баланс на исходе' }
   return { kind: 'ok', text: 'Ключ активен' }

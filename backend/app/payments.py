@@ -8,16 +8,74 @@ from app.yookassa import YooKassaError, get_payment
 
 log = logging.getLogger("app.payments")
 
-def _mark_awaiting_supplier(topup_id: int) -> None:
+def _mark_awaiting_supplier(topup_id: int) -> bool:
+    """Переводит заявку в awaiting_supplier. True — только при первом переводе из pending."""
     with pool.connection() as conn:
-        conn.execute(
+        row = conn.execute(
             """
             UPDATE topups
             SET status = 'awaiting_supplier', decided_at = COALESCE(decided_at, NOW())
-            WHERE id = %s AND status IN ('pending', 'awaiting_supplier')
+            WHERE id = %s AND status = 'pending'
+            RETURNING id
             """,
             (topup_id,),
-        )
+        ).fetchone()
+    return row is not None
+
+
+def _notify_web_payment_delayed(user_id: int, row: dict) -> None:
+    """Письмо со ссылкой в кабинет после оплаты, если ключ/баланс ещё не готов."""
+    if not row.get("return_token_hash"):
+        return
+    email = str(row.get("email") or "").strip()
+    if not email:
+        return
+    from app.mailer import send_payment_delayed_email
+
+    send_payment_delayed_email(
+        user_id,
+        amount_usd=Decimal(row["amount_usd"]),
+        bonus_usd=Decimal(row["bonus_usd"] or 0),
+    )
+
+
+def _yookassa_paid(payment_id: str) -> bool:
+    try:
+        payment = get_payment(payment_id)
+    except YooKassaError:
+        return False
+    return payment.get("status") == "succeeded" and bool(payment.get("paid"))
+
+
+def recover_paid_topup(topup_id: int, payment_id: str, user_id: int) -> str:
+    """Повторное зачисление или awaiting_supplier, если ЮKassa уже приняла оплату."""
+    if not _yookassa_paid(payment_id):
+        return "pending"
+    with pool.connection() as conn:
+        row = conn.execute(
+            """
+            SELECT t.id, t.user_id, t.amount_usd, t.bonus_usd, t.return_token_hash, u.email
+            FROM topups t
+            JOIN users u ON u.id = t.user_id
+            WHERE t.id = %s
+            """,
+            (topup_id,),
+        ).fetchone()
+    if row is None:
+        return "pending"
+    try:
+        return settle_payment(payment_id)
+    except BillingError as exc:
+        if exc.code == "supplier":
+            if _mark_awaiting_supplier(topup_id):
+                _notify_web_payment_delayed(user_id, row)
+            return "awaiting_supplier"
+        raise
+    except Exception:
+        log.exception("не удалось зачислить оплаченный topup %s", topup_id)
+        if _mark_awaiting_supplier(topup_id):
+            _notify_web_payment_delayed(user_id, row)
+        return "awaiting_supplier"
 
 
 def ensure_web_key(user_id: int) -> bool:
@@ -102,7 +160,8 @@ def settle_payment(payment_id: str) -> str:
         )
     except BillingError as exc:
         if exc.code == "supplier":
-            _mark_awaiting_supplier(topup_id)
+            if _mark_awaiting_supplier(topup_id):
+                _notify_web_payment_delayed(int(row["user_id"]), row)
             log.warning(
                 "платёж %s (#%s): не хватает баланса поставщика для %.4f USD",
                 payment_id,

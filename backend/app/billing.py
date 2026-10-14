@@ -37,7 +37,10 @@ def sync_all() -> None:
                 """
             ).fetchall()
         for row in rows:
-            _sync_key(int(row["user_id"]), int(row["upstream_id"]))
+            try:
+                _sync_key(int(row["user_id"]), int(row["upstream_id"]))
+            except Exception:
+                log.exception("не удалось сверить ключ user=%s", row["user_id"])
     from app.notifications import check_low_balance_users
 
     check_low_balance_users()

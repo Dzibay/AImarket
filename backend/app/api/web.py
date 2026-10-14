@@ -25,7 +25,7 @@ from app.installer import InstallError, create_install_command
 from app.mailer import enabled as mail_enabled
 from app.mailer import send_login_email
 from app.money import bonus_tiers, min_topup_rub, min_topup_usd, rub_to_usd, topup_bonus, usd_price_rub
-from app.payments import ensure_web_key, settle_payment
+from app.payments import ensure_web_key, recover_paid_topup, settle_payment
 from app.settings_store import get_setting, public_base_url, support_username
 from app.referrals import attribute_user
 from app.support import (
@@ -187,12 +187,25 @@ def _user_row(user_id: int) -> dict:
     return row
 
 
+def _has_awaiting_supplier_topup(user_id: int) -> bool:
+    with pool.connection() as conn:
+        row = conn.execute(
+            """
+            SELECT 1 FROM topups
+            WHERE user_id = %s AND status = 'awaiting_supplier'
+            LIMIT 1
+            """,
+            (user_id,),
+        ).fetchone()
+    return row is not None
+
+
 def _settle_pending(user_id: int) -> None:
     """Досверяет свежие платежи, если человек вернулся в кабинет не через return_url."""
     with pool.connection() as conn:
         rows = conn.execute(
             """
-            SELECT payment_id FROM topups
+            SELECT id, payment_id FROM topups
             WHERE user_id = %s AND status IN ('pending', 'awaiting_supplier') AND payment_id IS NOT NULL
               AND created_at >= NOW() - INTERVAL '2 days'
             ORDER BY id DESC LIMIT 3
@@ -202,22 +215,36 @@ def _settle_pending(user_id: int) -> None:
     for row in rows:
         try:
             settle_payment(str(row["payment_id"]))
-        except (YooKassaError, BillingError):
+        except BillingError:
             continue
+        except YooKassaError:
+            continue
+        except Exception:
+            log.exception("досверка topup %s user=%s", row["id"], user_id)
+            try:
+                recover_paid_topup(int(row["id"]), str(row["payment_id"]), user_id)
+            except Exception:
+                log.exception("восстановление topup %s user=%s", row["id"], user_id)
 
 
 def _profile(user_id: int) -> dict:
     row = _user_row(user_id)
     blocked = row["blocked_at"] is not None
+    awaiting_supplier = _has_awaiting_supplier_topup(user_id)
     key = None
     key_error = ""
     if not blocked:
         if ensure_web_key(user_id):
-            sync_user(user_id)
+            try:
+                sync_user(user_id)
+            except Exception:
+                log.exception("сверка user=%s при загрузке кабинета", user_id)
             try:
                 key = describe_key(user_id)
             except BillingError as exc:
                 key_error = exc.code
+    if not key and not key_error and awaiting_supplier:
+        key_error = "supplier"
     row = _user_row(user_id)
     with pool.connection() as conn:
         stats = usage_period_stats(conn, user_id)
@@ -230,6 +257,7 @@ def _profile(user_id: int) -> dict:
         "created_at": iso_utc(row["created_at"]),
         "key": key,
         "key_error": key_error,
+        "awaiting_supplier": awaiting_supplier,
         "spent_today_usd": stats["spent_today_usd"],
         "spent_month_usd": stats["spent_month_usd"],
         "spent_week_usd": stats["spent_week_usd"],
@@ -307,12 +335,20 @@ def payment_return(body: ReturnIn) -> dict:
     if not row["fresh"]:
         raise HTTPException(status_code=410, detail="expired")
     status = str(row["status"])
+    user_id = int(row["user_id"])
     if status in ("pending", "awaiting_supplier") and row["payment_id"]:
+        payment_id = str(row["payment_id"])
         try:
-            result = settle_payment(str(row["payment_id"]))
-        except (YooKassaError, BillingError) as exc:
-            log.warning("возврат с оплаты %s: %s", body.topup, exc)
+            result = settle_payment(payment_id)
+        except BillingError as exc:
+            log.warning("возврат с оплаты %s: %s", body.topup, exc.code)
+            result = recover_paid_topup(body.topup, payment_id, user_id) if exc.code == "supplier" else status
+        except YooKassaError as exc:
+            log.warning("возврат с оплаты %s: %s", body.topup, exc.message)
             result = status
+        except Exception:
+            log.exception("возврат с оплаты %s", body.topup)
+            result = recover_paid_topup(body.topup, payment_id, user_id)
         if result in {"credited", "already"}:
             status = "paid"
         elif result == "awaiting_supplier":
@@ -325,11 +361,10 @@ def payment_return(body: ReturnIn) -> dict:
                 status = "paid"
             elif again and again["status"] == "awaiting_supplier":
                 status = "awaiting_supplier"
-    user_id = int(row["user_id"])
-    profile = _profile(user_id) if status == "paid" else None
-    session = ""
+    grant_access = status in ("paid", "awaiting_supplier")
+    profile = _profile(user_id) if grant_access else None
+    session = make_session(user_id) if grant_access else ""
     if status == "paid":
-        session = make_session(user_id)
         # Ссылка возврата одноразовая после успешного входа — повторное открытие потребует ключ/письмо.
         with pool.connection() as conn:
             conn.execute(

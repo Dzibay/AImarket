@@ -41,11 +41,18 @@
         <template v-else-if="state === 'awaiting_supplier'">
           <h1 class="page-title">Оплата получена</h1>
           <p class="page-lead">
-            Платёж прошёл в ЮKassa, зачисление на баланс займёт немного времени.
-            Страница проверяет статус автоматически — обновите её через несколько минут или зайдите в кабинет позже.
+            Платёж прошёл в ЮKassa. Ключ доступа пока не выпущен — временная проблема с поставщиком API.
+            Вы уже можете войти в личный кабинет
+            <template v-if="profile?.email_enabled && profile?.email"> — ссылку для входа отправили на {{ profile.email }}</template>.
+            Напишите в поддержку из кабинета, мы зачислим баланс и выпустим ключ.
           </p>
           <p v-if="error" class="notice">{{ error }}</p>
+          <div class="actions">
+            <RouterLink to="/cabinet" class="btn">В личный кабинет</RouterLink>
+            <RouterLink to="/cabinet#support" class="btn quiet">Написать в поддержку</RouterLink>
+          </div>
           <div class="card soft">
+            <p class="muted small">Страница проверяет статус автоматически — как только баланс зачислится, ключ появится в кабинете.</p>
             <button type="button" class="btn quiet sm" :disabled="checking" @click="check">
               {{ checking ? 'Проверяем…' : 'Проверить сейчас' }}
             </button>
@@ -143,6 +150,11 @@ async function check() {
       })
       stop()
     } else if (result.status === 'awaiting_supplier') {
+      if (result.session) {
+        setSession(result.session)
+        await claimGuestSupportIfNeeded()
+        profile.value = result.profile
+      }
       state.value = 'awaiting_supplier'
       if (attempts.value < 24 && !timer) timer = setTimeout(() => { timer = null; check() }, 15000)
     } else if (result.status === 'pending') {
