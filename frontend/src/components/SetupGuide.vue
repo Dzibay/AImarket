@@ -404,7 +404,7 @@ function copyKey() {
 </script>
 
 <style scoped>
-.guide { padding: 22px 24px 20px; }
+.guide { padding: 22px 24px 20px; min-width: 0; max-width: 100%; overflow: hidden; }
 .guide-head { margin-bottom: 8px; }
 .guide-head-top {
   display: flex;
@@ -416,8 +416,13 @@ function copyKey() {
 .card-title { margin: 0; font-size: 1.2rem; letter-spacing: -0.03em; flex: 1 1 auto; min-width: 0; }
 .guide-head-lead { margin: 6px 0 0; max-width: 52rem; }
 .os-switch { flex: 0 0 auto; margin-left: auto; }
-.tabs { margin: 6px -24px 0; padding: 0 24px; }
-.panel { padding-top: 18px; }
+.tabs {
+  margin: 6px -24px 0;
+  padding: 0 24px;
+  max-width: none;
+  -webkit-overflow-scrolling: touch;
+}
+.panel { padding-top: 18px; min-width: 0; }
 
 .fields {
   display: grid;

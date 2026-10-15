@@ -776,14 +776,17 @@ onBeforeUnmount(() => {
 </script>
 
 <style scoped>
-.wrap { padding-top: 24px; padding-bottom: 72px; }
+.wrap { padding-top: 24px; padding-bottom: 72px; max-width: 100%; }
 .layout {
   display: grid;
   grid-template-columns: 208px minmax(0, 1fr);
   gap: 32px;
   align-items: start;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
 }
-.content { min-width: 0; }
+.content { min-width: 0; max-width: 100%; overflow-x: clip; }
 .actions { display: flex; gap: 12px; flex-wrap: wrap; margin-top: 16px; }
 .notice { margin-bottom: 18px; }
 .notice a { text-decoration: underline; text-underline-offset: 3px; }
@@ -1112,6 +1115,24 @@ td .rub { display: block; font-weight: 400; }
   .onboarding { padding: 18px 16px; }
 }
 @media (max-width: 640px) {
+  .wrap { padding-top: 12px; padding-bottom: 88px; }
+  .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+  .stat-wide { grid-column: 1 / -1; }
+  .stat { padding: 14px 16px; }
+  .hero { padding: 18px 16px 16px; }
+  .hero-balance { font-size: clamp(2.1rem, 10vw, 2.6rem); }
+  .hero-actions { flex-direction: column; align-items: stretch; }
+  .hero-actions .btn { width: 100%; justify-content: center; min-height: 46px; }
+  .hero-actions .btn.ghost:not(.keep-mobile) { display: none; }
+  .chip-days { display: none; }
+  .head { margin-bottom: 14px; }
+  .page-title { font-size: clamp(1.55rem, 7vw, 1.85rem); }
+  .section-title { font-size: 1.2rem; }
+  .section-head { align-items: stretch; }
+  .section-head .segmented { width: 100%; }
+  .section-head .segmented button { flex: 1 1 0; justify-content: center; padding: 7px 8px; }
+  .faq { padding: 4px 16px; }
+  .card { max-width: 100%; }
   .table-wrap { overflow: visible; }
   table { min-width: 0; }
   thead { display: none; }
@@ -1143,22 +1164,6 @@ td .rub { display: block; font-weight: 400; }
   td .rub { display: block; }
   .op { align-items: flex-start; }
   .skeleton-row { display: grid; }
-}
-@media (max-width: 640px) {
-  .wrap.container { padding-left: 16px; padding-right: 16px; }
-  .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .stat-wide { grid-column: 1 / -1; }
-  .stat { padding: 14px 16px; }
-  .hero-actions { flex-direction: column; align-items: stretch; }
-  .hero-actions .btn { width: 100%; justify-content: center; }
-  .hero-actions .btn.ghost:not(.keep-mobile) { display: none; }
-  .chip-days { display: none; }
-  .head { margin-bottom: 14px; }
-  .page-title { font-size: clamp(1.55rem, 7vw, 1.85rem); }
-  .section-head { align-items: stretch; }
-  .section-head .segmented { width: 100%; }
-  .section-head .segmented button { flex: 1 1 0; justify-content: center; padding: 7px 8px; }
-  .faq { padding: 4px 16px; }
 }
 </style>
 
