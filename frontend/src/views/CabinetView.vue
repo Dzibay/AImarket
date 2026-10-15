@@ -1,6 +1,52 @@
 <template>
-  <div class="site">
-    <SiteHeader />
+  <div class="site" :class="{ 'nav-open': mobileNavOpen }">
+    <SiteHeader
+      v-if="profile"
+      cabinet-menu
+      :cabinet-menu-open="mobileNavOpen"
+      @cabinet-menu="toggleMobileNav"
+    />
+    <SiteHeader v-else />
+    <Teleport to="body">
+      <Transition name="drawer">
+        <div v-if="mobileNavOpen && profile" id="cabinet-mobile-nav" class="mobile-nav" role="dialog" aria-label="Разделы кабинета">
+          <div class="mobile-nav-backdrop" aria-hidden="true" @click="closeMobileNav" />
+          <div class="mobile-nav-panel">
+            <nav class="mobile-nav-links">
+              <a
+                v-for="item in sections"
+                :key="item.id"
+                :href="`#${item.id}`"
+                :class="{ on: active === item.id }"
+                @click.prevent="goSection(item.id)"
+              >
+                <AppIcon :name="item.icon" :size="18" />
+                <span>{{ item.label }}</span>
+              </a>
+              <RouterLink to="/prices" @click="closeMobileNav">
+                <AppIcon name="tag" :size="18" />
+                <span>Цены</span>
+              </RouterLink>
+            </nav>
+            <div class="mobile-nav-foot">
+              <button type="button" class="mobile-nav-link" :disabled="loading" @click="refreshFromMenu">
+                <AppIcon name="refresh" :size="16" :class="{ spin: loading }" />
+                {{ loading ? 'Обновляем…' : 'Обновить данные' }}
+              </button>
+              <RouterLink to="/help?chat=1" class="mobile-nav-link" @click="closeMobileNav">
+                <AppIcon name="help" :size="16" />
+                Написать в поддержку
+                <span v-if="supportUnread > 0" class="nav-badge">{{ supportUnread > 9 ? '9+' : supportUnread }}</span>
+              </RouterLink>
+              <button type="button" class="mobile-nav-link logout" @click="logout">
+                <AppIcon name="logout" :size="16" />
+                Выйти
+              </button>
+            </div>
+          </div>
+        </div>
+      </Transition>
+    </Teleport>
     <main class="site-main">
       <div class="container wrap">
         <template v-if="loading && !profile">
@@ -74,19 +120,25 @@
             <section id="overview" class="anchor">
               <div class="hero card">
                 <div class="hero-main">
-                  <span class="hero-label">Баланс</span>
+                  <div class="hero-top">
+                    <span class="hero-label">Баланс</span>
+                    <div class="hero-week" aria-hidden="false">
+                      <span>Расход за 7 дней</span>
+                      <b>{{ usdSmart(weekTotal) }}</b>
+                    </div>
+                  </div>
                   <b class="hero-balance">{{ usd(profile.balance_usd) }}</b>
                   <span class="hero-rub">≈ {{ rub(profile.balance_usd * profile.usd_price_rub) }} · 1 $ = {{ rub(profile.usd_price_rub) }}</span>
                   <div class="hero-chips">
                     <span class="chip" :class="status.kind"><i />{{ status.text }}</span>
-                    <span v-if="daysLeft" class="chip">При текущем темпе хватит на {{ daysLeft }}</span>
+                    <span v-if="daysLeft" class="chip chip-days">При текущем темпе хватит на {{ daysLeft }}</span>
                   </div>
                   <div class="hero-actions">
                     <button type="button" class="btn light" @click="scrollTo('topup')"><AppIcon name="wallet" :size="16" />Пополнить</button>
                     <button
                       v-if="profile.key"
                       type="button"
-                      class="btn ghost"
+                      class="btn ghost keep-mobile"
                       @click="scrollTo('setup')"
                     >
                       <AppIcon name="plug" :size="16" />Подключить приложение
@@ -102,7 +154,7 @@
                   </div>
                 </div>
                 <div class="hero-chart">
-                  <div class="hero-chart-head">
+                  <div class="hero-chart-head wide-only">
                     <span>Расход за 7 дней</span>
                     <b>{{ usdSmart(weekTotal) }}</b>
                   </div>
@@ -130,7 +182,7 @@
                   <span class="muted small">За этот месяц</span>
                   <b>{{ usdSmart(profile.spent_month_usd) }}</b>
                 </div>
-                <div class="card stat">
+                <div class="card stat stat-wide">
                   <span class="muted small">Последний запрос</span>
                   <b class="date">{{ lastRequest }}</b>
                 </div>
@@ -366,7 +418,7 @@
 </template>
 
 <script setup>
-import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { RouterLink, useRouter } from 'vue-router'
 import KeyCard from '../components/KeyCard.vue'
 import SetupGuide from '../components/SetupGuide.vue'
@@ -375,7 +427,7 @@ import SiteHeader from '../components/SiteHeader.vue'
 import TopupForm from '../components/TopupForm.vue'
 import AppIcon from '../components/ui/AppIcon.vue'
 import { errorText, webApi } from '../api/web'
-import { useSession } from '../composables/useSession'
+import { clearSession, useSession } from '../composables/useSession'
 import { useSupportUnread } from '../composables/useSupportUnread'
 import { toast } from '../composables/useToast'
 import { dateTime, rub, tokens, usd, usdSmart } from '../utils/format'
@@ -387,6 +439,7 @@ const { isLoggedIn } = useSession()
 const { unread: supportUnread, refreshUnread } = useSupportUnread()
 
 const profile = ref(null)
+const mobileNavOpen = ref(false)
 const loading = ref(false)
 const loadError = ref('')
 const reissuing = ref(false)
@@ -581,6 +634,34 @@ function scrollTo(id) {
   if (window.history?.replaceState) window.history.replaceState(null, '', `#${id}`)
 }
 
+function toggleMobileNav() {
+  mobileNavOpen.value = !mobileNavOpen.value
+}
+
+function closeMobileNav() {
+  mobileNavOpen.value = false
+}
+
+function goSection(id) {
+  closeMobileNav()
+  scrollTo(id)
+}
+
+async function refreshFromMenu() {
+  await load()
+  closeMobileNav()
+}
+
+function logout() {
+  closeMobileNav()
+  clearSession()
+  router.push('/')
+}
+
+watch(mobileNavOpen, (open) => {
+  document.body.classList.toggle('cabinet-nav-open', open)
+})
+
 // Подсветка раздела в меню: активен последний раздел, чей верх прошёл треть экрана.
 function updateActive() {
   ticking = false
@@ -690,6 +771,7 @@ onMounted(async () => {
 onBeforeUnmount(() => {
   window.removeEventListener('scroll', onScroll)
   window.removeEventListener('resize', onScroll)
+  document.body.classList.remove('cabinet-nav-open')
 })
 </script>
 
@@ -778,7 +860,26 @@ onBeforeUnmount(() => {
   border-color: var(--accent);
   box-shadow: 0 20px 44px rgba(28, 25, 21, 0.22);
 }
+.hero-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 2px;
+}
 .hero-label { display: block; color: rgba(244, 241, 234, 0.6); font-size: 12px; font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase; }
+.hero-week {
+  display: none;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+  text-align: right;
+  color: rgba(244, 241, 234, 0.65);
+  font-size: 12px;
+  line-height: 1.3;
+}
+.hero-week b { color: var(--bg); font-size: 15px; font-variant-numeric: tabular-nums; }
+.wide-only { display: flex; }
 .hero-balance { display: block; margin: 4px 0 2px; font-size: clamp(2rem, 4vw, 2.8rem); line-height: 1.05; letter-spacing: -0.04em; font-variant-numeric: tabular-nums; }
 .hero-rub { display: block; color: rgba(244, 241, 234, 0.65); font-size: 14px; }
 .hero-chips { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 16px; }
@@ -805,7 +906,14 @@ onBeforeUnmount(() => {
 .btn.ghost:hover { background: rgba(244, 241, 234, 0.08); }
 
 .hero-chart { display: flex; flex-direction: column; min-width: 0; }
-.hero-chart-head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; color: rgba(244, 241, 234, 0.65); font-size: 13px; }
+.hero-chart-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
+  color: rgba(244, 241, 234, 0.65);
+  font-size: 13px;
+}
 .hero-chart-head b { color: var(--bg); font-size: 16px; }
 .chart { display: flex; align-items: flex-end; gap: 8px; height: 140px; margin-top: auto; padding-top: 10px; overflow: hidden; }
 .bar-wrap { flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; gap: 6px; height: 100%; }
@@ -822,7 +930,81 @@ onBeforeUnmount(() => {
 .stat span { display: block; }
 .stat b { display: block; margin-top: 4px; font-size: 22px; letter-spacing: -0.03em; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
 .stat b.date { font-size: 16px; margin-top: 8px; }
+.stat-wide { grid-column: auto; }
 .stats + .notice { margin-top: 14px; margin-bottom: 0; }
+
+/* Мобильное меню разделов */
+.mobile-nav {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  align-items: stretch;
+}
+.mobile-nav-backdrop {
+  flex: 1 1 auto;
+  min-width: 0;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+  background: rgba(28, 25, 21, 0.35);
+}
+.mobile-nav-panel {
+  flex: 0 0 min(320px, 88vw);
+  width: min(320px, 88vw);
+  height: 100%;
+  padding: 72px 16px 24px;
+  background: var(--bg);
+  border-left: 1px solid var(--border);
+  box-shadow: -12px 0 40px rgba(28, 25, 21, 0.12);
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  overflow-y: auto;
+}
+.mobile-nav-links { display: flex; flex-direction: column; gap: 4px; }
+.mobile-nav-links a {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  color: var(--muted-2);
+  font-size: 15px;
+  font-weight: 600;
+}
+.mobile-nav-links a.on { background: var(--accent); color: var(--bg); }
+.mobile-nav-foot {
+  margin-top: auto;
+  padding-top: 16px;
+  border-top: 1px solid var(--border-strong);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.mobile-nav-link {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 10px 14px;
+  border: 0;
+  border-radius: 10px;
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+}
+.mobile-nav-link:hover { color: var(--text); background: rgba(255, 255, 255, 0.55); }
+.mobile-nav-link:disabled { cursor: default; opacity: 0.6; }
+.mobile-nav-link.logout { color: var(--danger); }
+.drawer-enter-active, .drawer-leave-active { transition: opacity 0.2s ease; }
+.drawer-enter-active .mobile-nav-panel, .drawer-leave-active .mobile-nav-panel { transition: transform 0.22s ease; }
+.drawer-enter-from, .drawer-leave-to { opacity: 0; }
+.drawer-enter-from .mobile-nav-panel, .drawer-leave-to .mobile-nav-panel { transform: translateX(100%); }
 
 .onboarding { margin-top: 16px; padding: 22px 24px; border-color: var(--border-strong); }
 .onb-head p { margin: 0 0 16px; }
@@ -909,36 +1091,25 @@ td .rub { display: block; font-weight: 400; }
 
 @media (max-width: 1040px) {
   .layout { grid-template-columns: minmax(0, 1fr); gap: 0; min-width: 0; }
-  .side {
-    position: sticky;
-    top: 68px;
-    z-index: 5;
-    min-width: 0;
-    margin: 0 -24px 18px;
-    padding: 8px 24px;
-    background: rgba(244, 241, 234, 0.92);
-    backdrop-filter: blur(8px);
-    border-bottom: 1px solid var(--border);
-  }
-  .side-inner { flex-direction: row; align-items: center; gap: 8px; min-width: 0; width: 100%; }
-  .side-nav {
-    flex: 1 1 auto;
-    flex-direction: row;
-    gap: 4px;
-    min-width: 0;
-    overflow-x: auto;
-    overscroll-behavior-x: contain;
-    scrollbar-width: none;
-  }
-  .side-nav::-webkit-scrollbar { display: none; }
-  .side-nav a { padding: 7px 12px; border-radius: 999px; white-space: nowrap; }
-  .side-foot { display: none; }
-  .anchor { scroll-margin-top: 124px; }
+  .side { display: none; }
+  .anchor { scroll-margin-top: 80px; }
+  .wrap { padding-top: 16px; }
 }
 @media (max-width: 860px) {
-  .hero { grid-template-columns: 1fr; }
+  .hero {
+    grid-template-columns: 1fr;
+    gap: 18px;
+    padding: 20px 18px 18px;
+  }
+  .hero-week { display: flex; }
+  .wide-only { display: none; }
+  .hero-chart { order: 2; }
+  .hero-main { order: 1; }
+  .chart { height: 108px; padding-top: 4px; gap: 6px; }
+  .bar-wrap i { max-width: none; }
   .grid, .topup-grid, .help-grid { grid-template-columns: 1fr; }
   .onb-steps { grid-template-columns: 1fr; }
+  .onboarding { padding: 18px 16px; }
 }
 @media (max-width: 640px) {
   .table-wrap { overflow: visible; }
@@ -973,13 +1144,24 @@ td .rub { display: block; font-weight: 400; }
   .op { align-items: flex-start; }
   .skeleton-row { display: grid; }
 }
-@media (max-width: 560px) {
-  .stats { grid-template-columns: 1fr; }
-  .hero { padding: 22px 18px; }
-  .hero-actions { flex-direction: column; }
-  .hero-actions .btn { width: 100%; }
+@media (max-width: 640px) {
+  .wrap.container { padding-left: 16px; padding-right: 16px; }
+  .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .stat-wide { grid-column: 1 / -1; }
+  .stat { padding: 14px 16px; }
+  .hero-actions { flex-direction: column; align-items: stretch; }
+  .hero-actions .btn { width: 100%; justify-content: center; }
+  .hero-actions .btn.ghost:not(.keep-mobile) { display: none; }
+  .chip-days { display: none; }
+  .head { margin-bottom: 14px; }
+  .page-title { font-size: clamp(1.55rem, 7vw, 1.85rem); }
   .section-head { align-items: stretch; }
   .section-head .segmented { width: 100%; }
   .section-head .segmented button { flex: 1 1 0; justify-content: center; padding: 7px 8px; }
+  .faq { padding: 4px 16px; }
 }
+</style>
+
+<style>
+body.cabinet-nav-open { overflow: hidden; }
 </style>

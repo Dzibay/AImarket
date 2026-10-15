@@ -7,11 +7,29 @@
       </RouterLink>
       <nav class="nav">
         <template v-if="isLoggedIn">
-          <RouterLink to="/cabinet" class="btn quiet sm cabinet-link">
-            <span class="label-full">Личный кабинет</span>
-            <span class="label-short">Кабинет</span>
-          </RouterLink>
-          <button type="button" class="link" @click="logout">Выйти</button>
+          <template v-if="cabinetMenu">
+            <div class="cabinet-desktop nav-logged">
+              <RouterLink to="/cabinet" class="btn quiet sm">Личный кабинет</RouterLink>
+              <button type="button" class="link" @click="logout">Выйти</button>
+            </div>
+            <button
+              type="button"
+              class="menu-btn cabinet-mobile"
+              :aria-expanded="cabinetMenuOpen"
+              aria-controls="cabinet-mobile-nav"
+              aria-label="Разделы кабинета"
+              @click="$emit('cabinet-menu')"
+            >
+              <AppIcon :name="cabinetMenuOpen ? 'close' : 'menu'" :size="20" />
+            </button>
+          </template>
+          <template v-else>
+            <RouterLink to="/cabinet" class="btn quiet sm cabinet-link">
+              <span class="label-full">Личный кабинет</span>
+              <span class="label-short">Кабинет</span>
+            </RouterLink>
+            <button type="button" class="link" @click="logout">Выйти</button>
+          </template>
         </template>
         <RouterLink v-else to="/login" class="auth-btn">Вход/Регистрация</RouterLink>
       </nav>
@@ -21,7 +39,14 @@
 
 <script setup>
 import { RouterLink, useRouter } from 'vue-router'
+import AppIcon from './ui/AppIcon.vue'
 import { useSession } from '../composables/useSession'
+
+defineProps({
+  cabinetMenu: { type: Boolean, default: false },
+  cabinetMenuOpen: { type: Boolean, default: false },
+})
+defineEmits(['cabinet-menu'])
 
 const router = useRouter()
 const { isLoggedIn, clearSession } = useSession()
@@ -67,6 +92,8 @@ function logout() {
   box-shadow: 0 8px 24px rgba(28, 25, 21, 0.08);
 }
 .nav { display: flex; align-items: center; gap: 12px; flex: 0 0 auto; }
+.nav-logged { display: flex; align-items: center; gap: 12px; }
+.cabinet-mobile { display: none; }
 .cabinet-link { white-space: nowrap; }
 .label-short { display: none; }
 .link {
@@ -100,6 +127,24 @@ function logout() {
 .auth-btn:hover {
   background: #fff;
   border-color: rgba(28, 25, 21, 0.2);
+}
+.menu-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 42px;
+  height: 42px;
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.72);
+  color: var(--text);
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+.menu-btn:hover { background: #fff; border-color: rgba(28, 25, 21, 0.2); }
+@media (max-width: 1040px) {
+  .cabinet-desktop { display: none; }
+  .cabinet-mobile { display: inline-flex; }
 }
 @media (max-width: 960px) {
   .inner { padding: 0 16px; }

@@ -61,6 +61,8 @@ const PATHS = {
   calendar: '<rect x="3.5" y="5" width="17" height="15.5" rx="2"/><path d="M3.5 10h17"/><path d="M8 3.5v3"/><path d="M16 3.5v3"/>',
   'arrow-left': '<path d="M19 12H5"/><path d="M10 7l-5 5 5 5"/>',
   'chevron-right': '<path d="M9 6l6 6-6 6"/>',
+  menu: '<path d="M4 7h16"/><path d="M4 12h16"/><path d="M4 17h16"/>',
+  close: '<path d="M6 6l12 12"/><path d="M18 6L6 18"/>',
 }
 </script>
 
