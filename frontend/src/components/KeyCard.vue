@@ -102,5 +102,6 @@ defineProps({
 .role code { font-size: 12px; background: var(--surface-soft); border: 1px solid var(--border); padding: 0 5px; border-radius: 5px; }
 @media (max-width: 760px) {
   .fields, .roles { grid-template-columns: 1fr; }
+  .key-card { padding: 18px 16px 16px; }
 }
 </style>

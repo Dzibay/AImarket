@@ -504,5 +504,8 @@ function copyKey() {
   .kv { grid-template-columns: 1fr; gap: 4px; }
   .kv dt { margin-top: 8px; }
   .extra-body { padding-left: 0; }
+  .guide { padding: 18px 16px 16px; }
+  .tabs { margin-right: -16px; margin-left: -16px; padding: 0 16px; }
+  .os-switch { max-width: 100%; margin-left: 0; overflow-x: auto; }
 }
 </style>

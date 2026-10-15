@@ -7,7 +7,10 @@
       </RouterLink>
       <nav class="nav">
         <template v-if="isLoggedIn">
-          <RouterLink to="/cabinet" class="btn quiet sm">Личный кабинет</RouterLink>
+          <RouterLink to="/cabinet" class="btn quiet sm cabinet-link">
+            <span class="label-full">Личный кабинет</span>
+            <span class="label-short">Кабинет</span>
+          </RouterLink>
           <button type="button" class="link" @click="logout">Выйти</button>
         </template>
         <RouterLink v-else to="/login" class="auth-btn">Вход/Регистрация</RouterLink>
@@ -63,7 +66,9 @@ function logout() {
   border-radius: 10px;
   box-shadow: 0 8px 24px rgba(28, 25, 21, 0.08);
 }
-.nav { display: flex; align-items: center; gap: 12px; }
+.nav { display: flex; align-items: center; gap: 12px; flex: 0 0 auto; }
+.cabinet-link { white-space: nowrap; }
+.label-short { display: none; }
 .link {
   background: none;
   border: 0;
@@ -98,5 +103,12 @@ function logout() {
 }
 @media (max-width: 960px) {
   .inner { padding: 0 16px; }
+}
+@media (max-width: 480px) {
+  .inner { gap: 10px; }
+  .label-full { display: none; }
+  .label-short { display: inline; }
+  .nav { gap: 8px; }
+  .link { font-size: 13px; }
 }
 </style>
