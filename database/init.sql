@@ -1,6 +1,6 @@
--- Схема PostgreSQL для Aimarket.
--- Идемпотентно: docker-entrypoint-initdb.d и backend ensure_schema() при старте.
--- CREATE TABLE — целевая форма; ALTER ADD COLUMN — догон старых БД.
+-- Схема PostgreSQL Aimarket.
+-- Идемпотентно: docker-entrypoint-initdb.d и backend ensure_schema() при каждом старте.
+-- CREATE TABLE — целевая форма; ALTER ADD COLUMN — апгрейд уже существующих БД.
 
 -- ---------------------------------------------------------------------------
 -- Пользователи
@@ -35,12 +35,10 @@ CREATE TABLE IF NOT EXISTS users (
 );
 
 ALTER TABLE users ADD COLUMN IF NOT EXISTS balance_usd NUMERIC(12, 4) NOT NULL DEFAULT 0;
--- Сверка с router.cheap может вернуть отрицательный remain_quota (overspend).
-ALTER TABLE users DROP CONSTRAINT IF EXISTS users_balance_usd_check;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS offer_accepted_at TIMESTAMPTZ;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS offer_reminder_sent_at TIMESTAMPTZ;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS blocked_at TIMESTAMPTZ;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS blocked_reason TEXT NOT NULL DEFAULT '';
-ALTER TABLE users ADD COLUMN IF NOT EXISTS offer_reminder_sent_at TIMESTAMPTZ;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS notify_spend BOOLEAN NOT NULL DEFAULT FALSE;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS notify_low_balance BOOLEAN NOT NULL DEFAULT TRUE;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS notify_limit_exhausted BOOLEAN NOT NULL DEFAULT TRUE;
@@ -48,24 +46,17 @@ ALTER TABLE users ADD COLUMN IF NOT EXISTS notify_topup BOOLEAN NOT NULL DEFAULT
 ALTER TABLE users ADD COLUMN IF NOT EXISTS notify_support_email BOOLEAN NOT NULL DEFAULT TRUE;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS support_mail_sent_at TIMESTAMPTZ;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS nudge_topup_sent_at TIMESTAMPTZ;
-ALTER TABLE users DROP COLUMN IF EXISTS nudge_usage_sent_at;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS low_balance_notified_at TIMESTAMPTZ;
-
--- Не слать lifecycle-письма старым аккаунтам после деплоя фичи.
--- Помечаем «уже отправлено» всех, кто старше окна напоминания (3 суток).
-UPDATE users
-SET nudge_topup_sent_at = COALESCE(nudge_topup_sent_at, created_at)
-WHERE nudge_topup_sent_at IS NULL
-  AND created_at < NOW() - INTERVAL '3 days';
-
 ALTER TABLE users ADD COLUMN IF NOT EXISTS referral_token TEXT NOT NULL DEFAULT '';
-ALTER TABLE users ALTER COLUMN telegram_id DROP NOT NULL;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS email TEXT NOT NULL DEFAULT '';
 ALTER TABLE users ADD COLUMN IF NOT EXISTS email_login_hash TEXT NOT NULL DEFAULT '';
 ALTER TABLE users ADD COLUMN IF NOT EXISTS email_login_expires_at TIMESTAMPTZ;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS support_telegram_topic_id BIGINT;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS support_telegram_synced_id BIGINT;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS support_seen_at TIMESTAMPTZ;
+ALTER TABLE users ALTER COLUMN telegram_id DROP NOT NULL;
+ALTER TABLE users DROP CONSTRAINT IF EXISTS users_balance_usd_check;
+ALTER TABLE users DROP COLUMN IF EXISTS nudge_usage_sent_at;
 
 CREATE INDEX IF NOT EXISTS idx_users_referral_token
     ON users (referral_token) WHERE referral_token <> '';
@@ -73,9 +64,6 @@ CREATE INDEX IF NOT EXISTS idx_users_email
     ON users (lower(email)) WHERE email <> '';
 CREATE UNIQUE INDEX IF NOT EXISTS idx_users_support_topic
     ON users (support_telegram_topic_id) WHERE support_telegram_topic_id IS NOT NULL;
-
--- Старый каталог products не используется: цены берутся у router.cheap.
-DROP TABLE IF EXISTS products;
 
 -- ---------------------------------------------------------------------------
 -- API-ключи
@@ -150,7 +138,6 @@ CREATE INDEX IF NOT EXISTS idx_usage_user_time ON usage (user_id, created_at DES
 -- ---------------------------------------------------------------------------
 -- Пополнения ЮKassa
 -- status: pending | awaiting_supplier | paid | failed | rejected
--- awaiting_supplier — оплата в ЮKassa прошла, но не хватило баланса router.cheap
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS topups (
     id                BIGSERIAL PRIMARY KEY,
@@ -189,12 +176,13 @@ CREATE TABLE IF NOT EXISTS referral_links (
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-ALTER TABLE referral_links ADD COLUMN IF NOT EXISTS group_id BIGINT REFERENCES referral_groups (id) ON DELETE SET NULL;
+ALTER TABLE referral_links ADD COLUMN IF NOT EXISTS group_id BIGINT
+    REFERENCES referral_groups (id) ON DELETE SET NULL;
+
 CREATE INDEX IF NOT EXISTS idx_referral_links_group ON referral_links (group_id);
 
 INSERT INTO referral_links (token) VALUES ('web') ON CONFLICT (token) DO NOTHING;
 
--- Клики по реферальной ссылке (сайт ?ref= / Telegram ?start=) до регистрации.
 CREATE TABLE IF NOT EXISTS referral_clicks (
     id          BIGSERIAL PRIMARY KEY,
     token       TEXT NOT NULL,
@@ -204,8 +192,8 @@ CREATE TABLE IF NOT EXISTS referral_clicks (
 
 CREATE INDEX IF NOT EXISTS idx_referral_clicks_token
     ON referral_clicks (token, created_at DESC);
--- Один клик на посетителя на токен (браузер / telegram_id), без накрутки F5.
--- Если раньше был неуникальный индекс с тем же именем — пересоздаём.
+
+-- Один клик на visitor_key на токен (без накрутки F5).
 DROP INDEX IF EXISTS idx_referral_clicks_visitor;
 DELETE FROM referral_clicks a
     USING referral_clicks b
@@ -216,30 +204,6 @@ WHERE a.id > b.id
 CREATE UNIQUE INDEX IF NOT EXISTS idx_referral_clicks_visitor
     ON referral_clicks (token, visitor_key)
     WHERE visitor_key <> '';
-
--- Догон дефицита: регистраций больше, чем кликов (атрибуция без ?ref=/start,
--- или клики появились позже пользователей). Вставляем ровно offers − visits.
-WITH stats AS (
-    SELECT
-        u.referral_token AS token,
-        COUNT(*)::int AS offers,
-        COALESCE((
-            SELECT COUNT(*)::int FROM referral_clicks c WHERE c.token = u.referral_token
-        ), 0) AS visits
-    FROM users u
-    WHERE u.referral_token <> ''
-      AND EXISTS (SELECT 1 FROM referral_links r WHERE r.token = u.referral_token)
-    GROUP BY u.referral_token
-),
-deficit AS (
-    SELECT token, offers - visits AS need
-    FROM stats
-    WHERE offers > visits
-)
-INSERT INTO referral_clicks (token, visitor_key)
-SELECT d.token, 'backfill:' || d.token || ':' || g.i::text
-FROM deficit d
-CROSS JOIN LATERAL generate_series(1, d.need) AS g(i);
 
 -- ---------------------------------------------------------------------------
 -- Install tokens
@@ -260,16 +224,17 @@ CREATE INDEX IF NOT EXISTS idx_install_tokens_expires ON install_tokens (expires
 -- Поддержка
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS support_guests (
-    id                BIGSERIAL PRIMARY KEY,
-    token_hash        TEXT NOT NULL UNIQUE,
-    telegram_topic_id BIGINT,
+    id                 BIGSERIAL PRIMARY KEY,
+    token_hash         TEXT NOT NULL UNIQUE,
+    telegram_topic_id  BIGINT,
     telegram_synced_id BIGINT,
-    seen_at           TIMESTAMPTZ,
-    created_at        TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    seen_at            TIMESTAMPTZ,
+    created_at         TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 ALTER TABLE support_guests ADD COLUMN IF NOT EXISTS telegram_topic_id BIGINT;
 ALTER TABLE support_guests ADD COLUMN IF NOT EXISTS telegram_synced_id BIGINT;
+ALTER TABLE support_guests ADD COLUMN IF NOT EXISTS seen_at TIMESTAMPTZ;
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_support_guests_topic
     ON support_guests (telegram_topic_id) WHERE telegram_topic_id IS NOT NULL;
@@ -289,10 +254,12 @@ CREATE TABLE IF NOT EXISTS support_messages (
 );
 
 ALTER TABLE support_messages ALTER COLUMN user_id DROP NOT NULL;
-ALTER TABLE support_messages ADD COLUMN IF NOT EXISTS guest_id BIGINT REFERENCES support_guests (id) ON DELETE CASCADE;
+ALTER TABLE support_messages ADD COLUMN IF NOT EXISTS guest_id BIGINT
+    REFERENCES support_guests (id) ON DELETE CASCADE;
 ALTER TABLE support_messages ADD COLUMN IF NOT EXISTS source TEXT NOT NULL DEFAULT 'site';
 ALTER TABLE support_messages DROP CONSTRAINT IF EXISTS support_messages_source_check;
-ALTER TABLE support_messages ADD CONSTRAINT support_messages_source_check CHECK (source IN ('site', 'telegram'));
+ALTER TABLE support_messages ADD CONSTRAINT support_messages_source_check
+    CHECK (source IN ('site', 'telegram'));
 
 CREATE INDEX IF NOT EXISTS idx_support_messages_user
     ON support_messages (user_id, created_at) WHERE user_id IS NOT NULL;
@@ -309,13 +276,10 @@ CREATE TABLE IF NOT EXISTS app_settings (
 
 INSERT INTO app_settings (key, value) VALUES ('supplier_usd_price_rub', '')
 ON CONFLICT (key) DO NOTHING;
-DELETE FROM app_settings WHERE key = 'finance_opening_cash_rub';
 
 -- ---------------------------------------------------------------------------
 -- Бухгалтерия компании
 -- ---------------------------------------------------------------------------
-DROP TABLE IF EXISTS finance_entries;
-
 CREATE TABLE IF NOT EXISTS finance_categories (
     id          BIGSERIAL PRIMARY KEY,
     name        TEXT NOT NULL,
@@ -387,3 +351,10 @@ FROM (VALUES
     ('Прочее', '#6b645b', 'withdrawal', 90)
 ) AS v(name, color, kind, sort_order)
 WHERE NOT EXISTS (SELECT 1 FROM finance_categories LIMIT 1);
+
+-- ---------------------------------------------------------------------------
+-- Уборка устаревших объектов (безопасно на любой БД)
+-- ---------------------------------------------------------------------------
+DROP TABLE IF EXISTS products;
+DROP TABLE IF EXISTS finance_entries;
+DELETE FROM app_settings WHERE key = 'finance_opening_cash_rub';
