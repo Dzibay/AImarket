@@ -2,7 +2,7 @@ import logging
 
 from app.db import pool
 from app.mailer import enabled as mail_enabled
-from app.mailer import send_nudge_topup_email, send_nudge_usage_email
+from app.mailer import send_nudge_topup_email
 from app.settings_store import consent_url, offer_url, privacy_url
 from app.telegram_link import notify_offer_reminder
 
@@ -10,7 +10,7 @@ log = logging.getLogger("app.reminders")
 
 _BATCH = 50
 # Письмо только тем, кто «только что» пересёк порог 1 суток.
-# Иначе после деплоя улетит всем старым аккаунтам без оплаты/usage.
+# Иначе после деплоя улетит всем старым аккаунтам без оплаты.
 _NUDGE_AFTER = "1 day"
 _NUDGE_WITHIN = "3 days"
 
@@ -52,11 +52,10 @@ def send_offer_reminders() -> None:
 
 
 def send_lifecycle_emails() -> None:
-    """Письма «не пополнил» и «пополнил, но не пользовался» — раз в сутки после события, один раз."""
+    """Письмо «не пополнил» — раз в сутки после регистрации, один раз."""
     if not mail_enabled():
         return
     _send_topup_nudges()
-    _send_usage_nudges()
 
 
 def _send_topup_nudges() -> None:
@@ -109,62 +108,3 @@ def _send_topup_nudges() -> None:
             send_nudge_topup_email(user_id, email)
         except Exception:
             log.exception("не удалось отправить nudge_topup user=%s", user_id)
-
-
-def _send_usage_nudges() -> None:
-    with pool.connection() as conn:
-        rows = conn.execute(
-            f"""
-            SELECT u.id
-            FROM users u
-            JOIN LATERAL (
-                SELECT MIN(COALESCE(t.decided_at, t.created_at)) AS first_paid_at
-                FROM topups t
-                WHERE t.user_id = u.id AND t.status = 'paid'
-            ) p ON p.first_paid_at IS NOT NULL
-            WHERE u.blocked_at IS NULL
-              AND u.nudge_usage_sent_at IS NULL
-              AND BTRIM(u.email) <> ''
-              AND p.first_paid_at <= NOW() - INTERVAL '{_NUDGE_AFTER}'
-              AND p.first_paid_at > NOW() - INTERVAL '{_NUDGE_WITHIN}'
-              AND NOT EXISTS (
-                    SELECT 1 FROM usage us WHERE us.user_id = u.id
-                  )
-            ORDER BY p.first_paid_at ASC
-            LIMIT %s
-            """,
-            (_BATCH,),
-        ).fetchall()
-    for row in rows:
-        user_id = int(row["id"])
-        with pool.connection() as conn:
-            claimed = conn.execute(
-                f"""
-                UPDATE users
-                SET nudge_usage_sent_at = NOW()
-                WHERE id = %s
-                  AND nudge_usage_sent_at IS NULL
-                  AND blocked_at IS NULL
-                  AND BTRIM(email) <> ''
-                  AND EXISTS (
-                        SELECT 1 FROM topups t
-                        WHERE t.user_id = users.id AND t.status = 'paid'
-                          AND COALESCE(t.decided_at, t.created_at) <= NOW() - INTERVAL '{_NUDGE_AFTER}'
-                          AND COALESCE(t.decided_at, t.created_at) > NOW() - INTERVAL '{_NUDGE_WITHIN}'
-                      )
-                  AND NOT EXISTS (
-                        SELECT 1 FROM usage us WHERE us.user_id = users.id
-                      )
-                RETURNING email
-                """,
-                (user_id,),
-            ).fetchone()
-        if claimed is None:
-            continue
-        email = str(claimed["email"]).strip()
-        if not email:
-            continue
-        try:
-            send_nudge_usage_email(user_id, email)
-        except Exception:
-            log.exception("не удалось отправить nudge_usage user=%s", user_id)

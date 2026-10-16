@@ -24,7 +24,6 @@ CREATE TABLE IF NOT EXISTS users (
     notify_support_email        BOOLEAN NOT NULL DEFAULT TRUE,
     support_mail_sent_at        TIMESTAMPTZ,
     nudge_topup_sent_at         TIMESTAMPTZ,
-    nudge_usage_sent_at         TIMESTAMPTZ,
     low_balance_notified_at     TIMESTAMPTZ,
     referral_token              TEXT NOT NULL DEFAULT '',
     email_login_hash            TEXT NOT NULL DEFAULT '',
@@ -49,7 +48,7 @@ ALTER TABLE users ADD COLUMN IF NOT EXISTS notify_topup BOOLEAN NOT NULL DEFAULT
 ALTER TABLE users ADD COLUMN IF NOT EXISTS notify_support_email BOOLEAN NOT NULL DEFAULT TRUE;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS support_mail_sent_at TIMESTAMPTZ;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS nudge_topup_sent_at TIMESTAMPTZ;
-ALTER TABLE users ADD COLUMN IF NOT EXISTS nudge_usage_sent_at TIMESTAMPTZ;
+ALTER TABLE users DROP COLUMN IF EXISTS nudge_usage_sent_at;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS low_balance_notified_at TIMESTAMPTZ;
 
 -- Не слать lifecycle-письма старым аккаунтам после деплоя фичи.
@@ -59,15 +58,6 @@ SET nudge_topup_sent_at = COALESCE(nudge_topup_sent_at, created_at)
 WHERE nudge_topup_sent_at IS NULL
   AND created_at < NOW() - INTERVAL '3 days';
 
-UPDATE users u
-SET nudge_usage_sent_at = COALESCE(nudge_usage_sent_at, NOW())
-WHERE u.nudge_usage_sent_at IS NULL
-  AND EXISTS (
-        SELECT 1 FROM topups t
-        WHERE t.user_id = u.id
-          AND t.status = 'paid'
-          AND COALESCE(t.decided_at, t.created_at) < NOW() - INTERVAL '3 days'
-      );
 ALTER TABLE users ADD COLUMN IF NOT EXISTS referral_token TEXT NOT NULL DEFAULT '';
 ALTER TABLE users ALTER COLUMN telegram_id DROP NOT NULL;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS email TEXT NOT NULL DEFAULT '';
@@ -204,20 +194,6 @@ CREATE INDEX IF NOT EXISTS idx_referral_links_group ON referral_links (group_id)
 
 INSERT INTO referral_links (token) VALUES ('web') ON CONFLICT (token) DO NOTHING;
 
--- Клики по реферальной ссылке (до регистрации).
-CREATE TABLE IF NOT EXISTS referral_clicks (
-    id          BIGSERIAL PRIMARY KEY,
-    token       TEXT NOT NULL,
-    visitor_key TEXT NOT NULL DEFAULT '',
-    created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-
-CREATE INDEX IF NOT EXISTS idx_referral_clicks_token
-    ON referral_clicks (token, created_at DESC);
-CREATE INDEX IF NOT EXISTS idx_referral_clicks_visitor
-    ON referral_clicks (token, visitor_key)
-    WHERE visitor_key <> '';
-
 -- Клики по реферальной ссылке (сайт ?ref= / Telegram ?start=) до регистрации.
 CREATE TABLE IF NOT EXISTS referral_clicks (
     id          BIGSERIAL PRIMARY KEY,
@@ -229,6 +205,14 @@ CREATE TABLE IF NOT EXISTS referral_clicks (
 CREATE INDEX IF NOT EXISTS idx_referral_clicks_token
     ON referral_clicks (token, created_at DESC);
 -- Один клик на посетителя на токен (браузер / telegram_id), без накрутки F5.
+-- Если раньше был неуникальный индекс с тем же именем — пересоздаём.
+DROP INDEX IF EXISTS idx_referral_clicks_visitor;
+DELETE FROM referral_clicks a
+    USING referral_clicks b
+WHERE a.id > b.id
+  AND a.token = b.token
+  AND a.visitor_key = b.visitor_key
+  AND a.visitor_key <> '';
 CREATE UNIQUE INDEX IF NOT EXISTS idx_referral_clicks_visitor
     ON referral_clicks (token, visitor_key)
     WHERE visitor_key <> '';

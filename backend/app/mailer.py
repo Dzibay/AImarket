@@ -459,37 +459,6 @@ def send_nudge_topup_email(user_id: int, email: str) -> bool:
     return True
 
 
-def send_nudge_usage_email(user_id: int, email: str) -> bool:
-    """Через сутки после первого пополнения, если API ещё не использовали."""
-    if not enabled():
-        return False
-    token = issue_email_login_token(user_id)
-    link = f"{login_link(token)}&next=cabinet"
-    support = _support_line()
-    subject = "Подключите Aimarket к приложению"
-    text = (
-        "Баланс на Aimarket пополнен, но запросов к API ещё не было.\n\n"
-        "Откройте кабинет — там пошаговая инструкция и установщики для Cursor, Codex, Claude Code и других.\n\n"
-        f"Открыть кабинет (действует {settings.email_login_ttl_days} дн.):\n{link}\n\n"
-        f"{support}\n"
-    )
-    body_html = _lifecycle_email_html(
-        eyebrow="Aimarket",
-        title="Ключ готов — осталось подключить",
-        lead="Оплата прошла, а запросов к API пока не было. В кабинете есть короткая инструкция и готовые установщики.",
-        points=(
-            "Укажите Base URL и ключ в приложении",
-            "Готовые скрипты установки — в разделе «Подключение»",
-            "Если что-то не выходит — напишите в чат поддержки на сайте",
-        ),
-        cta="Открыть кабинет",
-        link=link,
-        support=support,
-    )
-    send_async(email, subject, text, body_html)
-    return True
-
-
 def _lifecycle_email_html(
     *,
     eyebrow: str,

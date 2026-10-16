@@ -916,11 +916,6 @@
                   class="badge mail"
                   :title="formatRecentAt(userDetail.user.nudge_topup_sent_at)"
                 >письмо · топап</span>
-                <span
-                  v-if="userDetail.user.nudge_usage_sent_at"
-                  class="badge mail"
-                  :title="formatRecentAt(userDetail.user.nudge_usage_sent_at)"
-                >письмо · API</span>
                 <span v-if="userDetail.user.referral_token" class="badge neutral">
                   ref {{ userDetail.user.referral_token }}
                 </span>
@@ -1039,7 +1034,6 @@
                   </div>
                   <dl class="user-dl mail-dl">
                     <div><dt>Nudge топап</dt><dd>{{ formatRecentAt(userDetail.user.nudge_topup_sent_at) }}</dd></div>
-                    <div><dt>Nudge API</dt><dd>{{ formatRecentAt(userDetail.user.nudge_usage_sent_at) }}</dd></div>
                     <div><dt>Оферта mail</dt><dd>{{ formatRecentAt(userDetail.user.offer_reminder_sent_at) }}</dd></div>
                     <div><dt>Support mail</dt><dd>{{ formatRecentAt(userDetail.user.support_mail_sent_at) }}</dd></div>
                     <div><dt>Low balance</dt><dd>{{ formatRecentAt(userDetail.user.low_balance_notified_at) }}</dd></div>
@@ -1265,11 +1259,6 @@
                                 class="badge mail"
                                 :title="'Письмо «не пополнил»: ' + formatRecentAt(item.nudge_topup_sent_at)"
                               >письмо · топап</span>
-                              <span
-                                v-if="item.nudge_usage_sent_at"
-                                class="badge mail"
-                                :title="'Письмо «не пользовался API»: ' + formatRecentAt(item.nudge_usage_sent_at)"
-                              >письмо · API</span>
                               <span v-if="item.blocked" class="badge bad">блок</span>
                             </span>
                           </div>

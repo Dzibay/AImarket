@@ -303,7 +303,7 @@ def list_users() -> dict:
             """
             SELECT u.id, u.telegram_id, u.username, u.first_name, u.email, u.balance_usd,
                    u.offer_accepted_at, u.blocked_at, u.blocked_reason, k.prefix,
-                   u.nudge_topup_sent_at, u.nudge_usage_sent_at,
+                   u.nudge_topup_sent_at,
                    EXISTS (
                        SELECT 1 FROM topups t
                        WHERE t.user_id = u.id AND t.status = 'paid'
@@ -335,11 +335,6 @@ def list_users() -> dict:
                     if row["nudge_topup_sent_at"] is not None
                     else ""
                 ),
-                "nudge_usage_sent_at": (
-                    row["nudge_usage_sent_at"].isoformat()
-                    if row["nudge_usage_sent_at"] is not None
-                    else ""
-                ),
             }
             for row in rows
         ]
@@ -358,7 +353,7 @@ def user_detail(user_id: int, days: int = Query(default=30, ge=7, le=90)) -> dic
                    offer_accepted_at, offer_reminder_sent_at, blocked_at, blocked_reason,
                    notify_spend, notify_low_balance, notify_limit_exhausted, notify_topup,
                    notify_support_email, support_mail_sent_at, nudge_topup_sent_at,
-                   nudge_usage_sent_at, low_balance_notified_at, referral_token,
+                   low_balance_notified_at, referral_token,
                    support_telegram_topic_id, support_seen_at, created_at
             FROM users
             WHERE id = %s
@@ -529,7 +524,6 @@ def user_detail(user_id: int, days: int = Query(default=30, ge=7, le=90)) -> dic
             "notify_support_email": bool(user["notify_support_email"]),
             "support_mail_sent_at": _ts(user["support_mail_sent_at"]),
             "nudge_topup_sent_at": _ts(user["nudge_topup_sent_at"]),
-            "nudge_usage_sent_at": _ts(user["nudge_usage_sent_at"]),
             "offer_reminder_sent_at": _ts(user["offer_reminder_sent_at"]),
             "low_balance_notified_at": _ts(user["low_balance_notified_at"]),
         },
