@@ -85,6 +85,7 @@
 
 <script setup>
 import { computed, onMounted, ref } from 'vue'
+import { getReferralToken } from '../utils/referral'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
 import SiteFooter from '../components/SiteFooter.vue'
 import SiteHeader from '../components/SiteHeader.vue'
@@ -121,6 +122,7 @@ const emailOk = computed(() => /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email.value.tri
 function afterLoginPath() {
   const next = String(route.query.next || '').trim()
   if (next === 'chat') return '/help?chat=1'
+  if (next === 'cabinet') return '/cabinet'
   return '/cabinet'
 }
 
@@ -149,7 +151,7 @@ async function submitEmail() {
   error.value = ''
   try {
     const value = email.value.trim().toLowerCase()
-    await webApi.loginByEmail(value)
+    await webApi.loginByEmail(value, getReferralToken())
     sentEmail.value = value
     emailSent.value = true
   } catch (err) {

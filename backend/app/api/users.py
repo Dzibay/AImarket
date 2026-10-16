@@ -10,7 +10,7 @@ from app.installer import InstallError, create_install_command
 from app.usage_stats import usage_period_stats
 from app.notifications import get_preferences, preferences_row, toggle_preference
 from app.payments import settle_payment
-from app.referrals import ReferralError, attribute_user
+from app.referrals import ReferralError, attribute_user, record_click
 from app.db import pool
 from app.money import bonus_tiers, min_topup_rub, min_topup_usd, rub_to_usd, topup_bonus, units_to_usd, usd_price_rub
 from app.security import require_bot
@@ -142,6 +142,8 @@ def attach_referral(telegram_id: int, body: ReferralIn) -> dict:
     with pool.connection() as conn:
         row = _user_or_404(conn, telegram_id)
         user_id = int(row["id"])
+    # Переход по t.me/...?start=token — сразу в статистику кликов.
+    record_click(body.token, visitor_key=f"tg:{telegram_id}")
     try:
         attributed = attribute_user(user_id, body.token)
     except ReferralError:

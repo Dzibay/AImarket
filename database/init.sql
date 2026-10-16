@@ -23,6 +23,8 @@ CREATE TABLE IF NOT EXISTS users (
     notify_topup                BOOLEAN NOT NULL DEFAULT TRUE,
     notify_support_email        BOOLEAN NOT NULL DEFAULT TRUE,
     support_mail_sent_at        TIMESTAMPTZ,
+    nudge_topup_sent_at         TIMESTAMPTZ,
+    nudge_usage_sent_at         TIMESTAMPTZ,
     low_balance_notified_at     TIMESTAMPTZ,
     referral_token              TEXT NOT NULL DEFAULT '',
     email_login_hash            TEXT NOT NULL DEFAULT '',
@@ -46,6 +48,8 @@ ALTER TABLE users ADD COLUMN IF NOT EXISTS notify_limit_exhausted BOOLEAN NOT NU
 ALTER TABLE users ADD COLUMN IF NOT EXISTS notify_topup BOOLEAN NOT NULL DEFAULT TRUE;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS notify_support_email BOOLEAN NOT NULL DEFAULT TRUE;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS support_mail_sent_at TIMESTAMPTZ;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS nudge_topup_sent_at TIMESTAMPTZ;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS nudge_usage_sent_at TIMESTAMPTZ;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS low_balance_notified_at TIMESTAMPTZ;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS referral_token TEXT NOT NULL DEFAULT '';
 ALTER TABLE users ALTER COLUMN telegram_id DROP NOT NULL;
@@ -182,6 +186,35 @@ ALTER TABLE referral_links ADD COLUMN IF NOT EXISTS group_id BIGINT REFERENCES r
 CREATE INDEX IF NOT EXISTS idx_referral_links_group ON referral_links (group_id);
 
 INSERT INTO referral_links (token) VALUES ('web') ON CONFLICT (token) DO NOTHING;
+
+-- Клики по реферальной ссылке (до регистрации).
+CREATE TABLE IF NOT EXISTS referral_clicks (
+    id          BIGSERIAL PRIMARY KEY,
+    token       TEXT NOT NULL,
+    visitor_key TEXT NOT NULL DEFAULT '',
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_referral_clicks_token
+    ON referral_clicks (token, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_referral_clicks_visitor
+    ON referral_clicks (token, visitor_key)
+    WHERE visitor_key <> '';
+
+-- Клики по реферальной ссылке (сайт ?ref= / Telegram ?start=) до регистрации.
+CREATE TABLE IF NOT EXISTS referral_clicks (
+    id          BIGSERIAL PRIMARY KEY,
+    token       TEXT NOT NULL,
+    visitor_key TEXT NOT NULL DEFAULT '',
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_referral_clicks_token
+    ON referral_clicks (token, created_at DESC);
+-- Один клик на посетителя на токен (браузер / telegram_id), без накрутки F5.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_referral_clicks_visitor
+    ON referral_clicks (token, visitor_key)
+    WHERE visitor_key <> '';
 
 -- ---------------------------------------------------------------------------
 -- Install tokens

@@ -27,7 +27,7 @@ from app.mailer import send_login_email
 from app.money import bonus_tiers, min_topup_rub, min_topup_usd, rub_to_usd, topup_bonus, usd_price_rub
 from app.payments import ensure_web_key, recover_paid_topup, settle_payment
 from app.settings_store import get_setting, public_base_url, support_username
-from app.referrals import attribute_user
+from app.referrals import attribute_user, record_click
 from app.support import (
     claim_guest_messages,
     ensure_guest_token,
@@ -76,6 +76,7 @@ class LinkLoginIn(BaseModel):
 
 class EmailLoginIn(BaseModel):
     email: str = Field(min_length=3, max_length=200)
+    referral: str = Field(default="", max_length=64)
 
 
 class InstallIn(BaseModel):
@@ -103,6 +104,11 @@ class SupportClaimIn(BaseModel):
 
 class SupportEmailNotifyIn(BaseModel):
     enabled: bool
+
+
+class ReferralVisitIn(BaseModel):
+    token: str = Field(min_length=1, max_length=64)
+    visitor: str = Field(default="", max_length=128)
 
 
 def _config_payload() -> dict:
@@ -446,6 +452,8 @@ def login_by_email(body: EmailLoginIn) -> dict:
                 (email,),
             ).fetchone()
             user_id = int(row["id"])
+    if created and body.referral.strip():
+        attribute_user(user_id, body.referral)
     if not send_login_email(user_id, created=created):
         raise HTTPException(status_code=503, detail="mail")
     return {"ok": True, "created": created}
@@ -543,6 +551,15 @@ def rotate_key(user_id: int = Depends(require_web_user)) -> dict:
         status = {"blocked": 403, "offer": 403, "no-key": 409, "empty": 402, "supplier": 409}.get(exc.code, 502)
         raise HTTPException(status_code=status, detail=exc.code) from exc
     return {"secret": result["secret"], "profile": _profile(user_id)}
+
+
+@router.post("/web/referral/visit")
+def referral_visit(body: ReferralVisitIn) -> dict:
+    """Клик по ?ref= на сайте — до регистрации."""
+    ok = record_click(body.token, visitor_key=body.visitor.strip())
+    if not ok:
+        raise HTTPException(status_code=404, detail="token")
+    return {"ok": True}
 
 
 @router.get("/web/support/messages")

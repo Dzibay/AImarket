@@ -428,6 +428,162 @@ def _support_reply_message(*, preview: str, link: str, support: str) -> tuple[st
     return text, body_html
 
 
+def send_nudge_topup_email(user_id: int, email: str) -> bool:
+    """Через сутки после регистрации, если ещё не было оплаты."""
+    if not enabled():
+        return False
+    token = issue_email_login_token(user_id)
+    link = f"{login_link(token)}&next=cabinet"
+    support = _support_line()
+    subject = "Пополните баланс Aimarket"
+    text = (
+        "Вы создали аккаунт Aimarket, но баланс ещё не пополнен.\n\n"
+        "После оплаты вы получите ключ доступа и сможете подключить Cursor, Codex, Claude Code и другие приложения.\n\n"
+        f"Открыть кабинет (действует {settings.email_login_ttl_days} дн.):\n{link}\n\n"
+        f"{support}\n"
+    )
+    body_html = _lifecycle_email_html(
+        eyebrow="Aimarket",
+        title="Баланс ещё пуст",
+        lead="Вы зарегистрировались, но пока не пополнили счёт. После оплаты сразу появится ключ для нейросетей.",
+        points=(
+            "Минимальное пополнение — и ключ в письме и кабинете",
+            "Один ключ для Cursor, Codex, Claude Code и других приложений",
+            "Оплата через ЮKassa, вход по ссылке из письма",
+        ),
+        cta="Пополнить баланс",
+        link=link,
+        support=support,
+    )
+    send_async(email, subject, text, body_html)
+    return True
+
+
+def send_nudge_usage_email(user_id: int, email: str) -> bool:
+    """Через сутки после первого пополнения, если API ещё не использовали."""
+    if not enabled():
+        return False
+    token = issue_email_login_token(user_id)
+    link = f"{login_link(token)}&next=cabinet"
+    support = _support_line()
+    subject = "Подключите Aimarket к приложению"
+    text = (
+        "Баланс на Aimarket пополнен, но запросов к API ещё не было.\n\n"
+        "Откройте кабинет — там пошаговая инструкция и установщики для Cursor, Codex, Claude Code и других.\n\n"
+        f"Открыть кабинет (действует {settings.email_login_ttl_days} дн.):\n{link}\n\n"
+        f"{support}\n"
+    )
+    body_html = _lifecycle_email_html(
+        eyebrow="Aimarket",
+        title="Ключ готов — осталось подключить",
+        lead="Оплата прошла, а запросов к API пока не было. В кабинете есть короткая инструкция и готовые установщики.",
+        points=(
+            "Укажите Base URL и ключ в приложении",
+            "Готовые скрипты установки — в разделе «Подключение»",
+            "Если что-то не выходит — напишите в чат поддержки на сайте",
+        ),
+        cta="Открыть кабинет",
+        link=link,
+        support=support,
+    )
+    send_async(email, subject, text, body_html)
+    return True
+
+
+def _lifecycle_email_html(
+    *,
+    eyebrow: str,
+    title: str,
+    lead: str,
+    points: tuple[str, ...],
+    cta: str,
+    link: str,
+    support: str,
+) -> str:
+    ttl = settings.email_login_ttl_days
+    items = "".join(
+        f"""
+        <tr>
+          <td style="padding:0 0 10px;font-size:15px;line-height:1.5;color:#4f473d">
+            <span style="display:inline-block;width:8px;height:8px;margin-right:10px;border-radius:999px;background:#1c1915;vertical-align:middle"></span>
+            {html.escape(point)}
+          </td>
+        </tr>
+        """
+        for point in points
+    )
+    return f"""<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{html.escape(title)}</title>
+</head>
+<body style="margin:0;padding:0;background:#f4f1ea;font:16px/1.55 'Segoe UI',system-ui,-apple-system,sans-serif;color:#1c1915">
+  <div style="display:none;max-height:0;overflow:hidden;opacity:0">{html.escape(lead)}</div>
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f4f1ea;border-collapse:collapse">
+    <tr>
+      <td align="center" style="padding:36px 16px">
+        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:560px;border-collapse:collapse">
+          <tr>
+            <td style="padding:0 4px 18px;font-weight:700;letter-spacing:-0.03em;font-size:20px;color:#1c1915">
+              {html.escape(eyebrow)}
+            </td>
+          </tr>
+          <tr>
+            <td style="background:#ffffff;border:1px solid rgba(28,25,21,0.08);border-radius:16px;overflow:hidden;box-shadow:0 14px 30px rgba(28,25,21,0.08)">
+              <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse">
+                <tr>
+                  <td style="padding:24px 24px 8px">
+                    <h1 style="margin:0;font-size:24px;line-height:1.25;letter-spacing:-0.03em;font-weight:700;color:#1c1915">
+                      {html.escape(title)}
+                    </h1>
+                    <p style="margin:12px 0 0;font-size:15px;line-height:1.55;color:#4f473d">
+                      {html.escape(lead)}
+                    </p>
+                  </td>
+                </tr>
+                <tr>
+                  <td style="padding:16px 24px 4px">
+                    <div style="background:#faf7f2;border:1px solid rgba(28,25,21,0.08);border-radius:14px;padding:16px 18px">
+                      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse">
+                        {items}
+                      </table>
+                    </div>
+                  </td>
+                </tr>
+                <tr>
+                  <td style="padding:22px 24px 10px;text-align:center">
+                    <a href="{html.escape(link)}"
+                       style="display:inline-block;padding:14px 28px;border-radius:999px;background:#1c1915;color:#f4f1ea;font-weight:600;font-size:15px;text-decoration:none;box-shadow:0 14px 30px rgba(28,25,21,0.16)">
+                      {html.escape(cta)}
+                    </a>
+                  </td>
+                </tr>
+                <tr>
+                  <td style="padding:0 24px 22px;text-align:center">
+                    <p style="margin:0;font-size:13px;line-height:1.5;color:#6b645b">
+                      Ссылка действует {ttl} дн. и открывает кабинет без ввода ключа.<br>
+                      Если кнопка не работает: <span style="word-break:break-all;color:#4f473d">{html.escape(link)}</span>
+                    </p>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:18px 8px 0;text-align:center;font-size:13px;line-height:1.5;color:#6b645b">
+              {html.escape(support)}
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>"""
+
+
 def _support_line() -> str:
     parts = []
     email = (get_setting("offer_email") or get_setting("seller_email")).strip()

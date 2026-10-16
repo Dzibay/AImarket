@@ -15,7 +15,7 @@ from app.api.users import router as users_router
 from app.api.web import router as web_router
 from app.api.yookassa import router as yookassa_router
 from app.billing import sync_all
-from app.reminders import send_offer_reminders
+from app.reminders import send_lifecycle_emails, send_offer_reminders
 from app.config import settings
 from app.db import ensure_schema, pool
 from app.installer import bootstrap_script
@@ -57,6 +57,10 @@ def _reminder_loop() -> None:
             send_offer_reminders()
         except Exception:
             log.exception("напоминания об оферте")
+        try:
+            send_lifecycle_emails()
+        except Exception:
+            log.exception("письма жизненного цикла")
         _stop.wait(120)
 
 

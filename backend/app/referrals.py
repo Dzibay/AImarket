@@ -171,17 +171,38 @@ def list_links() -> list[dict]:
         rows = conn.execute(
             """
             SELECT r.id, r.token, r.created_at, r.group_id, g.name AS group_name,
-                   COUNT(DISTINCT u.id) AS visits,
-                   COUNT(DISTINCT u.id) FILTER (WHERE u.offer_accepted_at IS NOT NULL) AS offers_accepted,
-                   COUNT(DISTINCT u.id) FILTER (WHERE t.status = 'paid') AS payers,
-                   COUNT(t.id) FILTER (WHERE t.status = 'paid') AS payments,
-                   COALESCE(SUM(t.amount_kopecks) FILTER (WHERE t.status = 'paid'), 0) AS topup_kopecks,
-                   COALESCE(SUM(t.amount_usd) FILTER (WHERE t.status = 'paid'), 0) AS topup_usd
+                   COALESCE(c.visits, 0) AS visits,
+                   COALESCE(u.offers_accepted, 0) AS offers_accepted,
+                   COALESCE(u.payers, 0) AS payers,
+                   COALESCE(u.payments, 0) AS payments,
+                   COALESCE(u.topup_kopecks, 0) AS topup_kopecks,
+                   COALESCE(u.topup_usd, 0) AS topup_usd
             FROM referral_links r
             LEFT JOIN referral_groups g ON g.id = r.group_id
-            LEFT JOIN users u ON u.referral_token = r.token
-            LEFT JOIN topups t ON t.user_id = u.id
-            GROUP BY r.id, r.token, r.created_at, r.group_id, g.name
+            LEFT JOIN (
+                SELECT token, COUNT(*)::int AS visits
+                FROM referral_clicks
+                GROUP BY token
+            ) c ON c.token = r.token
+            LEFT JOIN (
+                SELECT
+                    u.referral_token AS token,
+                    -- Регистрация / привязка токена (на сайте это обычно вместе с офертой).
+                    COUNT(DISTINCT u.id)::int AS offers_accepted,
+                    COUNT(DISTINCT u.id) FILTER (
+                        WHERE EXISTS (
+                            SELECT 1 FROM topups tp
+                            WHERE tp.user_id = u.id AND tp.status = 'paid'
+                        )
+                    )::int AS payers,
+                    COUNT(t.id) FILTER (WHERE t.status = 'paid')::int AS payments,
+                    COALESCE(SUM(t.amount_kopecks) FILTER (WHERE t.status = 'paid'), 0) AS topup_kopecks,
+                    COALESCE(SUM(t.amount_usd) FILTER (WHERE t.status = 'paid'), 0) AS topup_usd
+                FROM users u
+                LEFT JOIN topups t ON t.user_id = u.id
+                WHERE u.referral_token <> ''
+                GROUP BY u.referral_token
+            ) u ON u.token = r.token
             ORDER BY CASE WHEN r.token IN ('web') THEN 0 ELSE 1 END, r.id DESC
             """
         ).fetchall()
@@ -203,6 +224,41 @@ def delete_link(link_id: int) -> bool:
             (link_id,),
         ).fetchone()
     return deleted is not None
+
+
+def record_click(token: str, *, visitor_key: str = "") -> bool:
+    """Фиксирует переход по ссылке. Возвращает False, если токен неизвестен."""
+    value = normalize_token(token)
+    if not value or value.startswith(_RESERVED_PREFIX):
+        return False
+    visitor = (visitor_key or "").strip()[:128]
+    with pool.connection() as conn:
+        link = conn.execute(
+            "SELECT id FROM referral_links WHERE token = %s",
+            (value,),
+        ).fetchone()
+        if link is None:
+            return False
+        # Один клик на visitor_key на токен (браузер / telegram id) — без накрутки от F5.
+        if visitor:
+            exists = conn.execute(
+                """
+                SELECT 1 FROM referral_clicks
+                WHERE token = %s AND visitor_key = %s
+                LIMIT 1
+                """,
+                (value, visitor),
+            ).fetchone()
+            if exists is not None:
+                return True
+        conn.execute(
+            """
+            INSERT INTO referral_clicks (token, visitor_key)
+            VALUES (%s, %s)
+            """,
+            (value, visitor),
+        )
+    return True
 
 
 def attribute_user(user_id: int, token: str) -> bool:

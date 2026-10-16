@@ -882,6 +882,16 @@
                         <span class="user-name">{{ person(item) }}</span>
                         <span class="user-badges">
                           <span v-if="item.has_paid" class="badge ok">оплата</span>
+                          <span
+                            v-if="item.nudge_topup_sent_at"
+                            class="badge mail"
+                            :title="'Письмо «не пополнил»: ' + formatRecentAt(item.nudge_topup_sent_at)"
+                          >письмо · топап</span>
+                          <span
+                            v-if="item.nudge_usage_sent_at"
+                            class="badge mail"
+                            :title="'Письмо «не пользовался API»: ' + formatRecentAt(item.nudge_usage_sent_at)"
+                          >письмо · API</span>
                           <span v-if="item.blocked" class="badge bad">блок</span>
                         </span>
                       </div>
@@ -889,7 +899,18 @@
                   </td>
                   <td class="num balance">{{ usd(item.balance_usd) }}</td>
                   <td class="key-cell">
-                    <code v-if="item.key_prefix">{{ item.key_prefix }}…</code>
+                    <button
+                      v-if="item.key_prefix"
+                      type="button"
+                      class="key-copy"
+                      :class="{ on: copiedUserKeys[item.id], busy: userKeyCopyBusy[item.id] }"
+                      :disabled="!!userKeyCopyBusy[item.id]"
+                      :title="copiedUserKeys[item.id] ? 'Скопировано' : 'Скопировать токен'"
+                      @click="copyUserKey(item)"
+                    >
+                      <code>{{ item.key_prefix }}…</code>
+                      <span class="key-copy-hint">{{ copiedUserKeys[item.id] ? 'ok' : 'copy' }}</span>
+                    </button>
                     <span v-else class="muted">—</span>
                   </td>
                   <td class="compact">
@@ -968,9 +989,9 @@
               <thead>
                 <tr>
                   <th>Токен / группа</th>
-                  <th class="num">Переходы</th>
-                  <th class="num">Оферта</th>
-                  <th class="num">Оплат</th>
+                  <th class="num" title="Клики по ссылке">Переходы</th>
+                  <th class="num" title="Регистрации с этим токеном">Регистр.</th>
+                  <th class="num" title="Оплаты">Оплат</th>
                   <th class="num">CR</th>
                   <th class="num">Сумма</th>
                   <th class="referral-copy"></th>
@@ -1484,6 +1505,9 @@ const {
   filteredUsers,
   usersSearch,
   userCreditBusy,
+  copiedUserKeys,
+  userKeyCopyBusy,
+  copyUserKey,
   supportThreads,
   supportWaiting,
   supportFilterWaiting,
@@ -1813,6 +1837,7 @@ onMounted(() => {
 .admin-page .badge.ok { background: var(--ok-soft); color: var(--ok); border-color: #c7e3d4; }
 .admin-page .badge.warn { background: var(--warn-soft); color: var(--warn); border-color: #ecdca8; }
 .admin-page .badge.neutral { background: var(--surface-soft); color: var(--muted); border-color: var(--border); }
+.admin-page .badge.mail { background: #eef2f7; color: #3d4f66; border-color: #c9d4e3; }
 .admin-page .badge.bad { background: var(--danger-soft); color: var(--danger); border-color: #e3b4b4; }
 
 .admin-page .notice.bad {
@@ -2649,7 +2674,24 @@ onMounted(() => {
   font-variant-numeric: tabular-nums;
   font-weight: 600;
 }
-.admin-page .tab-users .key-cell code {
+.admin-page .tab-users .key-copy {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  font: inherit;
+  color: inherit;
+}
+.admin-page .tab-users .key-copy:disabled {
+  cursor: wait;
+  opacity: 0.7;
+}
+.admin-page .tab-users .key-copy code {
   display: inline-block;
   max-width: 100%;
   overflow: hidden;
@@ -2662,6 +2704,29 @@ onMounted(() => {
   border-radius: 6px;
   padding: 2px 6px;
   vertical-align: middle;
+  transition: border-color 0.12s ease, color 0.12s ease, background 0.12s ease;
+}
+.admin-page .tab-users .key-copy:hover code,
+.admin-page .tab-users .key-copy:focus-visible code {
+  color: var(--text);
+  border-color: var(--border-strong);
+  background: #fff;
+}
+.admin-page .tab-users .key-copy.on code {
+  color: var(--ok);
+  background: var(--ok-soft);
+  border-color: #c7e3d4;
+}
+.admin-page .tab-users .key-copy-hint {
+  flex: 0 0 auto;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.admin-page .tab-users .key-copy.on .key-copy-hint {
+  color: var(--ok);
 }
 .admin-page .credit-open {
   display: inline-flex;

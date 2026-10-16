@@ -254,6 +254,8 @@ export function useAdminPanel() {
   const groupName = ref('')
   const groupError = ref('')
   const copiedReferralIds = ref({})
+  const copiedUserKeys = ref({})
+  const userKeyCopyBusy = ref({})
 
   const supportThreads = ref([])
   const supportWaiting = ref(0)
@@ -1547,6 +1549,29 @@ export function useAdminPanel() {
     }
   }
 
+  async function copyUserKey(user) {
+    if (!user?.id || userKeyCopyBusy.value[user.id]) return
+    userKeyCopyBusy.value = { ...userKeyCopyBusy.value, [user.id]: true }
+    try {
+      const data = await api('/api/admin/users/' + user.id + '/key')
+      const secret = String(data.secret || '').trim()
+      if (!secret) throw new Error('no-key')
+      await copyText(secret)
+      copiedUserKeys.value = { ...copiedUserKeys.value, [user.id]: true }
+      setTimeout(() => {
+        const next = { ...copiedUserKeys.value }
+        delete next[user.id]
+        copiedUserKeys.value = next
+      }, 1200)
+    } catch (error) {
+      alert(error.message === 'no-key' ? 'Ключ не найден' : (error.message || 'Не удалось скопировать'))
+    } finally {
+      const next = { ...userKeyCopyBusy.value }
+      delete next[user.id]
+      userKeyCopyBusy.value = next
+    }
+  }
+
   function modelRequests(row) {
     return String(row.requests) + ' · ' + row.tokens
   }
@@ -1709,6 +1734,9 @@ export function useAdminPanel() {
     groupName,
     groupError,
     copiedReferralIds,
+    copiedUserKeys,
+    userKeyCopyBusy,
+    copyUserKey,
     login,
     logout,
     setTab,

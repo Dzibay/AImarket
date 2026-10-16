@@ -27,7 +27,11 @@ export const webApi = {
   paymentReturn: (topup, token) =>
     request('/api/web/payments/return', { method: 'POST', body: JSON.stringify({ topup, token }) }),
   login: (key) => request('/api/web/login', { method: 'POST', body: JSON.stringify({ key }) }),
-  loginByEmail: (email) => request('/api/web/login/email', { method: 'POST', body: JSON.stringify({ email }) }),
+  loginByEmail: (email, referral = '') =>
+    request('/api/web/login/email', {
+      method: 'POST',
+      body: JSON.stringify({ email, ...(referral ? { referral } : {}) }),
+    }),
   loginByLink: (token) => request('/api/web/login/link', { method: 'POST', body: JSON.stringify({ token }) }),
   me: () => request('/api/web/me'),
   history: (filter, offset, limit) =>

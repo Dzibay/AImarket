@@ -303,6 +303,7 @@ def list_users() -> dict:
             """
             SELECT u.id, u.telegram_id, u.username, u.first_name, u.email, u.balance_usd,
                    u.offer_accepted_at, u.blocked_at, u.blocked_reason, k.prefix,
+                   u.nudge_topup_sent_at, u.nudge_usage_sent_at,
                    EXISTS (
                        SELECT 1 FROM topups t
                        WHERE t.user_id = u.id AND t.status = 'paid'
@@ -329,10 +330,52 @@ def list_users() -> dict:
                 "blocked_at": row["blocked_at"].isoformat() if row["blocked_at"] is not None else "",
                 "blocked_reason": row["blocked_reason"] or "",
                 "key_prefix": row["prefix"] or "",
+                "nudge_topup_sent_at": (
+                    row["nudge_topup_sent_at"].isoformat()
+                    if row["nudge_topup_sent_at"] is not None
+                    else ""
+                ),
+                "nudge_usage_sent_at": (
+                    row["nudge_usage_sent_at"].isoformat()
+                    if row["nudge_usage_sent_at"] is not None
+                    else ""
+                ),
             }
             for row in rows
         ]
     }
+
+
+@router.get("/users/{user_id}/key", dependencies=[Depends(require_admin)])
+def user_key(user_id: int) -> dict:
+    """Полный API-ключ пользователя для копирования в админке."""
+    with pool.connection() as conn:
+        row = conn.execute(
+            """
+            SELECT id, secret, upstream_id, prefix
+            FROM api_keys
+            WHERE user_id = %s AND revoked_at IS NULL
+            ORDER BY id DESC
+            LIMIT 1
+            """,
+            (user_id,),
+        ).fetchone()
+    if row is None:
+        raise HTTPException(status_code=404, detail="no-key")
+    secret = str(row["secret"] or "")
+    if not secret and row["upstream_id"] is not None:
+        try:
+            secret = upstream.reveal_key(int(row["upstream_id"]))
+        except UpstreamError as exc:
+            raise HTTPException(status_code=502, detail="upstream") from exc
+        with pool.connection() as conn:
+            conn.execute(
+                "UPDATE api_keys SET secret = %s WHERE id = %s",
+                (secret, int(row["id"])),
+            )
+    if not secret:
+        raise HTTPException(status_code=404, detail="no-key")
+    return {"secret": secret, "prefix": row["prefix"] or ""}
 
 
 @router.post("/users/{user_id}/credit", dependencies=[Depends(require_admin)])
