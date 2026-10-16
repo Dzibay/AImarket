@@ -346,6 +346,295 @@ def list_users() -> dict:
     }
 
 
+@router.get("/users/{user_id}", dependencies=[Depends(require_admin)])
+def user_detail(user_id: int, days: int = Query(default=30, ge=7, le=90)) -> dict:
+    """Полная карточка пользователя для админ-аналитики."""
+    now = datetime.now(_MSK)
+    start = now.replace(hour=0, minute=0, second=0, microsecond=0) - timedelta(days=days - 1)
+    with pool.connection() as conn:
+        user = conn.execute(
+            """
+            SELECT id, telegram_id, username, first_name, email, balance_usd,
+                   offer_accepted_at, offer_reminder_sent_at, blocked_at, blocked_reason,
+                   notify_spend, notify_low_balance, notify_limit_exhausted, notify_topup,
+                   notify_support_email, support_mail_sent_at, nudge_topup_sent_at,
+                   nudge_usage_sent_at, low_balance_notified_at, referral_token,
+                   support_telegram_topic_id, support_seen_at, created_at
+            FROM users
+            WHERE id = %s
+            """,
+            (user_id,),
+        ).fetchone()
+        if user is None:
+            raise HTTPException(status_code=404, detail="user")
+
+        money = conn.execute(
+            """
+            SELECT
+                COALESCE(SUM(amount_kopecks) FILTER (WHERE status = 'paid'), 0) AS paid_kop,
+                COALESCE(SUM(amount_usd) FILTER (WHERE status = 'paid'), 0) AS paid_usd,
+                COALESCE(SUM(bonus_usd) FILTER (WHERE status = 'paid'), 0) AS bonus_usd,
+                COUNT(*) FILTER (WHERE status = 'paid') AS paid_count,
+                COUNT(*) AS all_count
+            FROM topups
+            WHERE user_id = %s
+            """,
+            (user_id,),
+        ).fetchone()
+
+        spend = conn.execute(
+            """
+            SELECT
+                COALESCE(SUM(quota_units), 0) AS units,
+                COUNT(*) AS requests,
+                COALESCE(SUM(quota_units) FILTER (WHERE created_at >= %s), 0) AS period_units,
+                COUNT(*) FILTER (WHERE created_at >= %s) AS period_requests,
+                MIN(created_at) AS first_at,
+                MAX(created_at) AS last_at
+            FROM usage
+            WHERE user_id = %s
+            """,
+            (start, start, user_id),
+        ).fetchone()
+
+        spend_rows = conn.execute(
+            """
+            SELECT (created_at AT TIME ZONE 'Europe/Moscow')::date AS day,
+                   COALESCE(SUM(quota_units), 0) AS units,
+                   COUNT(*) AS requests,
+                   COALESCE(SUM(prompt_tokens), 0) AS prompt_tokens,
+                   COALESCE(SUM(completion_tokens), 0) AS completion_tokens
+            FROM usage
+            WHERE user_id = %s AND created_at >= %s
+            GROUP BY 1
+            """,
+            (user_id, start),
+        ).fetchall()
+
+        model_rows = conn.execute(
+            """
+            SELECT COALESCE(NULLIF(model_name, ''), 'без модели') AS model,
+                   COALESCE(SUM(quota_units), 0) AS units,
+                   COUNT(*) AS requests,
+                   COALESCE(SUM(prompt_tokens + completion_tokens), 0) AS tokens
+            FROM usage
+            WHERE user_id = %s AND created_at >= %s
+            GROUP BY 1
+            ORDER BY units DESC
+            LIMIT 20
+            """,
+            (user_id, start),
+        ).fetchall()
+
+        recent_rows = conn.execute(
+            """
+            SELECT model_name, prompt_tokens, completion_tokens, quota_units, created_at, request_id
+            FROM usage
+            WHERE user_id = %s
+            ORDER BY created_at DESC
+            LIMIT 40
+            """,
+            (user_id,),
+        ).fetchall()
+
+        topup_rows = conn.execute(
+            """
+            SELECT id, amount_kopecks, amount_usd, bonus_usd, status, payment_id,
+                   created_at, decided_at
+            FROM topups
+            WHERE user_id = %s
+            ORDER BY id DESC
+            LIMIT 50
+            """,
+            (user_id,),
+        ).fetchall()
+
+        ledger_rows = conn.execute(
+            """
+            SELECT id, kind, note, amount_usd, amount_kopecks, created_at
+            FROM ledger
+            WHERE user_id = %s
+            ORDER BY id DESC
+            LIMIT 80
+            """,
+            (user_id,),
+        ).fetchall()
+
+        key_rows = conn.execute(
+            """
+            SELECT id, name, prefix, quota_usd, created_at, revoked_at,
+                   limit_exhausted_notified_at, upstream_id
+            FROM api_keys
+            WHERE user_id = %s
+            ORDER BY id DESC
+            LIMIT 30
+            """,
+            (user_id,),
+        ).fetchall()
+
+        support_stats = conn.execute(
+            """
+            SELECT
+                COUNT(*) AS total,
+                COUNT(*) FILTER (WHERE author_kind = 'user') AS from_user,
+                COUNT(*) FILTER (WHERE author_kind = 'staff') AS from_staff,
+                MAX(created_at) AS last_at
+            FROM support_messages
+            WHERE user_id = %s
+            """,
+            (user_id,),
+        ).fetchone()
+
+        support_rows = conn.execute(
+            """
+            SELECT id, author_kind, body, source, created_at
+            FROM support_messages
+            WHERE user_id = %s
+            ORDER BY created_at DESC
+            LIMIT 30
+            """,
+            (user_id,),
+        ).fetchall()
+
+    spend_series = _fill_days(start, days, [dict(row) for row in spend_rows])
+
+    def _ts(value: object) -> str:
+        if value is None:
+            return ""
+        return value.isoformat()  # type: ignore[union-attr]
+
+    return {
+        "days": days,
+        "user": {
+            "id": user["id"],
+            "telegram_id": user["telegram_id"],
+            "email": user["email"] or "",
+            "username": user["username"] or "",
+            "first_name": user["first_name"] or "",
+            "balance_usd": float(user["balance_usd"] or 0),
+            "channel": "telegram" if user["telegram_id"] else "web",
+            "offer_accepted": user["offer_accepted_at"] is not None,
+            "offer_accepted_at": _ts(user["offer_accepted_at"]),
+            "blocked": user["blocked_at"] is not None,
+            "blocked_at": _ts(user["blocked_at"]),
+            "blocked_reason": user["blocked_reason"] or "",
+            "referral_token": user["referral_token"] or "",
+            "support_telegram_topic_id": user["support_telegram_topic_id"],
+            "support_seen_at": _ts(user["support_seen_at"]),
+            "created_at": _ts(user["created_at"]),
+            "notify_spend": bool(user["notify_spend"]),
+            "notify_low_balance": bool(user["notify_low_balance"]),
+            "notify_limit_exhausted": bool(user["notify_limit_exhausted"]),
+            "notify_topup": bool(user["notify_topup"]),
+            "notify_support_email": bool(user["notify_support_email"]),
+            "support_mail_sent_at": _ts(user["support_mail_sent_at"]),
+            "nudge_topup_sent_at": _ts(user["nudge_topup_sent_at"]),
+            "nudge_usage_sent_at": _ts(user["nudge_usage_sent_at"]),
+            "offer_reminder_sent_at": _ts(user["offer_reminder_sent_at"]),
+            "low_balance_notified_at": _ts(user["low_balance_notified_at"]),
+        },
+        "summary": {
+            "balance_usd": float(user["balance_usd"] or 0),
+            "paid_usd": float(money["paid_usd"] or 0),
+            "paid_rub": int(money["paid_kop"] or 0) / 100,
+            "bonus_usd": float(money["bonus_usd"] or 0),
+            "topups_paid": int(money["paid_count"] or 0),
+            "topups_all": int(money["all_count"] or 0),
+            "spend_usd": float(units_to_usd(int(spend["units"] or 0))),
+            "spend_period_usd": float(units_to_usd(int(spend["period_units"] or 0))),
+            "requests_total": int(spend["requests"] or 0),
+            "requests_period": int(spend["period_requests"] or 0),
+            "keys_active": sum(1 for row in key_rows if row["revoked_at"] is None),
+            "keys_total": len(key_rows),
+            "support_messages": int(support_stats["total"] or 0),
+            "support_from_user": int(support_stats["from_user"] or 0),
+            "support_from_staff": int(support_stats["from_staff"] or 0),
+            "support_last_at": _ts(support_stats["last_at"]),
+            "first_usage_at": _ts(spend["first_at"]),
+            "last_usage_at": _ts(spend["last_at"]),
+            "has_paid": int(money["paid_count"] or 0) > 0,
+        },
+        "spend_by_day": [
+            {
+                "day": day.isoformat(),
+                "usd": float(units_to_usd(int((row.get("units") or 0)))),
+                "requests": int(row.get("requests") or 0),
+                "tokens": int(row.get("prompt_tokens") or 0) + int(row.get("completion_tokens") or 0),
+            }
+            for day, row in spend_series.items()
+        ],
+        "models": [
+            {
+                "model": row["model"],
+                "usd": float(units_to_usd(int(row["units"] or 0))),
+                "requests": int(row["requests"] or 0),
+                "tokens": int(row["tokens"] or 0),
+            }
+            for row in model_rows
+        ],
+        "recent_usage": [
+            {
+                "model": row["model_name"] or "—",
+                "usd": float(units_to_usd(int(row["quota_units"] or 0))),
+                "prompt_tokens": int(row["prompt_tokens"] or 0),
+                "completion_tokens": int(row["completion_tokens"] or 0),
+                "tokens": int(row["prompt_tokens"] or 0) + int(row["completion_tokens"] or 0),
+                "request_id": row["request_id"] or "",
+                "created_at": _ts(row["created_at"]),
+            }
+            for row in recent_rows
+        ],
+        "topups": [
+            {
+                "id": row["id"],
+                "amount_usd": float(row["amount_usd"] or 0),
+                "bonus_usd": float(row["bonus_usd"] or 0),
+                "amount_rub": int(row["amount_kopecks"] or 0) / 100,
+                "status": row["status"],
+                "payment_id": row["payment_id"] or "",
+                "created_at": _ts(row["created_at"]),
+                "decided_at": _ts(row["decided_at"]),
+            }
+            for row in topup_rows
+        ],
+        "ledger": [
+            {
+                "id": row["id"],
+                "kind": row["kind"],
+                "note": row["note"] or "",
+                "amount_usd": float(row["amount_usd"] or 0),
+                "amount_rub": int(row["amount_kopecks"] or 0) / 100,
+                "created_at": _ts(row["created_at"]),
+            }
+            for row in ledger_rows
+        ],
+        "keys": [
+            {
+                "id": row["id"],
+                "name": row["name"] or "",
+                "prefix": row["prefix"] or "",
+                "quota_usd": float(row["quota_usd"] or 0),
+                "active": row["revoked_at"] is None,
+                "created_at": _ts(row["created_at"]),
+                "revoked_at": _ts(row["revoked_at"]),
+                "limit_exhausted_notified_at": _ts(row["limit_exhausted_notified_at"]),
+                "upstream_id": row["upstream_id"],
+            }
+            for row in key_rows
+        ],
+        "support_messages": [
+            {
+                "id": row["id"],
+                "author": row["author_kind"],
+                "body": row["body"] or "",
+                "source": row["source"] or "site",
+                "created_at": _ts(row["created_at"]),
+            }
+            for row in reversed(support_rows)
+        ],
+    }
+
+
 @router.get("/users/{user_id}/key", dependencies=[Depends(require_admin)])
 def user_key(user_id: int) -> dict:
     """Полный API-ключ пользователя для копирования в админке."""

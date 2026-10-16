@@ -220,6 +220,12 @@ export function useAdminPanel() {
   const userCredits = reactive({})
   const userCreditBusy = reactive({})
   const userCreditError = reactive({})
+  const userDetailId = ref(null)
+  const userDetail = ref(null)
+  const userDetailLoading = ref(false)
+  const userDetailError = ref('')
+  const userDetailPeriod = ref(30)
+  const userDetailSpendChart = ref({ bars: [], ticks: [], totalLabel: '', subtitle: '' })
 
   const filteredUsers = computed(() => {
     const q = usersSearch.value.trim().toLowerCase()
@@ -1108,6 +1114,57 @@ export function useAdminPanel() {
       stopSupportPoll()
     }
     if (tab === 'finance') loadFinance()
+    if (tab !== 'users') closeUserDetail()
+  }
+
+  function renderUserDetailCharts(data) {
+    const spendSeries = buildChartSeries(data.spend_by_day || [], {
+      valueKey: 'usd',
+      formatValue: (value) => usd4(value),
+      formatTick: (value) => (value >= 1 ? usd(value) : usd4(value)),
+      detail: (row) => {
+        const requests = Number(row.requests || 0)
+        return requests ? `${requests} запр.` : ''
+      },
+    })
+    userDetailSpendChart.value = {
+      bars: spendSeries.bars,
+      ticks: spendSeries.ticks,
+      totalLabel: usd4(spendSeries.total),
+      subtitle: `за ${data.days || userDetailPeriod.value} дн.`,
+    }
+  }
+
+  async function openUserDetail(userOrId) {
+    const id = typeof userOrId === 'object' ? Number(userOrId?.id) : Number(userOrId)
+    if (!id) return
+    userDetailId.value = id
+    userDetailError.value = ''
+    userDetailLoading.value = true
+    if (typeof window !== 'undefined') window.scrollTo({ top: 0, behavior: 'smooth' })
+    try {
+      const data = await api('/api/admin/users/' + id + '?days=' + userDetailPeriod.value)
+      userDetail.value = data
+      renderUserDetailCharts(data)
+    } catch (err) {
+      userDetail.value = null
+      userDetailError.value = err?.message || 'Не удалось загрузить карточку'
+    } finally {
+      userDetailLoading.value = false
+    }
+  }
+
+  function closeUserDetail() {
+    userDetailId.value = null
+    userDetail.value = null
+    userDetailError.value = ''
+    userDetailLoading.value = false
+    userDetailSpendChart.value = { bars: [], ticks: [], totalLabel: '', subtitle: '' }
+  }
+
+  async function setUserDetailPeriod(days) {
+    userDetailPeriod.value = days
+    if (userDetailId.value) await openUserDetail(userDetailId.value)
   }
 
   function supportPerson(row) {
@@ -1361,6 +1418,7 @@ export function useAdminPanel() {
         users.value[idx] = { ...users.value[idx], balance_usd: data.balance_usd }
       }
       closeCreditModal()
+      if (userDetailId.value === user.id) await openUserDetail(user.id)
     } catch (error) {
       const code = error.message || 'error'
       creditModal.error =
@@ -1383,6 +1441,7 @@ export function useAdminPanel() {
     try {
       await api('/api/admin/users/' + user.id + '/unblock', { method: 'POST' })
       await load()
+      if (userDetailId.value === user.id) await openUserDetail(user.id)
     } catch (error) {
       alert(error.message)
     }
@@ -1398,6 +1457,7 @@ export function useAdminPanel() {
         body: JSON.stringify({ reason: reason.trim() }),
       })
       await load()
+      if (userDetailId.value === user.id) await openUserDetail(user.id)
     } catch (error) {
       alert(error.message)
     }
@@ -1407,6 +1467,7 @@ export function useAdminPanel() {
     if (!confirm('Удалить ' + person(user) + '?')) return
     try {
       await api('/api/admin/users/' + user.id, { method: 'DELETE' })
+      if (userDetailId.value === user.id) closeUserDetail()
       await load()
     } catch (error) {
       alert(error.message)
@@ -1710,6 +1771,15 @@ export function useAdminPanel() {
     userCredits,
     userCreditBusy,
     userCreditError,
+    userDetailId,
+    userDetail,
+    userDetailLoading,
+    userDetailError,
+    userDetailPeriod,
+    userDetailSpendChart,
+    openUserDetail,
+    closeUserDetail,
+    setUserDetailPeriod,
     supportThreads,
     supportWaiting,
     supportFilterWaiting,

@@ -831,142 +831,522 @@
         </section>
 
         <section v-show="activeTab === 'users'" class="panel tab-users">
-          <div class="panel-head users-head">
-            <div>
-              <h2>Пользователи</h2>
-              <p class="muted users-sub">Клиенты Telegram и сайта</p>
-            </div>
-            <div class="users-toolbar">
-              <label class="users-search">
-                <AppIcon name="search" :size="15" />
-                <input
-                  v-model="usersSearch"
-                  type="search"
-                  placeholder="Поиск по клиенту, email или ID…"
+          <template v-if="userDetailId">
+            <div class="panel-head users-head user-detail-head">
+              <div class="user-detail-nav">
+                <button type="button" class="quiet sm user-back" @click="closeUserDetail">
+                  <AppIcon name="arrow-left" :size="14" />
+                  К списку
+                </button>
+                <div v-if="userDetail?.user" class="user-detail-title">
+                  <span
+                    class="user-channel lg"
+                    :class="userDetail.user.channel === 'telegram' ? 'tg' : 'web'"
+                  >
+                    <AppIcon :name="userDetail.user.channel === 'telegram' ? 'telegram' : 'mail'" :size="16" />
+                  </span>
+                  <div>
+                    <h2>{{ person(userDetail.user) }}</h2>
+                    <p class="muted users-sub">
+                      #{{ userDetail.user.id }}
+                      <template v-if="userDetail.user.email"> · {{ userDetail.user.email }}</template>
+                      <template v-if="userDetail.user.telegram_id"> · tg {{ userDetail.user.telegram_id }}</template>
+                      · с {{ shortDate(userDetail.user.created_at) }}
+                    </p>
+                  </div>
+                </div>
+                <div v-else>
+                  <h2>Карточка клиента</h2>
+                </div>
+              </div>
+              <div v-if="userDetail?.user" class="users-toolbar user-detail-actions">
+                <div class="periods">
+                  <button
+                    v-for="opt in periodOptions"
+                    :key="'ud-' + opt.days"
+                    type="button"
+                    :class="{ on: userDetailPeriod === opt.days }"
+                    @click="setUserDetailPeriod(opt.days)"
+                  >
+                    {{ opt.label }}
+                  </button>
+                </div>
+                <button
+                  type="button"
+                  class="quiet sm credit-open"
+                  :class="{ busy: userCreditBusy[userDetail.user.id] }"
+                  :disabled="!!userCreditBusy[userDetail.user.id]"
+                  @click="openCreditModal(userDetail.user)"
                 >
-              </label>
-              <span class="stat-line">Всего: <strong>{{ users.length }}</strong></span>
-            </div>
-          </div>
-          <div class="table-wrap users-table-wrap">
-            <table class="users-table">
-              <thead>
-                <tr>
-                  <th>Клиент</th>
-                  <th class="num">Баланс</th>
-                  <th>Ключ</th>
-                  <th>Баланс ±</th>
-                  <th>Доступ</th>
-                  <th class="actions" aria-label="Действия"></th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr v-if="!filteredUsers.length" class="empty">
-                  <td colspan="6">{{ users.length ? 'Ничего не найдено' : 'Пока пусто' }}</td>
-                </tr>
-                <tr
-                  v-for="item in filteredUsers"
-                  :key="item.id"
-                  :class="{ paid: item.has_paid, blocked: item.blocked }"
+                  <AppIcon name="plus" :size="13" />
+                  ±$
+                </button>
+                <button
+                  v-if="userDetail.user.blocked"
+                  type="button"
+                  class="quiet sm"
+                  @click="unblockUser(userDetail.user)"
                 >
-                  <td>
-                    <div class="user-cell">
-                      <span
-                        class="user-channel"
-                        :class="item.channel === 'telegram' ? 'tg' : 'web'"
-                        :title="item.channel === 'telegram' ? 'Telegram' : 'Сайт'"
+                  Разблок.
+                </button>
+                <button
+                  v-else
+                  type="button"
+                  class="quiet sm access-block"
+                  @click="blockUser(userDetail.user)"
+                >
+                  Блок
+                </button>
+              </div>
+            </div>
+
+            <div v-if="userDetailLoading && !userDetail" class="user-detail-boot muted">Загрузка карточки…</div>
+            <p v-else-if="userDetailError" class="error">{{ userDetailError }}</p>
+
+            <template v-else-if="userDetail">
+              <div class="user-detail-badges">
+                <span v-if="userDetail.summary.has_paid" class="badge ok">оплата</span>
+                <span v-else class="badge neutral">без оплаты</span>
+                <span v-if="userDetail.user.offer_accepted" class="badge ok">оферта</span>
+                <span v-else class="badge warn">оферта не принята</span>
+                <span v-if="userDetail.user.blocked" class="badge bad">блок</span>
+                <span v-else class="badge ok">активен</span>
+                <span
+                  v-if="userDetail.user.nudge_topup_sent_at"
+                  class="badge mail"
+                  :title="formatRecentAt(userDetail.user.nudge_topup_sent_at)"
+                >письмо · топап</span>
+                <span
+                  v-if="userDetail.user.nudge_usage_sent_at"
+                  class="badge mail"
+                  :title="formatRecentAt(userDetail.user.nudge_usage_sent_at)"
+                >письмо · API</span>
+                <span v-if="userDetail.user.referral_token" class="badge neutral">
+                  ref {{ userDetail.user.referral_token }}
+                </span>
+              </div>
+
+              <div class="user-kpi-grid">
+                <div class="user-kpi">
+                  <span>Баланс</span>
+                  <b>{{ usd(userDetail.summary.balance_usd) }}</b>
+                </div>
+                <div class="user-kpi">
+                  <span>Оплачено</span>
+                  <b>{{ usd(userDetail.summary.paid_usd) }}</b>
+                  <em>{{ rub(userDetail.summary.paid_rub) }} · {{ userDetail.summary.topups_paid }} опл.</em>
+                </div>
+                <div class="user-kpi">
+                  <span>Бонус</span>
+                  <b>{{ usd(userDetail.summary.bonus_usd) }}</b>
+                </div>
+                <div class="user-kpi">
+                  <span>Расход всего</span>
+                  <b>{{ usd4(userDetail.summary.spend_usd) }}</b>
+                  <em>{{ userDetail.summary.requests_total }} запр.</em>
+                </div>
+                <div class="user-kpi">
+                  <span>Расход за период</span>
+                  <b>{{ usd4(userDetail.summary.spend_period_usd) }}</b>
+                  <em>{{ userDetail.summary.requests_period }} запр.</em>
+                </div>
+                <div class="user-kpi">
+                  <span>Поддержка</span>
+                  <b>{{ userDetail.summary.support_messages }}</b>
+                  <em>{{ userDetail.summary.support_from_user }} ↔ {{ userDetail.summary.support_from_staff }}</em>
+                </div>
+              </div>
+
+              <div class="user-detail-grid">
+                <AdminChart
+                  title="Расход по дням"
+                  tone="spend"
+                  :subtitle="userDetailSpendChart.subtitle"
+                  :total-label="userDetailSpendChart.totalLabel"
+                  :bars="userDetailSpendChart.bars"
+                  :ticks="userDetailSpendChart.ticks"
+                />
+
+                <div class="user-info-card">
+                  <h3>Профиль</h3>
+                  <dl class="user-dl">
+                    <div><dt>Канал</dt><dd>{{ userDetail.user.channel === 'telegram' ? 'Telegram' : 'Сайт' }}</dd></div>
+                    <div><dt>Email</dt><dd>{{ userDetail.user.email || '—' }}</dd></div>
+                    <div><dt>Username</dt><dd>{{ userDetail.user.username ? '@' + userDetail.user.username : '—' }}</dd></div>
+                    <div><dt>Имя</dt><dd>{{ userDetail.user.first_name || '—' }}</dd></div>
+                    <div><dt>Оферта</dt><dd>{{ formatRecentAt(userDetail.user.offer_accepted_at) }}</dd></div>
+                    <div><dt>Первый API</dt><dd>{{ formatRecentAt(userDetail.summary.first_usage_at) }}</dd></div>
+                    <div><dt>Последний API</dt><dd>{{ formatRecentAt(userDetail.summary.last_usage_at) }}</dd></div>
+                    <div><dt>Тема TG</dt><dd>{{ userDetail.user.support_telegram_topic_id || '—' }}</dd></div>
+                    <div v-if="userDetail.user.blocked_reason">
+                      <dt>Причина блока</dt>
+                      <dd>{{ userDetail.user.blocked_reason }}</dd>
+                    </div>
+                  </dl>
+                </div>
+              </div>
+
+              <div class="user-detail-grid">
+                <div>
+                  <h3>Модели</h3>
+                  <div class="table-wrap">
+                    <table>
+                      <thead>
+                        <tr>
+                          <th>Модель</th>
+                          <th class="num">Расход</th>
+                          <th class="num">Запросы</th>
+                          <th class="num">Токены</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        <tr v-if="!userDetail.models.length" class="empty">
+                          <td colspan="4">Нет расхода за период</td>
+                        </tr>
+                        <tr v-for="row in userDetail.models" :key="row.model">
+                          <td>{{ row.model }}</td>
+                          <td class="num">{{ usd4(row.usd) }}</td>
+                          <td class="num">{{ row.requests }}</td>
+                          <td class="num">{{ row.tokens }}</td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+                <div>
+                  <h3>Уведомления</h3>
+                  <div class="user-notify-grid">
+                    <div class="user-notify" :class="{ on: userDetail.user.notify_topup }">
+                      <span>Пополнение</span>
+                      <b>{{ userDetail.user.notify_topup ? 'вкл' : 'выкл' }}</b>
+                    </div>
+                    <div class="user-notify" :class="{ on: userDetail.user.notify_low_balance }">
+                      <span>Низкий баланс</span>
+                      <b>{{ userDetail.user.notify_low_balance ? 'вкл' : 'выкл' }}</b>
+                    </div>
+                    <div class="user-notify" :class="{ on: userDetail.user.notify_limit_exhausted }">
+                      <span>Лимит ключа</span>
+                      <b>{{ userDetail.user.notify_limit_exhausted ? 'вкл' : 'выкл' }}</b>
+                    </div>
+                    <div class="user-notify" :class="{ on: userDetail.user.notify_spend }">
+                      <span>Расход</span>
+                      <b>{{ userDetail.user.notify_spend ? 'вкл' : 'выкл' }}</b>
+                    </div>
+                    <div class="user-notify" :class="{ on: userDetail.user.notify_support_email }">
+                      <span>Ответы поддержки</span>
+                      <b>{{ userDetail.user.notify_support_email ? 'вкл' : 'выкл' }}</b>
+                    </div>
+                  </div>
+                  <dl class="user-dl mail-dl">
+                    <div><dt>Nudge топап</dt><dd>{{ formatRecentAt(userDetail.user.nudge_topup_sent_at) }}</dd></div>
+                    <div><dt>Nudge API</dt><dd>{{ formatRecentAt(userDetail.user.nudge_usage_sent_at) }}</dd></div>
+                    <div><dt>Оферта mail</dt><dd>{{ formatRecentAt(userDetail.user.offer_reminder_sent_at) }}</dd></div>
+                    <div><dt>Support mail</dt><dd>{{ formatRecentAt(userDetail.user.support_mail_sent_at) }}</dd></div>
+                    <div><dt>Low balance</dt><dd>{{ formatRecentAt(userDetail.user.low_balance_notified_at) }}</dd></div>
+                  </dl>
+                </div>
+              </div>
+
+              <div class="user-detail-grid">
+                <div>
+                  <h3>API-ключи</h3>
+                  <div class="table-wrap">
+                    <table>
+                      <thead>
+                        <tr>
+                          <th>Префикс</th>
+                          <th class="num">Квота</th>
+                          <th>Статус</th>
+                          <th>Создан</th>
+                          <th></th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        <tr v-if="!userDetail.keys.length" class="empty">
+                          <td colspan="5">Нет ключей</td>
+                        </tr>
+                        <tr v-for="key in userDetail.keys" :key="key.id">
+                          <td><code>{{ key.prefix || '—' }}…</code></td>
+                          <td class="num">{{ usd(key.quota_usd) }}</td>
+                          <td>
+                            <span class="badge" :class="key.active ? 'ok' : 'neutral'">
+                              {{ key.active ? 'активен' : 'отозван' }}
+                            </span>
+                          </td>
+                          <td>{{ formatRecentAt(key.created_at) }}</td>
+                          <td class="actions">
+                            <button
+                              v-if="key.active"
+                              type="button"
+                              class="quiet sm"
+                              :disabled="!!userKeyCopyBusy[userDetail.user.id]"
+                              @click="copyUserKey({ id: userDetail.user.id, key_prefix: key.prefix })"
+                            >
+                              {{ copiedUserKeys[userDetail.user.id] ? 'ok' : 'copy' }}
+                            </button>
+                          </td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+                <div>
+                  <h3>Пополнения</h3>
+                  <div class="table-wrap">
+                    <table>
+                      <thead>
+                        <tr>
+                          <th>#</th>
+                          <th class="num">Сумма</th>
+                          <th>Статус</th>
+                          <th>Дата</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        <tr v-if="!userDetail.topups.length" class="empty">
+                          <td colspan="4">Пока пусто</td>
+                        </tr>
+                        <tr v-for="row in userDetail.topups" :key="row.id">
+                          <td>{{ row.id }}</td>
+                          <td class="num">
+                            {{ usd(row.amount_usd) }}
+                            <span v-if="row.bonus_usd" class="muted"> +{{ usd(row.bonus_usd) }}</span>
+                            <div class="muted tiny">{{ rub(row.amount_rub) }}</div>
+                          </td>
+                          <td>
+                            <span class="badge" :class="statusBadgeClass(row.status)">
+                              {{ topupStatusLabel(row.status) }}
+                            </span>
+                          </td>
+                          <td>{{ formatRecentAt(row.decided_at || row.created_at) }}</td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+
+              <div class="user-detail-grid">
+                <div>
+                  <h3>Журнал</h3>
+                  <div class="table-wrap">
+                    <table class="ledger-table compact-ledger">
+                      <thead>
+                        <tr>
+                          <th>Тип</th>
+                          <th class="num">Сумма</th>
+                          <th>Заметка</th>
+                          <th>Дата</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        <tr v-if="!userDetail.ledger.length" class="empty">
+                          <td colspan="4">Пока пусто</td>
+                        </tr>
+                        <tr v-for="row in userDetail.ledger" :key="row.id">
+                          <td>
+                            <span class="ledger-kind" :class="ledgerKindClass(row.kind)">
+                              {{ ledgerKindLabel(row.kind) }}
+                            </span>
+                          </td>
+                          <td class="num" :class="ledgerAmountClass(row)">{{ ledgerAmountText(row) }}</td>
+                          <td class="muted">{{ ledgerNoteText(row) || '—' }}</td>
+                          <td>{{ formatRecentAt(row.created_at) }}</td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+                <div>
+                  <h3>Последние запросы</h3>
+                  <div class="table-wrap">
+                    <table>
+                      <thead>
+                        <tr>
+                          <th>Модель</th>
+                          <th class="num">$</th>
+                          <th class="num">Токены</th>
+                          <th>Время</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        <tr v-if="!userDetail.recent_usage.length" class="empty">
+                          <td colspan="4">Пока пусто</td>
+                        </tr>
+                        <tr v-for="(row, idx) in userDetail.recent_usage" :key="row.request_id || idx">
+                          <td>{{ row.model }}</td>
+                          <td class="num">{{ usd4(row.usd) }}</td>
+                          <td class="num">{{ row.tokens }}</td>
+                          <td>{{ formatRecentAt(row.created_at) }}</td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+
+              <div class="block">
+                <h3>Переписка поддержки</h3>
+                <div v-if="!userDetail.support_messages.length" class="muted">Сообщений нет</div>
+                <div v-else class="user-support-feed">
+                  <div
+                    v-for="msg in userDetail.support_messages"
+                    :key="msg.id"
+                    class="user-support-msg"
+                    :class="msg.author"
+                  >
+                    <div class="user-support-meta">
+                      <b>{{ msg.author === 'staff' ? 'Саппорт' : 'Клиент' }}</b>
+                      <span class="muted">{{ formatRecentAt(msg.created_at) }} · {{ msg.source }}</span>
+                    </div>
+                    <p>{{ msg.body }}</p>
+                  </div>
+                </div>
+              </div>
+            </template>
+          </template>
+
+          <template v-else>
+            <div class="panel-head users-head">
+              <div>
+                <h2>Пользователи</h2>
+                <p class="muted users-sub">Клиенты Telegram и сайта · клик по имени открывает аналитику</p>
+              </div>
+              <div class="users-toolbar">
+                <label class="users-search">
+                  <AppIcon name="search" :size="15" />
+                  <input
+                    v-model="usersSearch"
+                    type="search"
+                    placeholder="Поиск по клиенту, email или ID…"
+                  >
+                </label>
+                <span class="stat-line">Всего: <strong>{{ users.length }}</strong></span>
+              </div>
+            </div>
+            <div class="table-wrap users-table-wrap">
+              <table class="users-table">
+                <thead>
+                  <tr>
+                    <th>Клиент</th>
+                    <th class="num">Баланс</th>
+                    <th>Ключ</th>
+                    <th>Баланс ±</th>
+                    <th>Доступ</th>
+                    <th class="actions" aria-label="Действия"></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-if="!filteredUsers.length" class="empty">
+                    <td colspan="6">{{ users.length ? 'Ничего не найдено' : 'Пока пусто' }}</td>
+                  </tr>
+                  <tr
+                    v-for="item in filteredUsers"
+                    :key="item.id"
+                    class="user-row"
+                    :class="{ paid: item.has_paid, blocked: item.blocked }"
+                  >
+                    <td>
+                      <button type="button" class="user-open" @click="openUserDetail(item)">
+                        <div class="user-cell">
+                          <span
+                            class="user-channel"
+                            :class="item.channel === 'telegram' ? 'tg' : 'web'"
+                            :title="item.channel === 'telegram' ? 'Telegram' : 'Сайт'"
+                          >
+                            <AppIcon :name="item.channel === 'telegram' ? 'telegram' : 'mail'" :size="14" />
+                          </span>
+                          <div class="user-meta">
+                            <span class="user-name">{{ person(item) }}</span>
+                            <span class="user-badges">
+                              <span v-if="item.has_paid" class="badge ok">оплата</span>
+                              <span
+                                v-if="item.nudge_topup_sent_at"
+                                class="badge mail"
+                                :title="'Письмо «не пополнил»: ' + formatRecentAt(item.nudge_topup_sent_at)"
+                              >письмо · топап</span>
+                              <span
+                                v-if="item.nudge_usage_sent_at"
+                                class="badge mail"
+                                :title="'Письмо «не пользовался API»: ' + formatRecentAt(item.nudge_usage_sent_at)"
+                              >письмо · API</span>
+                              <span v-if="item.blocked" class="badge bad">блок</span>
+                            </span>
+                          </div>
+                        </div>
+                      </button>
+                    </td>
+                    <td class="num balance">{{ usd(item.balance_usd) }}</td>
+                    <td class="key-cell">
+                      <button
+                        v-if="item.key_prefix"
+                        type="button"
+                        class="key-copy"
+                        :class="{ on: copiedUserKeys[item.id], busy: userKeyCopyBusy[item.id] }"
+                        :disabled="!!userKeyCopyBusy[item.id]"
+                        :title="copiedUserKeys[item.id] ? 'Скопировано' : 'Скопировать токен'"
+                        @click="copyUserKey(item)"
                       >
-                        <AppIcon :name="item.channel === 'telegram' ? 'telegram' : 'mail'" :size="14" />
-                      </span>
-                      <div class="user-meta">
-                        <span class="user-name">{{ person(item) }}</span>
-                        <span class="user-badges">
-                          <span v-if="item.has_paid" class="badge ok">оплата</span>
-                          <span
-                            v-if="item.nudge_topup_sent_at"
-                            class="badge mail"
-                            :title="'Письмо «не пополнил»: ' + formatRecentAt(item.nudge_topup_sent_at)"
-                          >письмо · топап</span>
-                          <span
-                            v-if="item.nudge_usage_sent_at"
-                            class="badge mail"
-                            :title="'Письмо «не пользовался API»: ' + formatRecentAt(item.nudge_usage_sent_at)"
-                          >письмо · API</span>
-                          <span v-if="item.blocked" class="badge bad">блок</span>
+                        <code>{{ item.key_prefix }}…</code>
+                        <span class="key-copy-hint">{{ copiedUserKeys[item.id] ? 'ok' : 'copy' }}</span>
+                      </button>
+                      <span v-else class="muted">—</span>
+                    </td>
+                    <td class="compact">
+                      <button
+                        type="button"
+                        class="quiet sm credit-open"
+                        :class="{ busy: userCreditBusy[item.id] }"
+                        :disabled="!!userCreditBusy[item.id]"
+                        :title="userCreditBusy[item.id] ? 'Сохраняем…' : 'Начислить / списать'"
+                        @click="openCreditModal(item)"
+                      >
+                        <span v-if="userCreditBusy[item.id]" class="credit-spinner" aria-hidden="true" />
+                        <template v-else>
+                          <AppIcon name="plus" :size="13" />
+                          ±$
+                        </template>
+                      </button>
+                    </td>
+                    <td>
+                      <div class="access-cell">
+                        <span class="access-status" :class="item.blocked ? 'off' : 'on'">
+                          {{ item.blocked ? 'Заблок.' : 'Активен' }}
                         </span>
+                        <button
+                          v-if="item.blocked"
+                          type="button"
+                          class="quiet sm"
+                          @click="unblockUser(item)"
+                        >
+                          Разблок.
+                        </button>
+                        <button
+                          v-else
+                          type="button"
+                          class="quiet sm access-block"
+                          @click="blockUser(item)"
+                        >
+                          Блок
+                        </button>
                       </div>
-                    </div>
-                  </td>
-                  <td class="num balance">{{ usd(item.balance_usd) }}</td>
-                  <td class="key-cell">
-                    <button
-                      v-if="item.key_prefix"
-                      type="button"
-                      class="key-copy"
-                      :class="{ on: copiedUserKeys[item.id], busy: userKeyCopyBusy[item.id] }"
-                      :disabled="!!userKeyCopyBusy[item.id]"
-                      :title="copiedUserKeys[item.id] ? 'Скопировано' : 'Скопировать токен'"
-                      @click="copyUserKey(item)"
-                    >
-                      <code>{{ item.key_prefix }}…</code>
-                      <span class="key-copy-hint">{{ copiedUserKeys[item.id] ? 'ok' : 'copy' }}</span>
-                    </button>
-                    <span v-else class="muted">—</span>
-                  </td>
-                  <td class="compact">
-                    <button
-                      type="button"
-                      class="quiet sm credit-open"
-                      :class="{ busy: userCreditBusy[item.id] }"
-                      :disabled="!!userCreditBusy[item.id]"
-                      :title="userCreditBusy[item.id] ? 'Сохраняем…' : 'Начислить / списать'"
-                      @click="openCreditModal(item)"
-                    >
-                      <span v-if="userCreditBusy[item.id]" class="credit-spinner" aria-hidden="true" />
-                      <template v-else>
-                        <AppIcon name="plus" :size="13" />
-                        ±$
-                      </template>
-                    </button>
-                  </td>
-                  <td>
-                    <div class="access-cell">
-                      <span class="access-status" :class="item.blocked ? 'off' : 'on'">
-                        {{ item.blocked ? 'Заблок.' : 'Активен' }}
-                      </span>
+                    </td>
+                    <td class="actions">
                       <button
-                        v-if="item.blocked"
                         type="button"
-                        class="quiet sm"
-                        @click="unblockUser(item)"
+                        class="icon-btn danger-ghost"
+                        title="Удалить"
+                        aria-label="Удалить"
+                        @click="deleteUser(item)"
                       >
-                        Разблок.
+                        <AppIcon name="trash" :size="15" />
                       </button>
-                      <button
-                        v-else
-                        type="button"
-                        class="quiet sm access-block"
-                        @click="blockUser(item)"
-                      >
-                        Блок
-                      </button>
-                    </div>
-                  </td>
-                  <td class="actions">
-                    <button
-                      type="button"
-                      class="icon-btn danger-ghost"
-                      title="Удалить"
-                      aria-label="Удалить"
-                      @click="deleteUser(item)"
-                    >
-                      <AppIcon name="trash" :size="15" />
-                    </button>
-                  </td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </template>
         </section>
 
         <section v-show="activeTab === 'referrals'" class="panel tab-referrals">
@@ -1505,6 +1885,15 @@ const {
   filteredUsers,
   usersSearch,
   userCreditBusy,
+  userDetailId,
+  userDetail,
+  userDetailLoading,
+  userDetailError,
+  userDetailPeriod,
+  userDetailSpendChart,
+  openUserDetail,
+  closeUserDetail,
+  setUserDetailPeriod,
   copiedUserKeys,
   userKeyCopyBusy,
   copyUserKey,
@@ -2550,6 +2939,209 @@ onMounted(() => {
 .admin-page .tab-users .users-head {
   align-items: flex-start;
   margin-bottom: 16px;
+}
+.admin-page .user-detail-head {
+  gap: 16px;
+}
+.admin-page .user-detail-nav {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+}
+.admin-page .user-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  width: fit-content;
+}
+.admin-page .user-detail-title {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  min-width: 0;
+}
+.admin-page .user-detail-title h2 {
+  margin: 0;
+  font-size: 1.35rem;
+  line-height: 1.25;
+}
+.admin-page .user-channel.lg {
+  width: 40px;
+  height: 40px;
+  flex-basis: 40px;
+  border-radius: 12px;
+  margin-top: 0;
+}
+.admin-page .user-detail-actions {
+  justify-content: flex-end;
+}
+.admin-page .user-detail-boot {
+  padding: 28px 0;
+}
+.admin-page .user-detail-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0 0 18px;
+}
+.admin-page .user-kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 10px;
+  margin-bottom: 18px;
+}
+.admin-page .user-kpi {
+  display: grid;
+  gap: 4px;
+  padding: 14px 14px 12px;
+  background:
+    linear-gradient(165deg, #fffefb 0%, var(--surface-soft) 100%);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  min-width: 0;
+}
+.admin-page .user-kpi span {
+  font-size: 12px;
+  color: var(--muted);
+}
+.admin-page .user-kpi b {
+  font-size: 1.15rem;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
+}
+.admin-page .user-kpi em {
+  font-style: normal;
+  font-size: 11px;
+  color: var(--muted);
+}
+.admin-page .user-detail-grid {
+  display: grid;
+  grid-template-columns: 1.35fr 1fr;
+  gap: 16px;
+  margin-bottom: 18px;
+  align-items: start;
+}
+.admin-page .user-detail-grid > * {
+  min-width: 0;
+}
+.admin-page .user-info-card {
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--surface);
+}
+.admin-page .user-info-card h3 {
+  margin: 0 0 12px;
+}
+.admin-page .user-dl {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+}
+.admin-page .user-dl > div {
+  display: grid;
+  grid-template-columns: 110px 1fr;
+  gap: 8px;
+  align-items: baseline;
+}
+.admin-page .user-dl dt {
+  margin: 0;
+  font-size: 12px;
+  color: var(--muted);
+}
+.admin-page .user-dl dd {
+  margin: 0;
+  font-size: 13px;
+  word-break: break-word;
+}
+.admin-page .mail-dl {
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+}
+.admin-page .user-notify-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+.admin-page .user-notify {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface-soft);
+  font-size: 12px;
+}
+.admin-page .user-notify span { color: var(--muted); }
+.admin-page .user-notify b { font-weight: 600; color: var(--muted); }
+.admin-page .user-notify.on {
+  background: var(--ok-soft);
+  border-color: #c7e3d4;
+}
+.admin-page .user-notify.on b { color: var(--ok); }
+.admin-page .user-open {
+  display: block;
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+  font: inherit;
+  color: inherit;
+}
+.admin-page .user-open:hover .user-name {
+  color: var(--accent);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.admin-page .user-support-feed {
+  display: grid;
+  gap: 8px;
+  max-height: 420px;
+  overflow: auto;
+  padding-right: 4px;
+}
+.admin-page .user-support-msg {
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface-soft);
+}
+.admin-page .user-support-msg.staff {
+  background: #f3f8f4;
+  border-color: #d5e6db;
+}
+.admin-page .user-support-msg.user {
+  background: #fff;
+}
+.admin-page .user-support-meta {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 4px;
+  font-size: 12px;
+}
+.admin-page .user-support-msg p {
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 13px;
+  line-height: 1.45;
+}
+.admin-page .tiny { font-size: 11px; }
+.admin-page .compact-ledger td { font-size: 13px; }
+@media (max-width: 1100px) {
+  .admin-page .user-kpi-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .admin-page .user-detail-grid { grid-template-columns: 1fr; }
+}
+@media (max-width: 720px) {
+  .admin-page .user-kpi-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .admin-page .user-notify-grid { grid-template-columns: 1fr; }
+  .admin-page .user-dl > div { grid-template-columns: 1fr; gap: 2px; }
 }
 .admin-page .users-sub { margin: 4px 0 0; }
 .admin-page .users-toolbar {
