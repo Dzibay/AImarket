@@ -51,6 +51,23 @@ ALTER TABLE users ADD COLUMN IF NOT EXISTS support_mail_sent_at TIMESTAMPTZ;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS nudge_topup_sent_at TIMESTAMPTZ;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS nudge_usage_sent_at TIMESTAMPTZ;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS low_balance_notified_at TIMESTAMPTZ;
+
+-- Не слать lifecycle-письма старым аккаунтам после деплоя фичи.
+-- Помечаем «уже отправлено» всех, кто старше окна напоминания (3 суток).
+UPDATE users
+SET nudge_topup_sent_at = COALESCE(nudge_topup_sent_at, created_at)
+WHERE nudge_topup_sent_at IS NULL
+  AND created_at < NOW() - INTERVAL '3 days';
+
+UPDATE users u
+SET nudge_usage_sent_at = COALESCE(nudge_usage_sent_at, NOW())
+WHERE u.nudge_usage_sent_at IS NULL
+  AND EXISTS (
+        SELECT 1 FROM topups t
+        WHERE t.user_id = u.id
+          AND t.status = 'paid'
+          AND COALESCE(t.decided_at, t.created_at) < NOW() - INTERVAL '3 days'
+      );
 ALTER TABLE users ADD COLUMN IF NOT EXISTS referral_token TEXT NOT NULL DEFAULT '';
 ALTER TABLE users ALTER COLUMN telegram_id DROP NOT NULL;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS email TEXT NOT NULL DEFAULT '';

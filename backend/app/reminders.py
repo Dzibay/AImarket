@@ -9,6 +9,10 @@ from app.telegram_link import notify_offer_reminder
 log = logging.getLogger("app.reminders")
 
 _BATCH = 50
+# Письмо только тем, кто «только что» пересёк порог 1 суток.
+# Иначе после деплоя улетит всем старым аккаунтам без оплаты/usage.
+_NUDGE_AFTER = "1 day"
+_NUDGE_WITHIN = "3 days"
 
 
 def send_offer_reminders() -> None:
@@ -58,13 +62,14 @@ def send_lifecycle_emails() -> None:
 def _send_topup_nudges() -> None:
     with pool.connection() as conn:
         rows = conn.execute(
-            """
+            f"""
             SELECT u.id
             FROM users u
             WHERE u.blocked_at IS NULL
               AND u.nudge_topup_sent_at IS NULL
               AND BTRIM(u.email) <> ''
-              AND u.created_at <= NOW() - INTERVAL '1 day'
+              AND u.created_at <= NOW() - INTERVAL '{_NUDGE_AFTER}'
+              AND u.created_at > NOW() - INTERVAL '{_NUDGE_WITHIN}'
               AND NOT EXISTS (
                     SELECT 1 FROM topups t
                     WHERE t.user_id = u.id AND t.status = 'paid'
@@ -78,13 +83,15 @@ def _send_topup_nudges() -> None:
         user_id = int(row["id"])
         with pool.connection() as conn:
             claimed = conn.execute(
-                """
+                f"""
                 UPDATE users
                 SET nudge_topup_sent_at = NOW()
                 WHERE id = %s
                   AND nudge_topup_sent_at IS NULL
                   AND blocked_at IS NULL
                   AND BTRIM(email) <> ''
+                  AND created_at <= NOW() - INTERVAL '{_NUDGE_AFTER}'
+                  AND created_at > NOW() - INTERVAL '{_NUDGE_WITHIN}'
                   AND NOT EXISTS (
                         SELECT 1 FROM topups t
                         WHERE t.user_id = users.id AND t.status = 'paid'
@@ -107,7 +114,7 @@ def _send_topup_nudges() -> None:
 def _send_usage_nudges() -> None:
     with pool.connection() as conn:
         rows = conn.execute(
-            """
+            f"""
             SELECT u.id
             FROM users u
             JOIN LATERAL (
@@ -118,7 +125,8 @@ def _send_usage_nudges() -> None:
             WHERE u.blocked_at IS NULL
               AND u.nudge_usage_sent_at IS NULL
               AND BTRIM(u.email) <> ''
-              AND p.first_paid_at <= NOW() - INTERVAL '1 day'
+              AND p.first_paid_at <= NOW() - INTERVAL '{_NUDGE_AFTER}'
+              AND p.first_paid_at > NOW() - INTERVAL '{_NUDGE_WITHIN}'
               AND NOT EXISTS (
                     SELECT 1 FROM usage us WHERE us.user_id = u.id
                   )
@@ -131,7 +139,7 @@ def _send_usage_nudges() -> None:
         user_id = int(row["id"])
         with pool.connection() as conn:
             claimed = conn.execute(
-                """
+                f"""
                 UPDATE users
                 SET nudge_usage_sent_at = NOW()
                 WHERE id = %s
@@ -141,7 +149,8 @@ def _send_usage_nudges() -> None:
                   AND EXISTS (
                         SELECT 1 FROM topups t
                         WHERE t.user_id = users.id AND t.status = 'paid'
-                          AND COALESCE(t.decided_at, t.created_at) <= NOW() - INTERVAL '1 day'
+                          AND COALESCE(t.decided_at, t.created_at) <= NOW() - INTERVAL '{_NUDGE_AFTER}'
+                          AND COALESCE(t.decided_at, t.created_at) > NOW() - INTERVAL '{_NUDGE_WITHIN}'
                       )
                   AND NOT EXISTS (
                         SELECT 1 FROM usage us WHERE us.user_id = users.id
