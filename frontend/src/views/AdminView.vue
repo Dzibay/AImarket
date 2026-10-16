@@ -984,8 +984,8 @@
               <div class="user-detail-grid">
                 <div>
                   <h3>Модели</h3>
-                  <div class="table-wrap">
-                    <table>
+                  <div class="table-wrap user-detail-table-wrap">
+                    <table class="user-detail-table">
                       <thead>
                         <tr>
                           <th>Модель</th>
@@ -999,7 +999,7 @@
                           <td colspan="4">Нет расхода за период</td>
                         </tr>
                         <tr v-for="row in userDetail.models" :key="row.model">
-                          <td>{{ row.model }}</td>
+                          <td class="model">{{ row.model }}</td>
                           <td class="num">{{ usd4(row.usd) }}</td>
                           <td class="num">{{ row.requests }}</td>
                           <td class="num">{{ row.tokens }}</td>
@@ -1041,59 +1041,49 @@
                 </div>
               </div>
 
-              <div class="user-detail-grid">
-                <div>
-                  <h3>API-ключи</h3>
-                  <div class="table-wrap">
-                    <table>
-                      <thead>
-                        <tr>
-                          <th>Префикс</th>
-                          <th class="num">Квота</th>
-                          <th>Статус</th>
-                          <th>Создан</th>
-                          <th></th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        <tr v-if="!userDetail.keys.length" class="empty">
-                          <td colspan="5">Нет ключей</td>
-                        </tr>
-                        <tr v-for="key in userDetail.keys" :key="key.id">
-                          <td><code>{{ key.prefix || '—' }}…</code></td>
-                          <td class="num">{{ usd(key.quota_usd) }}</td>
-                          <td>
-                            <span class="badge" :class="key.active ? 'ok' : 'neutral'">
-                              {{ key.active ? 'активен' : 'отозван' }}
-                            </span>
-                          </td>
-                          <td>{{ formatRecentAt(key.created_at) }}</td>
-                          <td class="actions">
-                            <button
-                              v-if="key.active"
-                              type="button"
-                              class="quiet sm"
-                              :disabled="!!userKeyCopyBusy[userDetail.user.id]"
-                              @click="copyUserKey({ id: userDetail.user.id, key_prefix: key.prefix })"
-                            >
-                              {{ copiedUserKeys[userDetail.user.id] ? 'ok' : 'copy' }}
-                            </button>
-                          </td>
-                        </tr>
-                      </tbody>
-                    </table>
+              <div class="user-detail-grid user-detail-grid-key">
+                <div class="user-key-panel">
+                  <h3>API-ключ</h3>
+                  <div v-if="userDetailActiveKey" class="user-key-card">
+                    <div class="user-key-main">
+                      <button
+                        type="button"
+                        class="key-copy user-key-copy"
+                        :class="{ on: copiedUserKeys[userDetail.user.id], busy: userKeyCopyBusy[userDetail.user.id] }"
+                        :disabled="!!userKeyCopyBusy[userDetail.user.id]"
+                        :title="copiedUserKeys[userDetail.user.id] ? 'Скопировано' : 'Скопировать токен'"
+                        @click="copyUserKey({ id: userDetail.user.id, key_prefix: userDetailActiveKey.prefix })"
+                      >
+                        <code>{{ userDetailActiveKey.prefix || '—' }}…</code>
+                        <span class="key-copy-hint">{{ copiedUserKeys[userDetail.user.id] ? 'ok' : 'copy' }}</span>
+                      </button>
+                      <span class="badge" :class="userDetailActiveKey.active ? 'ok' : 'neutral'">
+                        {{ userDetailActiveKey.active ? 'активен' : 'отозван' }}
+                      </span>
+                    </div>
+                    <dl class="user-key-meta">
+                      <div>
+                        <dt>Квота</dt>
+                        <dd>{{ usd(userDetailActiveKey.quota_usd) }}</dd>
+                      </div>
+                      <div>
+                        <dt>Создан</dt>
+                        <dd>{{ formatRecentAt(userDetailActiveKey.created_at) }}</dd>
+                      </div>
+                    </dl>
                   </div>
+                  <p v-else class="muted user-key-empty">Ключа нет</p>
                 </div>
                 <div>
                   <h3>Пополнения</h3>
-                  <div class="table-wrap">
-                    <table>
+                  <div class="table-wrap user-detail-table-wrap">
+                    <table class="user-detail-table">
                       <thead>
                         <tr>
                           <th>#</th>
                           <th class="num">Сумма</th>
                           <th>Статус</th>
-                          <th>Дата</th>
+                          <th class="date">Дата</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -1101,7 +1091,7 @@
                           <td colspan="4">Пока пусто</td>
                         </tr>
                         <tr v-for="row in userDetail.topups" :key="row.id">
-                          <td>{{ row.id }}</td>
+                          <td class="id">{{ row.id }}</td>
                           <td class="num">
                             {{ usd(row.amount_usd) }}
                             <span v-if="row.bonus_usd" class="muted"> +{{ usd(row.bonus_usd) }}</span>
@@ -1112,7 +1102,7 @@
                               {{ topupStatusLabel(row.status) }}
                             </span>
                           </td>
-                          <td>{{ formatRecentAt(row.decided_at || row.created_at) }}</td>
+                          <td class="date">{{ formatRecentAt(row.decided_at || row.created_at) }}</td>
                         </tr>
                       </tbody>
                     </table>
@@ -1123,14 +1113,14 @@
               <div class="user-detail-grid">
                 <div>
                   <h3>Журнал</h3>
-                  <div class="table-wrap">
-                    <table class="ledger-table compact-ledger">
+                  <div class="table-wrap user-detail-table-wrap">
+                    <table class="user-detail-table">
                       <thead>
                         <tr>
                           <th>Тип</th>
                           <th class="num">Сумма</th>
                           <th>Заметка</th>
-                          <th>Дата</th>
+                          <th class="date">Дата</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -1143,9 +1133,9 @@
                               {{ ledgerKindLabel(row.kind) }}
                             </span>
                           </td>
-                          <td class="num" :class="ledgerAmountClass(row)">{{ ledgerAmountText(row) }}</td>
-                          <td class="muted">{{ ledgerNoteText(row) || '—' }}</td>
-                          <td>{{ formatRecentAt(row.created_at) }}</td>
+                          <td class="num" :class="ledgerAmountClass(row)">{{ ledgerAmountUsd(row) }}</td>
+                          <td class="note muted">{{ ledgerNoteText(row) || '—' }}</td>
+                          <td class="date">{{ formatRecentAt(row.created_at) }}</td>
                         </tr>
                       </tbody>
                     </table>
@@ -1153,14 +1143,14 @@
                 </div>
                 <div>
                   <h3>Последние запросы</h3>
-                  <div class="table-wrap">
-                    <table>
+                  <div class="table-wrap user-detail-table-wrap">
+                    <table class="user-detail-table">
                       <thead>
                         <tr>
                           <th>Модель</th>
                           <th class="num">$</th>
                           <th class="num">Токены</th>
-                          <th>Время</th>
+                          <th class="date">Время</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -1168,10 +1158,10 @@
                           <td colspan="4">Пока пусто</td>
                         </tr>
                         <tr v-for="(row, idx) in userDetail.recent_usage" :key="row.request_id || idx">
-                          <td>{{ row.model }}</td>
+                          <td class="model">{{ row.model }}</td>
                           <td class="num">{{ usd4(row.usd) }}</td>
                           <td class="num">{{ row.tokens }}</td>
-                          <td>{{ formatRecentAt(row.created_at) }}</td>
+                          <td class="date">{{ formatRecentAt(row.created_at) }}</td>
                         </tr>
                       </tbody>
                     </table>
@@ -1880,6 +1870,7 @@ const {
   userDetailError,
   userDetailPeriod,
   userDetailSpendChart,
+  userDetailActiveKey,
   openUserDetail,
   closeUserDetail,
   setUserDetailPeriod,
@@ -3005,7 +2996,7 @@ onMounted(() => {
 }
 .admin-page .user-detail-grid {
   display: grid;
-  grid-template-columns: 1.35fr 1fr;
+  grid-template-columns: 1.2fr 1fr;
   gap: 16px;
   margin-bottom: 18px;
   align-items: start;
@@ -3013,14 +3004,135 @@ onMounted(() => {
 .admin-page .user-detail-grid > * {
   min-width: 0;
 }
-.admin-page .user-info-card {
+.admin-page .user-detail-grid > div > h3 {
+  margin: 0 0 10px;
+  font-size: 15px;
+}
+.admin-page .user-detail-grid-key {
+  grid-template-columns: minmax(240px, 0.85fr) 1.15fr;
+}
+.admin-page .user-info-card,
+.admin-page .user-key-panel {
   padding: 16px;
   border: 1px solid var(--border);
   border-radius: 14px;
   background: var(--surface);
 }
-.admin-page .user-info-card h3 {
+.admin-page .user-info-card h3,
+.admin-page .user-key-panel h3 {
   margin: 0 0 12px;
+}
+.admin-page .user-key-card {
+  display: grid;
+  gap: 14px;
+}
+.admin-page .user-key-main {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+.admin-page .user-key-copy {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 100%;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  font: inherit;
+  color: inherit;
+}
+.admin-page .user-key-copy code {
+  display: inline-block;
+  max-width: min(280px, 70vw);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  color: var(--text);
+  background: var(--surface-soft);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 6px 10px;
+}
+.admin-page .user-key-copy:hover code,
+.admin-page .user-key-copy:focus-visible code {
+  border-color: var(--border-strong);
+  background: #fff;
+}
+.admin-page .user-key-copy.on code {
+  color: var(--ok);
+  background: var(--ok-soft);
+  border-color: #c7e3d4;
+}
+.admin-page .user-key-meta {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin: 0;
+}
+.admin-page .user-key-meta > div {
+  display: grid;
+  gap: 2px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: var(--surface-soft);
+  border: 1px solid var(--border);
+}
+.admin-page .user-key-meta dt {
+  margin: 0;
+  font-size: 11px;
+  color: var(--muted);
+}
+.admin-page .user-key-meta dd {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.admin-page .user-key-empty {
+  margin: 0;
+  padding: 18px 0 6px;
+}
+.admin-page .user-detail-table-wrap {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+.admin-page .user-detail-table {
+  min-width: 0;
+  width: 100%;
+  table-layout: fixed;
+}
+.admin-page .user-detail-table th,
+.admin-page .user-detail-table td {
+  padding: 9px 10px;
+  font-size: 13px;
+  vertical-align: middle;
+}
+.admin-page .user-detail-table th.date,
+.admin-page .user-detail-table td.date {
+  width: 118px;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.admin-page .user-detail-table td.id {
+  width: 48px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.admin-page .user-detail-table td.model,
+.admin-page .user-detail-table td.note {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.admin-page .user-detail-table .badge {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .admin-page .user-dl {
   display: grid;
@@ -3122,15 +3234,18 @@ onMounted(() => {
   line-height: 1.45;
 }
 .admin-page .tiny { font-size: 11px; }
-.admin-page .compact-ledger td { font-size: 13px; }
 @media (max-width: 1100px) {
   .admin-page .user-kpi-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-  .admin-page .user-detail-grid { grid-template-columns: 1fr; }
+  .admin-page .user-detail-grid,
+  .admin-page .user-detail-grid-key { grid-template-columns: 1fr; }
 }
 @media (max-width: 720px) {
   .admin-page .user-kpi-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .admin-page .user-notify-grid { grid-template-columns: 1fr; }
   .admin-page .user-dl > div { grid-template-columns: 1fr; gap: 2px; }
+  .admin-page .user-key-meta { grid-template-columns: 1fr; }
+  .admin-page .user-detail-table th.date,
+  .admin-page .user-detail-table td.date { width: 102px; font-size: 12px; }
 }
 .admin-page .users-sub { margin: 4px 0 0; }
 .admin-page .users-toolbar {

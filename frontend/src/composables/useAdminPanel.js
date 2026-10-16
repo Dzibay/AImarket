@@ -226,6 +226,10 @@ export function useAdminPanel() {
   const userDetailError = ref('')
   const userDetailPeriod = ref(30)
   const userDetailSpendChart = ref({ bars: [], ticks: [], totalLabel: '', subtitle: '' })
+  const userDetailActiveKey = computed(() => {
+    const keys = userDetail.value?.keys || []
+    return keys.find((key) => key.active) || keys[0] || null
+  })
 
   const filteredUsers = computed(() => {
     const q = usersSearch.value.trim().toLowerCase()
@@ -1777,6 +1781,7 @@ export function useAdminPanel() {
     userDetailError,
     userDetailPeriod,
     userDetailSpendChart,
+    userDetailActiveKey,
     openUserDetail,
     closeUserDetail,
     setUserDetailPeriod,

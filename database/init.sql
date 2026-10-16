@@ -217,6 +217,30 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_referral_clicks_visitor
     ON referral_clicks (token, visitor_key)
     WHERE visitor_key <> '';
 
+-- Догон дефицита: регистраций больше, чем кликов (атрибуция без ?ref=/start,
+-- или клики появились позже пользователей). Вставляем ровно offers − visits.
+WITH stats AS (
+    SELECT
+        u.referral_token AS token,
+        COUNT(*)::int AS offers,
+        COALESCE((
+            SELECT COUNT(*)::int FROM referral_clicks c WHERE c.token = u.referral_token
+        ), 0) AS visits
+    FROM users u
+    WHERE u.referral_token <> ''
+      AND EXISTS (SELECT 1 FROM referral_links r WHERE r.token = u.referral_token)
+    GROUP BY u.referral_token
+),
+deficit AS (
+    SELECT token, offers - visits AS need
+    FROM stats
+    WHERE offers > visits
+)
+INSERT INTO referral_clicks (token, visitor_key)
+SELECT d.token, 'backfill:' || d.token || ':' || g.i::text
+FROM deficit d
+CROSS JOIN LATERAL generate_series(1, d.need) AS g(i);
+
 -- ---------------------------------------------------------------------------
 -- Install tokens
 -- ---------------------------------------------------------------------------

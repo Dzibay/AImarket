@@ -142,10 +142,11 @@ def attach_referral(telegram_id: int, body: ReferralIn) -> dict:
     with pool.connection() as conn:
         row = _user_or_404(conn, telegram_id)
         user_id = int(row["id"])
-    # Переход по t.me/...?start=token — сразу в статистику кликов.
+    # Переход по t.me/...?start=token — всегда в клики (даже если токен уже был).
     record_click(body.token, visitor_key=f"tg:{telegram_id}")
     try:
-        attributed = attribute_user(user_id, body.token)
+        # ensure_click=False: клик уже записан как tg:{id}, не дублируем user:{id}.
+        attributed = attribute_user(user_id, body.token, ensure_click=False)
     except ReferralError:
         raise HTTPException(status_code=400, detail="token")
     return {"attributed": attributed}

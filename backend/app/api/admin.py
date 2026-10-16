@@ -455,17 +455,18 @@ def user_detail(user_id: int, days: int = Query(default=30, ge=7, le=90)) -> dic
             (user_id,),
         ).fetchall()
 
-        key_rows = conn.execute(
+        # У пользователя не больше одного активного ключа.
+        key_row = conn.execute(
             """
             SELECT id, name, prefix, quota_usd, created_at, revoked_at,
                    limit_exhausted_notified_at, upstream_id
             FROM api_keys
-            WHERE user_id = %s
+            WHERE user_id = %s AND revoked_at IS NULL
             ORDER BY id DESC
-            LIMIT 30
+            LIMIT 1
             """,
             (user_id,),
-        ).fetchall()
+        ).fetchone()
 
         support_stats = conn.execute(
             """
@@ -538,8 +539,8 @@ def user_detail(user_id: int, days: int = Query(default=30, ge=7, le=90)) -> dic
             "spend_period_usd": float(units_to_usd(int(spend["period_units"] or 0))),
             "requests_total": int(spend["requests"] or 0),
             "requests_period": int(spend["period_requests"] or 0),
-            "keys_active": sum(1 for row in key_rows if row["revoked_at"] is None),
-            "keys_total": len(key_rows),
+            "keys_active": 1 if key_row is not None else 0,
+            "keys_total": 1 if key_row is not None else 0,
             "support_messages": int(support_stats["total"] or 0),
             "support_from_user": int(support_stats["from_user"] or 0),
             "support_from_staff": int(support_stats["from_staff"] or 0),
@@ -602,20 +603,23 @@ def user_detail(user_id: int, days: int = Query(default=30, ge=7, le=90)) -> dic
             }
             for row in ledger_rows
         ],
-        "keys": [
-            {
-                "id": row["id"],
-                "name": row["name"] or "",
-                "prefix": row["prefix"] or "",
-                "quota_usd": float(row["quota_usd"] or 0),
-                "active": row["revoked_at"] is None,
-                "created_at": _ts(row["created_at"]),
-                "revoked_at": _ts(row["revoked_at"]),
-                "limit_exhausted_notified_at": _ts(row["limit_exhausted_notified_at"]),
-                "upstream_id": row["upstream_id"],
-            }
-            for row in key_rows
-        ],
+        "keys": (
+            [
+                {
+                    "id": key_row["id"],
+                    "name": key_row["name"] or "",
+                    "prefix": key_row["prefix"] or "",
+                    "quota_usd": float(key_row["quota_usd"] or 0),
+                    "active": True,
+                    "created_at": _ts(key_row["created_at"]),
+                    "revoked_at": "",
+                    "limit_exhausted_notified_at": _ts(key_row["limit_exhausted_notified_at"]),
+                    "upstream_id": key_row["upstream_id"],
+                }
+            ]
+            if key_row is not None
+            else []
+        ),
         "support_messages": [
             {
                 "id": row["id"],

@@ -206,7 +206,9 @@ def list_links() -> list[dict]:
             ORDER BY CASE WHEN r.token IN ('web') THEN 0 ELSE 1 END, r.id DESC
             """
         ).fetchall()
-    return [_stats_row(row) for row in rows]
+    # Переходов не может быть меньше регистраций: клик могли не записать
+    # (старые TG-старты, атрибуция при оплате/логине без ?ref=).
+    return [_stats_row(_with_visit_floor(row)) for row in rows]
 
 
 def delete_link(link_id: int) -> bool:
@@ -261,7 +263,8 @@ def record_click(token: str, *, visitor_key: str = "") -> bool:
     return True
 
 
-def attribute_user(user_id: int, token: str) -> bool:
+def attribute_user(user_id: int, token: str, *, ensure_click: bool = True) -> bool:
+    """Привязывает токен к пользователю. По умолчанию пишет клик user:{id}, если атрибуция новая."""
     value = normalize_token(token)
     if not value or value.startswith(_RESERVED_PREFIX):
         return False
@@ -281,7 +284,21 @@ def attribute_user(user_id: int, token: str) -> bool:
             """,
             (value, user_id),
         ).fetchone()
-    return updated is not None
+    if updated is None:
+        return False
+    # Регистрация без предварительного ?ref= / если клик потеряли — всё равно считаем переход.
+    if ensure_click:
+        record_click(value, visitor_key=f"user:{user_id}")
+    return True
+
+
+def _with_visit_floor(row: dict) -> dict:
+    data = dict(row)
+    visits = int(data.get("visits") or 0)
+    offers = int(data.get("offers_accepted") or 0)
+    if offers > visits:
+        data["visits"] = offers
+    return data
 
 
 def _group_row(row: dict, *, tokens: int) -> dict:
