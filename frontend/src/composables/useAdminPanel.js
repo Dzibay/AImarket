@@ -266,6 +266,7 @@ export function useAdminPanel() {
   const supportSending = ref(false)
   const supportLoading = ref(false)
   let supportPollTimer = null
+  let supportThreadSeq = 0
 
   const financeSummary = ref(null)
   const financeSection = ref('expenses')
@@ -446,6 +447,7 @@ export function useAdminPanel() {
   async function api(path, options = {}) {
     const response = await fetch(path, {
       ...options,
+      cache: 'no-store',
       headers: { ...authHeaders(), ...options.headers },
     })
     if (response.status === 401) {
@@ -1099,7 +1101,6 @@ export function useAdminPanel() {
   function setTab(tab) {
     activeTab.value = tab
     if (tab === 'support') {
-      loadSupportThreads()
       startSupportPoll()
     } else {
       stopSupportPoll()
@@ -1141,9 +1142,18 @@ export function useAdminPanel() {
     }
   }
 
+  function mergeSupportMessages(incoming) {
+    const next = Array.isArray(incoming) ? incoming : []
+    const known = new Set(next.map((item) => item.id))
+    const extra = supportMessages.value.filter((item) => item && item.id != null && !known.has(item.id))
+    if (!extra.length) return next
+    return [...next, ...extra].sort((a, b) => Number(a.id) - Number(b.id))
+  }
+
   async function openSupportThread(threadKey, { quiet = false } = {}) {
     const path = supportThreadPath(threadKey)
     if (!path) return
+    const seq = ++supportThreadSeq
     supportActiveId.value = threadKey
     if (!quiet) {
       supportError.value = ''
@@ -1151,10 +1161,16 @@ export function useAdminPanel() {
     }
     try {
       const data = await api(path)
+      if (seq !== supportThreadSeq || supportActiveId.value !== threadKey) return
       const prevLen = supportMessages.value.length
       const prevLast = supportMessages.value.at(-1)?.id
+      const sameThread = supportUser.value
+        && supportUser.value.kind === data.kind
+        && supportUser.value.id === data.user?.id
       supportUser.value = { ...data.user, kind: data.kind }
-      supportMessages.value = data.messages || []
+      supportMessages.value = sameThread
+        ? mergeSupportMessages(data.messages)
+        : (data.messages || [])
       const grew = supportMessages.value.length !== prevLen
         || supportMessages.value.at(-1)?.id !== prevLast
       if (!quiet || grew) {
@@ -1163,9 +1179,10 @@ export function useAdminPanel() {
         if (scroller) scroller.scrollTop = scroller.scrollHeight
       }
     } catch (error) {
+      if (seq !== supportThreadSeq) return
       if (!quiet) supportError.value = error.message || 'error'
     } finally {
-      if (!quiet) supportLoading.value = false
+      if (!quiet && seq === supportThreadSeq) supportLoading.value = false
     }
   }
 
@@ -1195,11 +1212,13 @@ export function useAdminPanel() {
 
   function startSupportPoll() {
     stopSupportPoll()
-    supportPollTimer = setInterval(() => {
+    const tick = () => {
       if (document.visibilityState !== 'visible' || supportSending.value) return
       loadSupportThreads()
       if (supportActiveId.value) openSupportThread(supportActiveId.value, { quiet: true })
-    }, 15000)
+    }
+    tick()
+    supportPollTimer = setInterval(tick, 4000)
   }
 
   function stopSupportPoll() {

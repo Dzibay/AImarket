@@ -26,6 +26,7 @@ CREATE TABLE IF NOT EXISTS users (
     email_login_hash            TEXT NOT NULL DEFAULT '',
     email_login_expires_at      TIMESTAMPTZ,
     support_telegram_topic_id   BIGINT,
+    support_telegram_synced_id  BIGINT,
     support_seen_at             TIMESTAMPTZ,
     created_at                  TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
@@ -48,6 +49,7 @@ ALTER TABLE users ADD COLUMN IF NOT EXISTS email TEXT NOT NULL DEFAULT '';
 ALTER TABLE users ADD COLUMN IF NOT EXISTS email_login_hash TEXT NOT NULL DEFAULT '';
 ALTER TABLE users ADD COLUMN IF NOT EXISTS email_login_expires_at TIMESTAMPTZ;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS support_telegram_topic_id BIGINT;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS support_telegram_synced_id BIGINT;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS support_seen_at TIMESTAMPTZ;
 
 CREATE INDEX IF NOT EXISTS idx_users_referral_token
@@ -199,11 +201,13 @@ CREATE TABLE IF NOT EXISTS support_guests (
     id                BIGSERIAL PRIMARY KEY,
     token_hash        TEXT NOT NULL UNIQUE,
     telegram_topic_id BIGINT,
+    telegram_synced_id BIGINT,
     seen_at           TIMESTAMPTZ,
     created_at        TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 ALTER TABLE support_guests ADD COLUMN IF NOT EXISTS telegram_topic_id BIGINT;
+ALTER TABLE support_guests ADD COLUMN IF NOT EXISTS telegram_synced_id BIGINT;
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_support_guests_topic
     ON support_guests (telegram_topic_id) WHERE telegram_topic_id IS NOT NULL;
@@ -213,6 +217,7 @@ CREATE TABLE IF NOT EXISTS support_messages (
     user_id     BIGINT REFERENCES users (id) ON DELETE CASCADE,
     guest_id    BIGINT REFERENCES support_guests (id) ON DELETE CASCADE,
     author_kind TEXT NOT NULL CHECK (author_kind IN ('user', 'staff')),
+    source      TEXT NOT NULL DEFAULT 'site' CHECK (source IN ('site', 'telegram')),
     body        TEXT NOT NULL,
     created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     CHECK (
@@ -223,6 +228,9 @@ CREATE TABLE IF NOT EXISTS support_messages (
 
 ALTER TABLE support_messages ALTER COLUMN user_id DROP NOT NULL;
 ALTER TABLE support_messages ADD COLUMN IF NOT EXISTS guest_id BIGINT REFERENCES support_guests (id) ON DELETE CASCADE;
+ALTER TABLE support_messages ADD COLUMN IF NOT EXISTS source TEXT NOT NULL DEFAULT 'site';
+ALTER TABLE support_messages DROP CONSTRAINT IF EXISTS support_messages_source_check;
+ALTER TABLE support_messages ADD CONSTRAINT support_messages_source_check CHECK (source IN ('site', 'telegram'));
 
 CREATE INDEX IF NOT EXISTS idx_support_messages_user
     ON support_messages (user_id, created_at) WHERE user_id IS NOT NULL;

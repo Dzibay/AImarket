@@ -10,6 +10,7 @@ from app.support_telegram import (
     after_guest_claim,
     forward_staff_message,
     forward_user_message,
+    notify_telegram_message,
 )
 from app.web_auth import key_hash
 
@@ -154,6 +155,17 @@ def claim_guest_messages(user_id: int, raw_token: str) -> int:
                 (guest_id,),
             )
         conn.execute("DELETE FROM support_guests WHERE id = %s", (guest_id,))
+        conn.execute(
+            """
+            UPDATE users
+            SET support_telegram_synced_id = (
+                SELECT MAX(id) FROM support_messages WHERE user_id = %s
+            )
+            WHERE id = %s
+              AND support_telegram_topic_id IS NOT NULL
+            """,
+            (user_id, user_id),
+        )
 
     # guest_topic_id / user_topic_id — значения до слияния.
     after_guest_claim(
@@ -166,18 +178,28 @@ def claim_guest_messages(user_id: int, raw_token: str) -> int:
     return count
 
 
-def list_messages(user_id: int, *, mark_seen: bool = False) -> dict:
-    with pool.connection() as conn:
-        rows = conn.execute(
-            """
+def _recent_messages(conn, column: str, ref_id: int) -> list:
+    if column not in {"user_id", "guest_id"}:
+        raise ValueError(column)
+    return conn.execute(
+        f"""
+        SELECT id, author_kind, body, created_at
+        FROM (
             SELECT id, author_kind, body, created_at
             FROM support_messages
-            WHERE user_id = %s
-            ORDER BY created_at ASC, id ASC
+            WHERE {column} = %s
+            ORDER BY created_at DESC, id DESC
             LIMIT %s
-            """,
-            (user_id, _MAX_MESSAGES),
-        ).fetchall()
+        ) recent
+        ORDER BY created_at ASC, id ASC
+        """,
+        (ref_id, _MAX_MESSAGES),
+    ).fetchall()
+
+
+def list_messages(user_id: int, *, mark_seen: bool = False) -> dict:
+    with pool.connection() as conn:
+        rows = _recent_messages(conn, "user_id", user_id)
         unread = _unread_for_user(conn, user_id)
         if mark_seen:
             conn.execute(
@@ -191,16 +213,7 @@ def list_messages(user_id: int, *, mark_seen: bool = False) -> dict:
 def list_guest_messages(token: str, *, mark_seen: bool = False) -> dict:
     with pool.connection() as conn:
         guest_id = _guest_id(conn, token)
-        rows = conn.execute(
-            """
-            SELECT id, author_kind, body, created_at
-            FROM support_messages
-            WHERE guest_id = %s
-            ORDER BY created_at ASC, id ASC
-            LIMIT %s
-            """,
-            (guest_id, _MAX_MESSAGES),
-        ).fetchall()
+        rows = _recent_messages(conn, "guest_id", guest_id)
         unread = _unread_for_guest(conn, guest_id)
         if mark_seen:
             conn.execute(
@@ -235,7 +248,7 @@ def post_user_message(user_id: int, body: str) -> dict:
             (user_id,),
         )
     message = _message_row(row)
-    forward_user_message(user_id=user_id, body=text)
+    forward_user_message(user_id=user_id, body=text, message_id=message["id"])
     return message
 
 
@@ -256,7 +269,7 @@ def post_guest_message(token: str, body: str) -> dict:
             (guest_id,),
         )
     message = _message_row(row)
-    forward_user_message(guest_id=guest_id, body=text)
+    forward_user_message(guest_id=guest_id, body=text, message_id=message["id"])
     return message
 
 
@@ -275,7 +288,7 @@ def post_staff_message(user_id: int, body: str) -> dict:
             (user_id, text),
         ).fetchone()
     message = _message_row(row)
-    forward_staff_message(user_id=user_id, body=text)
+    forward_staff_message(user_id=user_id, body=text, message_id=message["id"])
     return message
 
 
@@ -294,7 +307,7 @@ def post_staff_guest_message(guest_id: int, body: str) -> dict:
             (guest_id, text),
         ).fetchone()
     message = _message_row(row)
-    forward_staff_message(guest_id=guest_id, body=text)
+    forward_staff_message(guest_id=guest_id, body=text, message_id=message["id"])
     return message
 
 # Keep a silent path for Telegram→site replies (без эха обратно в группу).
@@ -306,13 +319,15 @@ def post_staff_message_from_telegram(user_id: int, body: str) -> dict:
             raise LookupError("user")
         row = conn.execute(
             """
-            INSERT INTO support_messages (user_id, author_kind, body)
-            VALUES (%s, 'staff', %s)
+            INSERT INTO support_messages (user_id, author_kind, source, body)
+            VALUES (%s, 'staff', 'telegram', %s)
             RETURNING id, author_kind, body, created_at
             """,
             (user_id, text),
         ).fetchone()
-    return _message_row(row)
+    message = _message_row(row)
+    notify_telegram_message(user_id=user_id, message_id=message["id"])
+    return message
 
 
 def post_staff_guest_message_from_telegram(guest_id: int, body: str) -> dict:
@@ -323,13 +338,15 @@ def post_staff_guest_message_from_telegram(guest_id: int, body: str) -> dict:
             raise LookupError("guest")
         row = conn.execute(
             """
-            INSERT INTO support_messages (guest_id, author_kind, body)
-            VALUES (%s, 'staff', %s)
+            INSERT INTO support_messages (guest_id, author_kind, source, body)
+            VALUES (%s, 'staff', 'telegram', %s)
             RETURNING id, author_kind, body, created_at
             """,
             (guest_id, text),
         ).fetchone()
-    return _message_row(row)
+    message = _message_row(row)
+    notify_telegram_message(guest_id=guest_id, message_id=message["id"])
+    return message
 
 
 def unread_count(user_id: int) -> int:
@@ -378,16 +395,7 @@ def list_guest_messages_by_id(guest_id: int) -> dict:
         exists = conn.execute("SELECT 1 FROM support_guests WHERE id = %s", (guest_id,)).fetchone()
         if exists is None:
             raise LookupError("guest")
-        rows = conn.execute(
-            """
-            SELECT id, author_kind, body, created_at
-            FROM support_messages
-            WHERE guest_id = %s
-            ORDER BY created_at ASC, id ASC
-            LIMIT %s
-            """,
-            (guest_id, _MAX_MESSAGES),
-        ).fetchall()
+        rows = _recent_messages(conn, "guest_id", guest_id)
     return {"messages": [_message_row(row) for row in rows], "unread": 0}
 
 

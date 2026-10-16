@@ -4,7 +4,7 @@ from datetime import date, datetime, timedelta
 from decimal import Decimal
 from zoneinfo import ZoneInfo
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from psycopg.errors import UniqueViolation
 from pydantic import BaseModel, Field
 
@@ -943,17 +943,20 @@ def delete_referral_group_admin(group_id: int) -> dict:
 
 
 @router.get("/support/threads", dependencies=[Depends(require_admin)])
-def support_threads(waiting: bool = Query(default=False)) -> dict:
+def support_threads(response: Response, waiting: bool = Query(default=False)) -> dict:
+    response.headers["Cache-Control"] = "no-store"
     return {"items": list_threads(waiting_only=waiting), "waiting": waiting_count()}
 
 
 @router.get("/support/waiting", dependencies=[Depends(require_admin)])
-def support_waiting() -> dict:
+def support_waiting(response: Response) -> dict:
+    response.headers["Cache-Control"] = "no-store"
     return {"waiting": waiting_count()}
 
 
 @router.get("/support/threads/{kind}/{thread_id}", dependencies=[Depends(require_admin)])
-def support_thread(kind: str, thread_id: int) -> dict:
+def support_thread(kind: str, thread_id: int, response: Response) -> dict:
+    response.headers["Cache-Control"] = "no-store"
     if kind == "user":
         with pool.connection() as conn:
             user = conn.execute(

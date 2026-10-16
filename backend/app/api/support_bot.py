@@ -8,7 +8,7 @@ from app.support import (
     post_staff_guest_message_from_telegram,
     post_staff_message_from_telegram,
 )
-from app.support_telegram import resolve_topic, support_telegram_chat_id
+from app.support_telegram import remember_topic, resolve_anchor, resolve_topic, support_telegram_chat_id
 
 router = APIRouter(dependencies=[Depends(require_bot)], tags=["support-bot"])
 
@@ -16,6 +16,7 @@ router = APIRouter(dependencies=[Depends(require_bot)], tags=["support-bot"])
 class TelegramReplyIn(BaseModel):
     topic_id: int = Field(gt=0)
     body: str = Field(min_length=1, max_length=4000)
+    anchor: str = Field(default="", max_length=4000)
 
 
 @router.get("/support/telegram/config")
@@ -27,6 +28,10 @@ def telegram_config() -> dict:
 @router.post("/support/telegram/reply")
 def telegram_reply(body: TelegramReplyIn) -> dict:
     target = resolve_topic(body.topic_id)
+    if target is None:
+        target = resolve_anchor(body.anchor)
+        if target is not None:
+            remember_topic(target["kind"], target["id"], body.topic_id)
     if target is None:
         raise HTTPException(status_code=404, detail="topic")
     try:

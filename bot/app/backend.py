@@ -136,9 +136,9 @@ async def support_telegram_config() -> dict:
     return await _request("GET", "/api/support/telegram/config")
 
 
-async def support_telegram_reply(topic_id: int, body: str) -> dict:
-    return await _request(
-        "POST",
-        "/api/support/telegram/reply",
-        {"topic_id": topic_id, "body": body},
-    )
+async def support_telegram_reply(topic_id: int, body: str, anchor: str = "") -> dict:
+    payload = {"topic_id": topic_id, "body": body}
+    text = (anchor or "").strip()
+    if text:
+        payload["anchor"] = text[:4000]
+    return await _request("POST", "/api/support/telegram/reply", payload)
