@@ -118,13 +118,19 @@ const support = computed(() => {
 
 const emailOk = computed(() => /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email.value.trim()))
 
+function afterLoginPath() {
+  const next = String(route.query.next || '').trim()
+  if (next === 'chat') return '/help?chat=1'
+  return '/cabinet'
+}
+
 async function loginByLink(token) {
   linkState.value = 'checking'
   try {
     const result = await webApi.loginByLink(token)
     setSession(result.session)
     await claimGuestSupportIfNeeded()
-    router.replace('/cabinet')
+    router.replace(afterLoginPath())
   } catch (err) {
     linkError.value = errorText(err)
     linkState.value = 'failed'

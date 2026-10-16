@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import secrets
 
 from app.datetime_util import iso_utc
@@ -13,6 +14,8 @@ from app.support_telegram import (
     notify_telegram_message,
 )
 from app.web_auth import key_hash
+
+log = logging.getLogger("app.support")
 
 _MAX_BODY = 4000
 _MAX_MESSAGES = 200
@@ -201,13 +204,63 @@ def list_messages(user_id: int, *, mark_seen: bool = False) -> dict:
     with pool.connection() as conn:
         rows = _recent_messages(conn, "user_id", user_id)
         unread = _unread_for_user(conn, user_id)
+        prefs = conn.execute(
+            """
+            SELECT email, notify_support_email
+            FROM users WHERE id = %s
+            """,
+            (user_id,),
+        ).fetchone()
         if mark_seen:
             conn.execute(
                 "UPDATE users SET support_seen_at = NOW() WHERE id = %s",
                 (user_id,),
             )
             unread = 0
-    return {"messages": [_message_row(row) for row in rows], "unread": unread}
+    from app.mailer import enabled as mail_enabled
+
+    has_email = bool(prefs and (prefs["email"] or "").strip())
+    return {
+        "messages": [_message_row(row) for row in rows],
+        "unread": unread,
+        "email_notify": {
+            "available": has_email and mail_enabled(),
+            "enabled": bool(prefs["notify_support_email"]) if prefs is not None else True,
+        },
+    }
+
+
+def set_support_email_notify(user_id: int, enabled: bool) -> dict:
+    from app.mailer import enabled as mail_enabled
+
+    with pool.connection() as conn:
+        row = conn.execute(
+            """
+            UPDATE users
+            SET notify_support_email = %s
+            WHERE id = %s
+            RETURNING email, notify_support_email
+            """,
+            (bool(enabled), user_id),
+        ).fetchone()
+    if row is None:
+        raise LookupError("user")
+    has_email = bool((row["email"] or "").strip())
+    return {
+        "email_notify": {
+            "available": has_email and mail_enabled(),
+            "enabled": bool(row["notify_support_email"]),
+        }
+    }
+
+
+def _notify_support_email(user_id: int, body: str) -> None:
+    try:
+        from app.mailer import maybe_send_support_reply_email
+
+        maybe_send_support_reply_email(user_id, body)
+    except Exception:
+        log.exception("не удалось отправить письмо о ответе поддержки user=%s", user_id)
 
 
 def list_guest_messages(token: str, *, mark_seen: bool = False) -> dict:
@@ -289,6 +342,7 @@ def post_staff_message(user_id: int, body: str) -> dict:
         ).fetchone()
     message = _message_row(row)
     forward_staff_message(user_id=user_id, body=text, message_id=message["id"])
+    _notify_support_email(user_id, text)
     return message
 
 
@@ -327,6 +381,7 @@ def post_staff_message_from_telegram(user_id: int, body: str) -> dict:
         ).fetchone()
     message = _message_row(row)
     notify_telegram_message(user_id=user_id, message_id=message["id"])
+    _notify_support_email(user_id, text)
     return message
 
 

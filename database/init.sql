@@ -21,6 +21,8 @@ CREATE TABLE IF NOT EXISTS users (
     notify_low_balance          BOOLEAN NOT NULL DEFAULT TRUE,
     notify_limit_exhausted      BOOLEAN NOT NULL DEFAULT TRUE,
     notify_topup                BOOLEAN NOT NULL DEFAULT TRUE,
+    notify_support_email        BOOLEAN NOT NULL DEFAULT TRUE,
+    support_mail_sent_at        TIMESTAMPTZ,
     low_balance_notified_at     TIMESTAMPTZ,
     referral_token              TEXT NOT NULL DEFAULT '',
     email_login_hash            TEXT NOT NULL DEFAULT '',
@@ -42,6 +44,8 @@ ALTER TABLE users ADD COLUMN IF NOT EXISTS notify_spend BOOLEAN NOT NULL DEFAULT
 ALTER TABLE users ADD COLUMN IF NOT EXISTS notify_low_balance BOOLEAN NOT NULL DEFAULT TRUE;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS notify_limit_exhausted BOOLEAN NOT NULL DEFAULT TRUE;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS notify_topup BOOLEAN NOT NULL DEFAULT TRUE;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS notify_support_email BOOLEAN NOT NULL DEFAULT TRUE;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS support_mail_sent_at TIMESTAMPTZ;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS low_balance_notified_at TIMESTAMPTZ;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS referral_token TEXT NOT NULL DEFAULT '';
 ALTER TABLE users ALTER COLUMN telegram_id DROP NOT NULL;

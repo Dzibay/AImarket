@@ -36,6 +36,7 @@ from app.support import (
     list_messages,
     post_guest_message,
     post_user_message,
+    set_support_email_notify,
     unread_count,
 )
 from app.telegram_link import bot_start_url
@@ -98,6 +99,10 @@ class GuestMessageIn(BaseModel):
 
 class SupportClaimIn(BaseModel):
     token: str = Field(default="", max_length=200)
+
+
+class SupportEmailNotifyIn(BaseModel):
+    enabled: bool
 
 
 def _config_payload() -> dict:
@@ -578,6 +583,14 @@ def support_send(body: SupportMessageIn, user_id: int = Depends(require_web_user
         code = str(exc) if str(exc) in {"message", "long"} else "message"
         raise HTTPException(status_code=400, detail=code) from None
     return {"message": message}
+
+
+@router.put("/web/support/email-notify")
+def support_email_notify(body: SupportEmailNotifyIn, user_id: int = Depends(require_web_user)) -> dict:
+    try:
+        return set_support_email_notify(user_id, body.enabled)
+    except LookupError:
+        raise HTTPException(status_code=401, detail="unauthorized") from None
 
 
 @router.post("/web/support/guest/session")

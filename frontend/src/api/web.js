@@ -43,6 +43,11 @@ export const webApi = {
   supportClaim: (token) =>
     request('/api/web/support/claim', { method: 'POST', body: JSON.stringify({ token }) }),
   supportSend: (body) => request('/api/web/support/messages', { method: 'POST', body: JSON.stringify({ body }) }),
+  supportEmailNotify: (enabled) =>
+    request('/api/web/support/email-notify', {
+      method: 'PUT',
+      body: JSON.stringify({ enabled: !!enabled }),
+    }),
   supportGuestSession: (token = '') =>
     request('/api/web/support/guest/session', { method: 'POST', body: JSON.stringify({ token }) }),
   supportGuestMessages: (token, markSeen = true) =>

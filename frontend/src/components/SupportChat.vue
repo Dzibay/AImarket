@@ -24,6 +24,15 @@
     </div>
 
     <form class="composer" @submit.prevent="send">
+      <label v-if="emailNotifyAvailable" class="mail-pref">
+        <input
+          v-model="emailNotifyEnabled"
+          type="checkbox"
+          :disabled="emailNotifyBusy"
+          @change="saveEmailNotify"
+        >
+        <span>Письма о ответах на почту</span>
+      </label>
       <textarea
         ref="input"
         v-model="draft"
@@ -71,6 +80,9 @@ const loading = ref(false)
 const sending = ref(false)
 const ready = ref(false)
 const error = ref('')
+const emailNotifyAvailable = ref(false)
+const emailNotifyEnabled = ref(true)
+const emailNotifyBusy = ref(false)
 const scroller = ref(null)
 const input = ref(null)
 let pollTimer = null
@@ -103,9 +115,35 @@ async function ensureAccess() {
   ready.value = Boolean(guestToken)
 }
 
+function applyEmailNotify(data) {
+  if (emailNotifyBusy.value) return
+  const prefs = data?.email_notify
+  if (!prefs || isGuest.value) {
+    emailNotifyAvailable.value = false
+    return
+  }
+  emailNotifyAvailable.value = !!prefs.available
+  emailNotifyEnabled.value = prefs.enabled !== false
+}
+
 async function fetchMessages(markSeen = true) {
   if (getSession()) return webApi.supportMessages(markSeen)
   return webApi.supportGuestMessages(guestToken || getGuestSupportToken(), markSeen)
+}
+
+async function saveEmailNotify() {
+  if (!getSession() || emailNotifyBusy.value) return
+  emailNotifyBusy.value = true
+  const enabled = emailNotifyEnabled.value
+  try {
+    const data = await webApi.supportEmailNotify(enabled)
+    applyEmailNotify(data)
+  } catch (err) {
+    emailNotifyEnabled.value = !enabled
+    error.value = errorText(err)
+  } finally {
+    emailNotifyBusy.value = false
+  }
 }
 
 async function postMessage(body) {
@@ -120,6 +158,7 @@ async function load() {
     await ensureAccess()
     const data = await fetchMessages()
     messages.value = data.messages || []
+    applyEmailNotify(data)
     clearUnread()
     await scrollBottom()
   } catch (err) {
@@ -128,6 +167,7 @@ async function load() {
         guestToken = await resetGuestSupportToken()
         const data = await fetchMessages()
         messages.value = data.messages || []
+        applyEmailNotify(data)
         clearUnread()
         await scrollBottom()
         return
@@ -191,6 +231,7 @@ async function pullMessages({ markRead = false } = {}) {
     const nextLastId = next.at(-1)?.id
     const grew = next.length !== messages.value.length || nextLastId !== lastId
     messages.value = next
+    applyEmailNotify(data)
     if (markRead) {
       clearUnread()
       clearSupportNotify()
@@ -332,6 +373,23 @@ defineExpose({ load, refresh: load })
   background: #fff;
   display: grid;
   gap: 8px;
+}
+.mail-pref {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  font-size: 12px;
+  color: var(--muted);
+  cursor: pointer;
+  user-select: none;
+}
+.mail-pref input {
+  width: 14px;
+  height: 14px;
+  margin: 0;
+  accent-color: var(--accent);
+  cursor: pointer;
 }
 .area {
   min-height: 64px;

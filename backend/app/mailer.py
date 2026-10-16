@@ -285,6 +285,149 @@ def _payment_message(
     return text, body_html
 
 
+# Не чаще одного письма о ответе поддержки за этот интервал (антиспам в активном диалоге).
+_SUPPORT_MAIL_COOLDOWN_MIN = 20
+
+
+def _support_preview(body: str, limit: int = 420) -> str:
+    text = (body or "").strip()
+    if not text:
+        return ""
+    if len(text) <= limit:
+        return text
+    cut = text[: limit - 1].rsplit(" ", 1)[0].rstrip()
+    return (cut or text[: limit - 1]) + "…"
+
+
+def maybe_send_support_reply_email(user_id: int, body: str) -> bool:
+    """Письмо о новом ответе поддержки: только если включены уведомления и прошла пауза."""
+    if not enabled():
+        return False
+    preview = _support_preview(body)
+    if not preview:
+        return False
+    with pool.connection() as conn:
+        row = conn.execute(
+            """
+            UPDATE users
+            SET support_mail_sent_at = NOW()
+            WHERE id = %s
+              AND notify_support_email
+              AND BTRIM(email) <> ''
+              AND (
+                    support_mail_sent_at IS NULL
+                    OR support_mail_sent_at < NOW() - make_interval(mins => %s)
+                  )
+            RETURNING email
+            """,
+            (user_id, _SUPPORT_MAIL_COOLDOWN_MIN),
+        ).fetchone()
+    if row is None:
+        return False
+    email = str(row["email"]).strip()
+    if not email:
+        return False
+    token = issue_email_login_token(user_id)
+    link = f"{login_link(token)}&next=chat"
+    support = _support_line()
+    subject = "Ответ поддержки Aimarket"
+    text, body_html = _support_reply_message(preview=preview, link=link, support=support)
+    send_async(email, subject, text, body_html)
+    return True
+
+
+def _support_reply_message(*, preview: str, link: str, support: str) -> tuple[str, str]:
+    ttl = settings.email_login_ttl_days
+    safe_preview = html.escape(preview).replace("\n", "<br>")
+    text = (
+        "Поддержка ответила в чате Aimarket.\n\n"
+        f"{preview}\n\n"
+        f"Открыть чат (действует {ttl} дн.):\n{link}\n\n"
+        "Отключить письма можно в чате поддержки на сайте.\n\n"
+        f"{support}\n"
+    )
+    # Стили как на сайте: cream bg, белая карточка, «пузырь» ответа поддержки.
+    body_html = f"""<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Ответ поддержки Aimarket</title>
+</head>
+<body style="margin:0;padding:0;background:#f4f1ea;font:16px/1.55 'Segoe UI',system-ui,-apple-system,sans-serif;color:#1c1915">
+  <div style="display:none;max-height:0;overflow:hidden;opacity:0">
+    Поддержка ответила: {html.escape(preview[:120])}
+  </div>
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f4f1ea;border-collapse:collapse">
+    <tr>
+      <td align="center" style="padding:36px 16px">
+        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:560px;border-collapse:collapse">
+          <tr>
+            <td style="padding:0 4px 18px;font-weight:700;letter-spacing:-0.03em;font-size:20px;color:#1c1915">
+              Aimarket
+            </td>
+          </tr>
+          <tr>
+            <td style="background:#ffffff;border:1px solid rgba(28,25,21,0.08);border-radius:16px;overflow:hidden;box-shadow:0 14px 30px rgba(28,25,21,0.08)">
+              <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse">
+                <tr>
+                  <td style="padding:22px 24px 8px">
+                    <p style="margin:0 0 6px;font-size:12px;font-weight:600;letter-spacing:0.06em;text-transform:uppercase;color:#6b645b">
+                      Чат поддержки
+                    </p>
+                    <h1 style="margin:0;font-size:24px;line-height:1.25;letter-spacing:-0.03em;font-weight:700;color:#1c1915">
+                      Вам ответили
+                    </h1>
+                    <p style="margin:10px 0 0;font-size:15px;line-height:1.5;color:#4f473d">
+                      Новое сообщение в переписке на сайте.
+                    </p>
+                  </td>
+                </tr>
+                <tr>
+                  <td style="padding:12px 24px 8px">
+                    <div style="background:#faf7f2;border:1px solid rgba(28,25,21,0.08);border-radius:14px;padding:16px">
+                      <p style="margin:0 0 8px;font-size:12px;font-weight:600;color:#6b645b">Поддержка</p>
+                      <div style="display:inline-block;max-width:100%;padding:12px 14px;background:#ffffff;border:1px solid #d9d0c3;border-radius:14px;border-bottom-left-radius:4px;color:#1c1915;font-size:15px;line-height:1.5;text-align:left">
+                        {safe_preview}
+                      </div>
+                    </div>
+                  </td>
+                </tr>
+                <tr>
+                  <td style="padding:20px 24px 10px;text-align:center">
+                    <a href="{html.escape(link)}"
+                       style="display:inline-block;padding:14px 28px;border-radius:999px;background:#1c1915;color:#f4f1ea;font-weight:600;font-size:15px;text-decoration:none;box-shadow:0 14px 30px rgba(28,25,21,0.16)">
+                      Открыть чат
+                    </a>
+                  </td>
+                </tr>
+                <tr>
+                  <td style="padding:0 24px 22px;text-align:center">
+                    <p style="margin:0;font-size:13px;line-height:1.5;color:#6b645b">
+                      Ссылка действует {ttl} дн. и сразу открывает чат.<br>
+                      Если кнопка не работает, скопируйте:<br>
+                      <span style="word-break:break-all;color:#4f473d">{html.escape(link)}</span>
+                    </p>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:18px 8px 0;text-align:center;font-size:13px;line-height:1.5;color:#6b645b">
+              Письма можно отключить в чате поддержки на сайте.<br>
+              {html.escape(support)}
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>"""
+    return text, body_html
+
+
 def _support_line() -> str:
     parts = []
     email = (get_setting("offer_email") or get_setting("seller_email")).strip()
