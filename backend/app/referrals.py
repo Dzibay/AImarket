@@ -353,14 +353,18 @@ def user_program_stats(user_id: int) -> dict | None:
     }
 
 
-def credit_referral_bonus(*, payer_user_id: int, topup_id: int, amount_usd: Decimal) -> Decimal:
-    """Начисляет рефереру % от оплаченной суммы (без бонуса к пополнению). 0 — если нечего начислять."""
+def credit_referral_bonus(*, payer_user_id: int, topup_id: int, purchase_usd: Decimal) -> Decimal:
+    """Начисляет рефереру % от суммы покупки приглашённого.
+
+    База — только purchase_usd (topups.amount_usd). Бонус к пополнению
+    приглашённого (topups.bonus_usd) в расчёт не входит.
+    """
     from app.money import referral_bonus_percent
 
     percent = referral_bonus_percent()
     if percent <= 0:
         return Decimal("0")
-    paid = Decimal(str(amount_usd or 0))
+    paid = Decimal(str(purchase_usd or 0))
     if paid <= 0:
         return Decimal("0")
 

@@ -309,8 +309,12 @@ CREATE TABLE IF NOT EXISTS app_settings (
 
 INSERT INTO app_settings (key, value) VALUES
     ('supplier_usd_price_rub', ''),
-    ('referral_bonus_percent', '')
+    ('referral_bonus_percent', '20')
 ON CONFLICT (key) DO NOTHING;
+
+UPDATE app_settings
+SET value = '20'
+WHERE key = 'referral_bonus_percent' AND BTRIM(value) = '';
 
 -- ---------------------------------------------------------------------------
 -- Бухгалтерия компании

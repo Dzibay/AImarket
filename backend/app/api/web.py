@@ -270,19 +270,35 @@ def _profile(user_id: int) -> dict:
     key_frozen = bool(key and key.get("frozen"))
     referral = None
     if not blocked:
+        percent = float(referral_bonus_percent())
         try:
             program = user_program_stats(user_id)
-            if program is not None:
-                percent = float(referral_bonus_percent())
-                base = public_base_url().rstrip("/")
-                referral = {
-                    **program,
-                    "bonus_percent": percent,
-                    "site_url": f"{base}/?ref={program['token']}" if base else "",
-                }
         except Exception:
             log.exception("реферальная программа user=%s", user_id)
+            program = None
+        if program is not None:
+            base = public_base_url().rstrip("/")
+            referral = {
+                **program,
+                "unlocked": True,
+                "bonus_percent": percent,
+                "site_url": f"{base}/?ref={program['token']}" if base else "",
+            }
+        else:
+            # Блок в кабинете всегда есть: без оплаты — locked-состояние.
+            referral = {
+                "unlocked": False,
+                "bonus_percent": percent,
+                "token": "",
+                "site_url": "",
+                "visits": 0,
+                "invited": 0,
+                "payers": 0,
+                "earned_usd": 0.0,
+            }
+    # referral после config — чтобы кэш настроек не перетёр поле.
     return {
+        **_config_payload(),
         "id": int(row["id"]),
         "email": row["email"] or "",
         "balance_usd": float(row["balance_usd"]),
@@ -298,7 +314,6 @@ def _profile(user_id: int) -> dict:
         "spent_week_usd": stats["spent_week_usd"],
         "last_request_at": iso_utc(stats["last_request_at"]),
         "referral": referral,
-        **_config_payload(),
     }
 
 

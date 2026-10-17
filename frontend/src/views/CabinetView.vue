@@ -324,11 +324,17 @@
 
             <section v-if="profile.referral" id="referral" class="anchor">
               <h2 class="section-title">Реферальная программа</h2>
-              <div class="referral-hero card">
+              <div class="referral-hero card" :class="{ locked: !referralUnlocked }">
                 <div class="referral-hero-main">
-                  <span class="referral-eyebrow"><AppIcon name="gift" :size="16" />Приглашайте друзей</span>
+                  <span class="referral-eyebrow">
+                    <AppIcon :name="referralUnlocked ? 'gift' : 'lock'" :size="16" />
+                    {{ referralUnlocked ? 'Приглашайте друзей' : 'Почти готово' }}
+                  </span>
                   <h3 class="referral-title">
-                    <template v-if="profile.referral.bonus_percent > 0">
+                    <template v-if="!referralUnlocked">
+                      Ссылка откроется после первого пополнения
+                    </template>
+                    <template v-else-if="profile.referral.bonus_percent > 0">
                       Получайте {{ formatPercent(profile.referral.bonus_percent) }}% с их пополнений
                     </template>
                     <template v-else>
@@ -336,7 +342,18 @@
                     </template>
                   </h3>
                   <p class="referral-lead">
-                    <template v-if="profile.referral.bonus_percent > 0">
+                    <template v-if="!referralUnlocked">
+                      <template v-if="profile.referral.bonus_percent > 0">
+                        Пополните баланс один раз — появится персональная ссылка.
+                        С каждой оплаты друга вы будете получать
+                        {{ formatPercent(profile.referral.bonus_percent) }}% от суммы покупки
+                        (без учёта его бонуса к пополнению).
+                      </template>
+                      <template v-else>
+                        Пополните баланс один раз — появится персональная ссылка для приглашений.
+                      </template>
+                    </template>
+                    <template v-else-if="profile.referral.bonus_percent > 0">
                       Когда человек перейдёт по вашей ссылке и пополнит баланс, на ваш счёт зачислится
                       {{ formatPercent(profile.referral.bonus_percent) }}% от суммы его оплаты.
                       Бонус можно сразу тратить на запросы.
@@ -346,30 +363,54 @@
                       Начисление бонуса включается в настройках сервиса.
                     </template>
                   </p>
-                  <div class="referral-link-box">
-                    <code class="referral-url">{{ profile.referral.site_url || `/?ref=${profile.referral.token}` }}</code>
-                    <button type="button" class="btn sm light" @click="copyReferralLink">
-                      <AppIcon :name="referralCopied ? 'check' : 'copy'" :size="15" />
-                      {{ referralCopied ? 'Скопировано' : 'Скопировать' }}
-                    </button>
-                  </div>
+
+                  <template v-if="referralUnlocked">
+                    <div class="referral-link-box">
+                      <code class="referral-url">{{ profile.referral.site_url || `/?ref=${profile.referral.token}` }}</code>
+                      <button type="button" class="btn sm light" @click="copyReferralLink">
+                        <AppIcon :name="referralCopied ? 'check' : 'copy'" :size="15" />
+                        {{ referralCopied ? 'Скопировано' : 'Скопировать' }}
+                      </button>
+                    </div>
+                  </template>
+                  <template v-else>
+                    <ol class="referral-steps">
+                      <li><span>1</span>Пополните баланс</li>
+                      <li><span>2</span>Получите свою ссылку</li>
+                      <li>
+                        <span>3</span>
+                        <template v-if="profile.referral.bonus_percent > 0">
+                          Зарабатывайте {{ formatPercent(profile.referral.bonus_percent) }}%
+                        </template>
+                        <template v-else>Приглашайте друзей</template>
+                      </li>
+                    </ol>
+                    <div class="referral-lock-actions">
+                      <button type="button" class="btn sm light" @click="scrollTo('topup')">
+                        <AppIcon name="wallet" :size="15" />
+                        Пополнить баланс
+                      </button>
+                      <span class="referral-lock-hint">После оплаты ссылка появится здесь автоматически</span>
+                    </div>
+                  </template>
                 </div>
-                <div class="referral-stats">
+
+                <div class="referral-stats" :class="{ muted: !referralUnlocked }">
                   <div class="referral-stat">
                     <span>Переходы</span>
-                    <b>{{ profile.referral.visits }}</b>
+                    <b>{{ referralUnlocked ? profile.referral.visits : '—' }}</b>
                   </div>
                   <div class="referral-stat">
                     <span>Приглашено</span>
-                    <b>{{ profile.referral.invited }}</b>
+                    <b>{{ referralUnlocked ? profile.referral.invited : '—' }}</b>
                   </div>
                   <div class="referral-stat">
                     <span>С оплатой</span>
-                    <b>{{ profile.referral.payers }}</b>
+                    <b>{{ referralUnlocked ? profile.referral.payers : '—' }}</b>
                   </div>
                   <div class="referral-stat accent">
                     <span>Заработано</span>
-                    <b>{{ usdSmart(profile.referral.earned_usd) }}</b>
+                    <b>{{ referralUnlocked ? usdSmart(profile.referral.earned_usd) : '—' }}</b>
                   </div>
                 </div>
               </div>
@@ -565,6 +606,12 @@ const supportHref = computed(() => {
   return profile.value?.support_email ? `mailto:${profile.value.support_email}` : '#'
 })
 
+const referralUnlocked = computed(() => {
+  const r = profile.value?.referral
+  if (!r) return false
+  if (typeof r.unlocked === 'boolean') return r.unlocked
+  return Boolean(r.token)
+})
 const weekDays = computed(() => profile.value?.spent_week_usd || [])
 const weekMax = computed(() => Math.max(0, ...weekDays.value.map((d) => Number(d.usd) || 0)))
 const weekTotal = computed(() => weekDays.value.reduce((sum, d) => sum + (Number(d.usd) || 0), 0))
@@ -988,6 +1035,11 @@ onBeforeUnmount(() => {
   border-color: #2a241c;
   box-shadow: 0 18px 40px rgba(28, 25, 21, 0.18);
 }
+.referral-hero.locked {
+  background:
+    radial-gradient(90% 70% at 0% 100%, rgba(196, 149, 82, 0.12), transparent 50%),
+    linear-gradient(165deg, #24201b 0%, #1c1915 100%);
+}
 .referral-eyebrow {
   display: inline-flex;
   align-items: center;
@@ -1029,16 +1081,60 @@ onBeforeUnmount(() => {
   line-height: 1.4;
   overflow-wrap: anywhere;
 }
-.referral-link-box .btn.light {
+.referral-link-box .btn.light,
+.referral-lock-actions .btn.light {
   background: #f4f1ea;
   color: #1c1915;
   border-color: #f4f1ea;
+}
+.referral-steps {
+  list-style: none;
+  margin: 0 0 18px;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+.referral-steps li {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 0;
+  color: rgba(244, 241, 234, 0.82);
+  font-size: 14px;
+  font-weight: 500;
+}
+.referral-steps span {
+  display: inline-grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 999px;
+  background: rgba(196, 149, 82, 0.2);
+  border: 1px solid rgba(196, 149, 82, 0.4);
+  color: #e8c48a;
+  font-size: 12px;
+  font-weight: 700;
+  flex: 0 0 auto;
+}
+.referral-lock-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px 16px;
+}
+.referral-lock-hint {
+  color: rgba(244, 241, 234, 0.5);
+  font-size: 12px;
+  line-height: 1.4;
 }
 .referral-stats {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 10px;
   align-content: start;
+}
+.referral-stats.muted .referral-stat {
+  opacity: 0.55;
 }
 .referral-stat {
   display: flex;

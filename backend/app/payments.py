@@ -207,10 +207,11 @@ def settle_payment(payment_id: str) -> str:
 
         # После первой оплаты появляется персональная реферальная ссылка.
         ensure_user_link(user_id)
+        # База — amount_usd без bonus_usd (бонус к пополнению рефереру не отдаём).
         credit_referral_bonus(
             payer_user_id=user_id,
             topup_id=topup_id,
-            amount_usd=Decimal(row["amount_usd"]),
+            purchase_usd=Decimal(row["amount_usd"]),
         )
     except Exception:
         log.exception("не удалось обработать реферальную программу за topup %s", topup_id)
