@@ -251,8 +251,11 @@ def delete_link(link_id: int) -> bool:
     return deleted is not None
 
 
-def ensure_user_link(user_id: int) -> dict:
-    """Гарантирует персональную реферальную ссылку пользователя."""
+def ensure_user_link(user_id: int) -> dict | None:
+    """Гарантирует персональную реферальную ссылку после первой оплаты.
+
+    Без оплат токен не создаётся (None). Если ссылка уже есть — возвращает её.
+    """
     with pool.connection() as conn:
         existing = conn.execute(
             """
@@ -264,6 +267,16 @@ def ensure_user_link(user_id: int) -> dict:
         ).fetchone()
         if existing is not None:
             return _link_row(existing)
+        paid = conn.execute(
+            """
+            SELECT 1 FROM topups
+            WHERE user_id = %s AND status = 'paid'
+            LIMIT 1
+            """,
+            (user_id,),
+        ).fetchone()
+        if paid is None:
+            return None
         user = conn.execute("SELECT id FROM users WHERE id = %s", (user_id,)).fetchone()
         if user is None:
             raise ReferralError("user")
@@ -293,9 +306,11 @@ def ensure_user_link(user_id: int) -> dict:
     raise ReferralError("exists")
 
 
-def user_program_stats(user_id: int) -> dict:
-    """Статистика реферальной программы для кабинета."""
+def user_program_stats(user_id: int) -> dict | None:
+    """Статистика реферальной программы для кабинета. None — ещё нет оплаты / ссылки."""
     link = ensure_user_link(user_id)
+    if link is None:
+        return None
     token = link["token"]
     with pool.connection() as conn:
         row = conn.execute(
@@ -387,7 +402,8 @@ def credit_referral_bonus(*, payer_user_id: int, topup_id: int, amount_usd: Deci
     try:
         from app.billing import BillingError, add_usd
 
-        add_usd(owner_id, bonus, "credit", note)
+        # Если ключ реферера заморожен — только локальный баланс, без квоты у поставщика.
+        add_usd(owner_id, bonus, "credit", note, activate_frozen=False)
     except BillingError as exc:
         if exc.code == "supplier":
             log.warning(

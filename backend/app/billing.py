@@ -119,7 +119,21 @@ def unblock_user(user_id: int) -> None:
             )
 
 
-def add_usd(user_id: int, amount: Decimal, kind: str, note: str, amount_kopecks: int = 0) -> Decimal:
+def add_usd(
+    user_id: int,
+    amount: Decimal,
+    kind: str,
+    note: str,
+    amount_kopecks: int = 0,
+    *,
+    activate_frozen: bool = True,
+) -> Decimal:
+    """Начисляет USD на баланс.
+
+    activate_frozen=False — при замороженном ключе только локальный баланс
+    (ключ остаётся на паузе, квота у поставщика не трогается). Нужно для
+    реферальных бонусов: пригласивший мог давно не пользоваться сервисом.
+    """
     if amount <= 0:
         raise BillingError("empty")
     with billing_lock:
@@ -131,6 +145,17 @@ def add_usd(user_id: int, amount: Decimal, kind: str, note: str, amount_kopecks:
                 ).fetchone()
             if existing is not None:
                 return _balance(user_id)
+        key = _active_key(user_id)
+        frozen = key is not None and key.get("frozen_at") is not None
+        # Замороженный ключ + только локальное начисление: не синкаем и не трогаем pool/upstream.
+        if frozen and not activate_frozen:
+            updated = (_balance(user_id) + amount).quantize(Decimal("0.0001"))
+            from app.notifications import clear_low_balance_alert
+
+            clear_low_balance_alert(user_id)
+            _set_balance(user_id, updated, kind, note, amount_kopecks, amount)
+            return updated
+
         sync_all()
         _ensure_pool(amount)
         key = _active_key(user_id)

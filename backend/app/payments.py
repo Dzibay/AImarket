@@ -203,15 +203,17 @@ def settle_payment(payment_id: str) -> str:
         log.exception("не удалось записать оплату %s в финансы", topup_id)
     user_id = int(row["user_id"])
     try:
-        from app.referrals import credit_referral_bonus
+        from app.referrals import credit_referral_bonus, ensure_user_link
 
+        # После первой оплаты появляется персональная реферальная ссылка.
+        ensure_user_link(user_id)
         credit_referral_bonus(
             payer_user_id=user_id,
             topup_id=topup_id,
             amount_usd=Decimal(row["amount_usd"]),
         )
     except Exception:
-        log.exception("не удалось начислить реферальный бонус за topup %s", topup_id)
+        log.exception("не удалось обработать реферальную программу за topup %s", topup_id)
     # Оплата с сайта: ключ — это и доступ к API, и пароль в кабинет, выпускаем сразу и шлём письмо.
     if row["return_token_hash"]:
         first_key = not _has_active_key(user_id)

@@ -272,13 +272,14 @@ def _profile(user_id: int) -> dict:
     if not blocked:
         try:
             program = user_program_stats(user_id)
-            percent = float(referral_bonus_percent())
-            base = public_base_url().rstrip("/")
-            referral = {
-                **program,
-                "bonus_percent": percent,
-                "site_url": f"{base}/?ref={program['token']}" if base else "",
-            }
+            if program is not None:
+                percent = float(referral_bonus_percent())
+                base = public_base_url().rstrip("/")
+                referral = {
+                    **program,
+                    "bonus_percent": percent,
+                    "site_url": f"{base}/?ref={program['token']}" if base else "",
+                }
         except Exception:
             log.exception("реферальная программа user=%s", user_id)
     return {

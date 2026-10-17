@@ -1379,10 +1379,10 @@
               @keydown.enter="createReferralGroup"
             >
             <button type="button" class="quiet sm" @click="createReferralGroup">Создать группу</button>
-            <label class="referral-user-toggle">
+            <label class="support-filter referral-user-filter">
               <input v-model="referralShowUserTokens" type="checkbox">
               Токены пользователей
-              <span v-if="referralUserItems.length" class="referral-count">{{ referralUserItems.length }}</span>
+              <span v-if="referralUserItems.length" class="badge neutral">{{ referralUserItems.length }}</span>
             </label>
             <span v-if="groupError" class="error">{{ groupError }}</span>
           </div>
@@ -2211,18 +2211,8 @@ onMounted(() => {
 }
 .admin-page .inline-form { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-bottom: 14px; }
 .admin-page .inline-form input, .admin-page .inline-form select { width: auto; min-width: 160px; flex: 1 1 160px; max-width: 280px; }
-.admin-page .referral-toolbar { margin-bottom: 14px; flex-wrap: wrap; align-items: center; }
-.admin-page .referral-user-toggle {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  margin-left: auto;
-  font-size: 13px;
-  color: var(--muted-2);
-  cursor: pointer;
-  user-select: none;
-}
-.admin-page .referral-user-toggle input { margin: 0; }
+.admin-page .referral-toolbar { margin-bottom: 14px; flex-wrap: wrap; align-items: center; gap: 8px; }
+.admin-page .referral-user-filter { margin-left: auto; flex: 0 0 auto; }
 .admin-page .referral-owner { margin-left: 8px; }
 .admin-page .tab-referrals td.referral-copy,
 .admin-page .tab-referrals td.referral-delete,
