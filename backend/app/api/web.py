@@ -12,6 +12,7 @@ import hmac
 import logging
 import re
 import secrets
+import time
 from decimal import Decimal, ROUND_HALF_UP, ROUND_UP
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -57,6 +58,12 @@ log = logging.getLogger("app.web")
 
 _EMAIL = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 _RETURN_TOKEN_TTL = "24 hours"
+# /web/me часто поллит кабинет — не дёргаем ЮKassa на каждый запрос.
+_settle_at: dict[int, float] = {}
+_SETTLE_MIN_SEC = 30.0
+_config_cache: dict | None = None
+_config_cache_at = 0.0
+_CONFIG_TTL_SEC = 10.0
 
 
 class AmountIn(BaseModel):
@@ -119,9 +126,19 @@ class ReferralVisitIn(BaseModel):
     visitor: str = Field(default="", max_length=128)
 
 
+def invalidate_config_cache() -> None:
+    global _config_cache, _config_cache_at
+    _config_cache = None
+    _config_cache_at = 0.0
+
+
 def _config_payload() -> dict:
+    global _config_cache, _config_cache_at
+    now = time.monotonic()
+    if _config_cache is not None and now - _config_cache_at < _CONFIG_TTL_SEC:
+        return dict(_config_cache)
     price = usd_price_rub()
-    return {
+    payload = {
         "usd_price_rub": float(price),
         "min_topup_usd": float(min_topup_usd()),
         "min_topup_rub": float(min_topup_rub()),
@@ -133,6 +150,9 @@ def _config_payload() -> dict:
         "support_username": support_username(),
         "bot_url": bot_start_url("web"),
     }
+    _config_cache = payload
+    _config_cache_at = now
+    return dict(payload)
 
 
 def _resolve_amount(body: AmountIn) -> tuple[Decimal, Decimal]:
@@ -219,8 +239,11 @@ def _has_awaiting_supplier_topup(user_id: int) -> bool:
     return row is not None
 
 
-def _settle_pending(user_id: int) -> None:
+def _settle_pending(user_id: int, *, force: bool = False) -> None:
     """Досверяет свежие платежи, если человек вернулся в кабинет не через return_url."""
+    now = time.monotonic()
+    if not force and now - _settle_at.get(user_id, 0.0) < _SETTLE_MIN_SEC:
+        return
     with pool.connection() as conn:
         rows = conn.execute(
             """
@@ -231,6 +254,7 @@ def _settle_pending(user_id: int) -> None:
             """,
             (user_id,),
         ).fetchall()
+    _settle_at[user_id] = time.monotonic()
     for row in rows:
         try:
             settle_payment(str(row["payment_id"]))
@@ -262,9 +286,10 @@ def _profile(user_id: int) -> dict:
                 key = describe_key(user_id)
             except BillingError as exc:
                 key_error = exc.code
+            # sync мог изменить balance_usd — перечитаем только при ключе.
+            row = _user_row(user_id)
     if not key and not key_error and awaiting_supplier:
         key_error = "supplier"
-    row = _user_row(user_id)
     with pool.connection() as conn:
         stats = usage_period_stats(conn, user_id)
     key_frozen = bool(key and key.get("frozen"))

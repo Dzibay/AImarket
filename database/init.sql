@@ -63,6 +63,11 @@ CREATE INDEX IF NOT EXISTS idx_users_referral_token
     ON users (referral_token) WHERE referral_token <> '';
 CREATE INDEX IF NOT EXISTS idx_users_email
     ON users (lower(email)) WHERE email <> '';
+CREATE INDEX IF NOT EXISTS idx_users_created
+    ON users (created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_users_email_login
+    ON users (email_login_hash)
+    WHERE email_login_hash <> '';
 CREATE UNIQUE INDEX IF NOT EXISTS idx_users_support_topic
     ON users (support_telegram_topic_id) WHERE support_telegram_topic_id IS NOT NULL;
 
@@ -116,6 +121,9 @@ ALTER TABLE ledger ADD COLUMN IF NOT EXISTS amount_usd NUMERIC(12, 4) NOT NULL D
 
 CREATE INDEX IF NOT EXISTS idx_ledger_user
     ON ledger (user_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_ledger_referral_bonus
+    ON ledger (user_id)
+    WHERE kind = 'credit' AND note LIKE 'referral bonus topup:%';
 CREATE UNIQUE INDEX IF NOT EXISTS idx_ledger_topup_note
     ON ledger (note) WHERE kind = 'topup' AND note <> '';
 
@@ -144,6 +152,8 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_usage_user_request
     ON usage (user_id, request_id) WHERE request_id <> '';
 CREATE INDEX IF NOT EXISTS idx_usage_user_time
     ON usage (user_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_usage_created
+    ON usage (created_at DESC);
 
 -- ---------------------------------------------------------------------------
 -- Пополнения ЮKassa
@@ -178,6 +188,16 @@ ALTER TABLE topups ADD COLUMN IF NOT EXISTS buckets_initialized BOOLEAN NOT NULL
 
 CREATE INDEX IF NOT EXISTS idx_topups_status
     ON topups (status, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_topups_user_status
+    ON topups (user_id, status);
+CREATE INDEX IF NOT EXISTS idx_topups_user_created
+    ON topups (user_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_topups_user_open
+    ON topups (user_id, created_at DESC)
+    WHERE status IN ('pending', 'awaiting_supplier');
+CREATE INDEX IF NOT EXISTS idx_topups_paid_time
+    ON topups ((COALESCE(decided_at, created_at)) DESC)
+    WHERE status = 'paid';
 CREATE INDEX IF NOT EXISTS idx_topups_refund_window
     ON topups (status, refund_window_ends_at)
     WHERE status = 'paid' AND payment_remaining_usd > 0;
@@ -294,10 +314,19 @@ ALTER TABLE support_messages DROP CONSTRAINT IF EXISTS support_messages_source_c
 ALTER TABLE support_messages ADD CONSTRAINT support_messages_source_check
     CHECK (source IN ('site', 'telegram'));
 
+-- Пересоздаём: старые индексы были ASC без id — хуже для DISTINCT ON (… ORDER BY created_at DESC).
+DROP INDEX IF EXISTS idx_support_messages_user;
+DROP INDEX IF EXISTS idx_support_messages_guest;
 CREATE INDEX IF NOT EXISTS idx_support_messages_user
-    ON support_messages (user_id, created_at) WHERE user_id IS NOT NULL;
+    ON support_messages (user_id, created_at DESC, id DESC) WHERE user_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_support_messages_guest
-    ON support_messages (guest_id, created_at) WHERE guest_id IS NOT NULL;
+    ON support_messages (guest_id, created_at DESC, id DESC) WHERE guest_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_support_messages_user_author
+    ON support_messages (user_id, author_kind, created_at DESC)
+    WHERE user_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_support_messages_guest_author
+    ON support_messages (guest_id, author_kind, created_at DESC)
+    WHERE guest_id IS NOT NULL;
 
 -- ---------------------------------------------------------------------------
 -- Настройки

@@ -1,15 +1,51 @@
+import threading
+import time
 from decimal import Decimal
 
 from app.config import settings
 from app.db import pool
 
+# Кэш настроек в памяти процесса: убирает десятки SELECT на /web/me и /web/config.
+_lock = threading.Lock()
+_cache: dict[str, str] | None = None
+_cache_loaded_at = 0.0
+# Короткий TTL на случай нескольких воркеров; в своём процессе set_setting обновляет сразу.
+_CACHE_TTL_SEC = 15.0
+
+
+def invalidate_settings_cache() -> None:
+    global _cache, _cache_loaded_at
+    with _lock:
+        _cache = None
+        _cache_loaded_at = 0.0
+
+
+def _fetch_all_settings() -> dict[str, str]:
+    with pool.connection() as conn:
+        rows = conn.execute("SELECT key, value FROM app_settings").fetchall()
+    return {str(row["key"]): str(row["value"] or "") for row in rows}
+
+
+def _ensure_cache() -> dict[str, str]:
+    global _cache, _cache_loaded_at
+    now = time.monotonic()
+    with _lock:
+        if _cache is not None and (now - _cache_loaded_at) < _CACHE_TTL_SEC:
+            return _cache
+    # SELECT вне лока — иначе все get_setting ждут одну загрузку под мьютексом.
+    fresh = _fetch_all_settings()
+    with _lock:
+        _cache = fresh
+        _cache_loaded_at = time.monotonic()
+        return _cache
+
 
 def get_setting(key: str, default: str = "") -> str:
-    with pool.connection() as conn:
-        row = conn.execute("SELECT value FROM app_settings WHERE key = %s", (key,)).fetchone()
-    if row is None or row["value"] is None:
-        return default
-    return str(row["value"])
+    cache = _ensure_cache()
+    with _lock:
+        if key not in cache:
+            return default
+        return cache[key]
 
 
 def set_setting(key: str, value: str) -> None:
@@ -22,6 +58,10 @@ def set_setting(key: str, value: str) -> None:
             """,
             (key, value),
         )
+    with _lock:
+        if _cache is None:
+            return
+        _cache[key] = value
 
 
 def normalize_base_url(raw: str) -> str:

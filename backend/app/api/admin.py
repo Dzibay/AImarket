@@ -33,7 +33,14 @@ from app.referrals import (
     list_links,
     set_link_group,
 )
-from app.settings_store import get_setting, normalize_base_url, offer_url, public_base_url, set_setting
+from app.settings_store import (
+    get_setting,
+    invalidate_settings_cache,
+    normalize_base_url,
+    offer_url,
+    public_base_url,
+    set_setting,
+)
 from app.support import (
     list_guest_messages_by_id,
     list_messages,
@@ -311,6 +318,10 @@ def write_settings(body: SettingsIn) -> dict:
     if root:
         set_setting("router_root_key", root)
         upstream.clear_session()
+    invalidate_settings_cache()
+    from app.api.web import invalidate_config_cache
+
+    invalidate_config_cache()
     return _settings_payload()
 
 
