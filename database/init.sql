@@ -1,6 +1,7 @@
 -- Схема PostgreSQL Aimarket.
 -- Идемпотентно: docker-entrypoint-initdb.d и backend ensure_schema() при каждом старте.
--- CREATE TABLE — целевая форма; ALTER ADD COLUMN — апгрейд уже существующих БД.
+-- CREATE TABLE — целевая форма для новой БД.
+-- ALTER ADD COLUMN IF NOT EXISTS — апгрейд уже существующих инстансов.
 
 -- ---------------------------------------------------------------------------
 -- Пользователи
@@ -67,6 +68,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_users_support_topic
 
 -- ---------------------------------------------------------------------------
 -- API-ключи
+-- frozen_at: ключ на паузе (квота у поставщика = 0, balance_usd локально)
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS api_keys (
     id                          BIGSERIAL PRIMARY KEY,
@@ -89,9 +91,11 @@ ALTER TABLE api_keys ADD COLUMN IF NOT EXISTS secret TEXT NOT NULL DEFAULT '';
 ALTER TABLE api_keys ADD COLUMN IF NOT EXISTS limit_exhausted_notified_at TIMESTAMPTZ;
 ALTER TABLE api_keys ADD COLUMN IF NOT EXISTS frozen_at TIMESTAMPTZ;
 
-CREATE INDEX IF NOT EXISTS idx_api_keys_user ON api_keys (user_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_api_keys_user
+    ON api_keys (user_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_api_keys_frozen
-    ON api_keys (frozen_at) WHERE frozen_at IS NOT NULL AND revoked_at IS NULL;
+    ON api_keys (frozen_at)
+    WHERE frozen_at IS NOT NULL AND revoked_at IS NULL;
 CREATE UNIQUE INDEX IF NOT EXISTS idx_api_keys_one_active
     ON api_keys (user_id) WHERE revoked_at IS NULL;
 
@@ -110,7 +114,8 @@ CREATE TABLE IF NOT EXISTS ledger (
 
 ALTER TABLE ledger ADD COLUMN IF NOT EXISTS amount_usd NUMERIC(12, 4) NOT NULL DEFAULT 0;
 
-CREATE INDEX IF NOT EXISTS idx_ledger_user ON ledger (user_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_ledger_user
+    ON ledger (user_id, created_at DESC);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_ledger_topup_note
     ON ledger (note) WHERE kind = 'topup' AND note <> '';
 
@@ -137,11 +142,14 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_usage_user_upstream_log
     ON usage (user_id, upstream_log_id) WHERE upstream_log_id IS NOT NULL;
 CREATE UNIQUE INDEX IF NOT EXISTS idx_usage_user_request
     ON usage (user_id, request_id) WHERE request_id <> '';
-CREATE INDEX IF NOT EXISTS idx_usage_user_time ON usage (user_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_usage_user_time
+    ON usage (user_id, created_at DESC);
 
 -- ---------------------------------------------------------------------------
 -- Пополнения ЮKassa
 -- status: pending | awaiting_supplier | paid | failed | rejected
+-- payment_remaining_usd / bonus_remaining_usd — остатки по платежу (FIFO)
+-- refund_window_ends_at — конец 14-дневного окна возврата
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS topups (
     id                     BIGSERIAL PRIMARY KEY,
@@ -168,7 +176,8 @@ ALTER TABLE topups ADD COLUMN IF NOT EXISTS bonus_remaining_usd NUMERIC(12, 4) N
 ALTER TABLE topups ADD COLUMN IF NOT EXISTS refund_window_ends_at TIMESTAMPTZ;
 ALTER TABLE topups ADD COLUMN IF NOT EXISTS buckets_initialized BOOLEAN NOT NULL DEFAULT FALSE;
 
-CREATE INDEX IF NOT EXISTS idx_topups_status ON topups (status, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_topups_status
+    ON topups (status, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_topups_refund_window
     ON topups (status, refund_window_ends_at)
     WHERE status = 'paid' AND payment_remaining_usd > 0;
@@ -177,6 +186,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_topups_payment
 
 -- ---------------------------------------------------------------------------
 -- Рефералы
+-- owner_user_id — персональная ссылка пользователя (после первой оплаты)
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS referral_groups (
     id         BIGSERIAL PRIMARY KEY,
@@ -197,11 +207,13 @@ ALTER TABLE referral_links ADD COLUMN IF NOT EXISTS group_id BIGINT
 ALTER TABLE referral_links ADD COLUMN IF NOT EXISTS owner_user_id BIGINT
     REFERENCES users (id) ON DELETE CASCADE;
 
-CREATE INDEX IF NOT EXISTS idx_referral_links_group ON referral_links (group_id);
+CREATE INDEX IF NOT EXISTS idx_referral_links_group
+    ON referral_links (group_id);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_referral_links_owner
     ON referral_links (owner_user_id) WHERE owner_user_id IS NOT NULL;
 
-INSERT INTO referral_links (token) VALUES ('web') ON CONFLICT (token) DO NOTHING;
+INSERT INTO referral_links (token) VALUES ('web')
+ON CONFLICT (token) DO NOTHING;
 
 CREATE TABLE IF NOT EXISTS referral_clicks (
     id          BIGSERIAL PRIMARY KEY,
@@ -238,7 +250,8 @@ CREATE TABLE IF NOT EXISTS install_tokens (
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX IF NOT EXISTS idx_install_tokens_expires ON install_tokens (expires_at);
+CREATE INDEX IF NOT EXISTS idx_install_tokens_expires
+    ON install_tokens (expires_at);
 
 -- ---------------------------------------------------------------------------
 -- Поддержка
@@ -294,7 +307,9 @@ CREATE TABLE IF NOT EXISTS app_settings (
     value TEXT NOT NULL DEFAULT ''
 );
 
-INSERT INTO app_settings (key, value) VALUES ('supplier_usd_price_rub', '')
+INSERT INTO app_settings (key, value) VALUES
+    ('supplier_usd_price_rub', ''),
+    ('referral_bonus_percent', '')
 ON CONFLICT (key) DO NOTHING;
 
 -- ---------------------------------------------------------------------------
@@ -302,13 +317,13 @@ ON CONFLICT (key) DO NOTHING;
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS finance_categories (
     id          BIGSERIAL PRIMARY KEY,
-    name        TEXT NOT NULL,
-    color       TEXT NOT NULL DEFAULT '#6b645b',
-    kind        TEXT NOT NULL DEFAULT 'expense'
-                    CHECK (kind IN ('expense', 'withdrawal')),
-    sort_order  INTEGER NOT NULL DEFAULT 0,
-    archived_at TIMESTAMPTZ,
-    created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    name         TEXT NOT NULL,
+    color        TEXT NOT NULL DEFAULT '#6b645b',
+    kind         TEXT NOT NULL DEFAULT 'expense'
+                     CHECK (kind IN ('expense', 'withdrawal')),
+    sort_order   INTEGER NOT NULL DEFAULT 0,
+    archived_at  TIMESTAMPTZ,
+    created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 CREATE INDEX IF NOT EXISTS idx_finance_categories_kind
@@ -373,7 +388,33 @@ FROM (VALUES
 WHERE NOT EXISTS (SELECT 1 FROM finance_categories LIMIT 1);
 
 -- ---------------------------------------------------------------------------
--- Уборка устаревших объектов (безопасно на любой БД)
+-- Журнал исходящих SMTP-писем (без тела — только метаданные для админки)
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS outbound_emails (
+    id          BIGSERIAL PRIMARY KEY,
+    user_id     BIGINT REFERENCES users (id) ON DELETE SET NULL,
+    kind        TEXT NOT NULL,
+    to_email    TEXT NOT NULL,
+    subject     TEXT NOT NULL,
+    status      TEXT NOT NULL DEFAULT 'pending'
+                    CHECK (status IN ('pending', 'sent', 'failed')),
+    attempts    INTEGER NOT NULL DEFAULT 0 CHECK (attempts >= 0),
+    last_error  TEXT NOT NULL DEFAULT '',
+    context     JSONB NOT NULL DEFAULT '{}'::jsonb,
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    sent_at     TIMESTAMPTZ
+);
+
+CREATE INDEX IF NOT EXISTS idx_outbound_emails_created
+    ON outbound_emails (created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_outbound_emails_status
+    ON outbound_emails (status, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_outbound_emails_user
+    ON outbound_emails (user_id, created_at DESC);
+
+-- ---------------------------------------------------------------------------
+-- Уборка устаревших объектов
 -- ---------------------------------------------------------------------------
 DROP TABLE IF EXISTS products;
 DROP TABLE IF EXISTS finance_entries;

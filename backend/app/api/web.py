@@ -315,6 +315,7 @@ def checkout(body: CheckoutIn) -> dict:
     rub, usd = _resolve_amount(body)
     # Нажатие «Оплатить» на сайте — акцепт оферты, политики и согласия (п. 1.2 оферты).
     # Повторная оплата с той же почты должна попадать на того же пользователя, иначе балансы «разъедутся».
+    is_new = False
     with pool.connection() as conn:
         existing = conn.execute(
             """
@@ -347,8 +348,15 @@ def checkout(body: CheckoutIn) -> dict:
                 (email,),
             ).fetchone()
             user_id = int(created["id"])
+            is_new = True
     if body.referral.strip():
         attribute_user(user_id, body.referral)
+    # Новый аккаунт с checkout — сразу письмо со входом, даже если оплату бросят.
+    if is_new:
+        try:
+            send_login_email(user_id, created=True)
+        except Exception:
+            log.exception("не удалось отправить welcome-письмо user=%s", user_id)
     return _start_payment(user_id, rub, usd, email)
 
 

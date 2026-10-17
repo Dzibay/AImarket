@@ -105,6 +105,16 @@ def _send_topup_nudges() -> None:
         if not email:
             continue
         try:
-            send_nudge_topup_email(user_id, email)
+            if not send_nudge_topup_email(user_id, email):
+                raise RuntimeError("nudge_topup not sent")
         except Exception:
-            log.exception("не удалось отправить nudge_topup user=%s", user_id)
+            log.exception("не удалось отправить nudge_topup user=%s — снимем отметку для повтора", user_id)
+            with pool.connection() as conn:
+                conn.execute(
+                    """
+                    UPDATE users
+                    SET nudge_topup_sent_at = NULL
+                    WHERE id = %s AND nudge_topup_sent_at IS NOT NULL
+                    """,
+                    (user_id,),
+                )

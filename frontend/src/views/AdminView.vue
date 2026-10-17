@@ -791,6 +791,113 @@
           </div>
         </section>
 
+        <section v-show="activeTab === 'emails'" class="panel tab-emails">
+          <div class="panel-head">
+            <h2>Письма</h2>
+            <div class="users-toolbar">
+              <div class="periods">
+                <button
+                  type="button"
+                  :class="{ on: emailsFilter === 'all' }"
+                  @click="setEmailsFilter('all')"
+                >
+                  Все
+                </button>
+                <button
+                  type="button"
+                  :class="{ on: emailsFilter === 'failed' }"
+                  @click="setEmailsFilter('failed')"
+                >
+                  Ошибки
+                  <span v-if="emailsFailedCount" class="badge bad">{{ emailsFailedCount }}</span>
+                </button>
+                <button
+                  type="button"
+                  :class="{ on: emailsFilter === 'sent' }"
+                  @click="setEmailsFilter('sent')"
+                >
+                  Отправленные
+                </button>
+                <button
+                  type="button"
+                  :class="{ on: emailsFilter === 'pending' }"
+                  @click="setEmailsFilter('pending')"
+                >
+                  В очереди
+                </button>
+              </div>
+              <button type="button" class="quiet sm" :disabled="emailsLoading" @click="loadEmails">
+                Обновить
+              </button>
+            </div>
+          </div>
+          <p class="muted users-sub">
+            Журнал SMTP без тела письма. Повтор пересобирает письмо с новым токеном входа.
+          </p>
+          <p v-if="emailsError" class="error">{{ emailsError }}</p>
+          <div class="table-wrap">
+            <table class="emails-table">
+              <thead>
+                <tr>
+                  <th>Когда</th>
+                  <th>Кому</th>
+                  <th>Тип</th>
+                  <th>Тема</th>
+                  <th>Статус</th>
+                  <th class="num">Попытки</th>
+                  <th>Ошибка</th>
+                  <th class="actions" aria-label="Действия"></th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-if="emailsLoading && !emails.length" class="empty">
+                  <td colspan="8">Загрузка…</td>
+                </tr>
+                <tr v-else-if="!emails.length" class="empty">
+                  <td colspan="8">Пока пусто</td>
+                </tr>
+                <tr v-for="item in emails" :key="item.id">
+                  <td class="nowrap muted">{{ formatRecentAt(item.created_at) }}</td>
+                  <td>
+                    <div class="email-to">
+                      <strong>{{ item.to_email }}</strong>
+                      <span v-if="item.user_id" class="muted small">
+                        #{{ item.user_id }}
+                        <template v-if="item.first_name || item.username">
+                          · {{ person(item) }}
+                        </template>
+                      </span>
+                    </div>
+                  </td>
+                  <td class="nowrap">{{ item.kind_label }}</td>
+                  <td>{{ item.subject }}</td>
+                  <td>
+                    <span class="badge" :class="emailStatusClass(item.status)">
+                      {{ emailStatusLabel(item.status) }}
+                    </span>
+                  </td>
+                  <td class="num">{{ item.attempts }}</td>
+                  <td class="email-error">
+                    <span v-if="item.last_error" :title="item.last_error">{{ item.last_error }}</span>
+                    <span v-else class="muted">—</span>
+                  </td>
+                  <td class="actions">
+                    <button
+                      v-if="item.can_retry"
+                      type="button"
+                      class="quiet sm"
+                      :disabled="!!emailRetryBusy[item.id]"
+                      @click="retryEmail(item)"
+                    >
+                      {{ emailRetryBusy[item.id] ? '…' : 'Повторить' }}
+                    </button>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+
         <section v-show="activeTab === 'support'" class="panel">
           <div class="panel-head">
             <h2>Поддержка</h2>
@@ -1253,9 +1360,9 @@
                     <th>Клиент</th>
                     <th class="num">Баланс</th>
                     <th>Ключ</th>
-                    <th>Баланс ±</th>
+                    <th>Регистрация</th>
                     <th>Доступ</th>
-                    <th class="actions" aria-label="Действия"></th>
+                    <th class="actions">Действия</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -1282,6 +1389,7 @@
                             <span class="user-name">{{ person(item) }}</span>
                             <span class="user-badges">
                               <span v-if="item.has_paid" class="badge ok">оплата</span>
+                              <span v-else class="badge neutral">без оплаты</span>
                               <span
                                 v-if="item.nudge_topup_sent_at"
                                 class="badge mail"
@@ -1309,55 +1417,66 @@
                       </button>
                       <span v-else class="muted">—</span>
                     </td>
-                    <td class="compact">
-                      <button
-                        type="button"
-                        class="quiet sm credit-open"
-                        :class="{ busy: userCreditBusy[item.id] }"
-                        :disabled="!!userCreditBusy[item.id]"
-                        :title="userCreditBusy[item.id] ? 'Сохраняем…' : 'Начислить / списать'"
-                        @click="openCreditModal(item)"
-                      >
-                        <span v-if="userCreditBusy[item.id]" class="credit-spinner" aria-hidden="true" />
-                        <template v-else>
-                          <AppIcon name="plus" :size="13" />
-                          ±$
-                        </template>
-                      </button>
-                    </td>
+                    <td class="date nowrap muted">{{ shortDate(item.created_at) }}</td>
                     <td>
-                      <div class="access-cell">
-                        <span class="access-status" :class="item.blocked ? 'off' : 'on'">
-                          {{ item.blocked ? 'Заблок.' : 'Активен' }}
-                        </span>
-                        <button
-                          v-if="item.blocked"
-                          type="button"
-                          class="quiet sm"
-                          @click="unblockUser(item)"
-                        >
-                          Разблок.
-                        </button>
-                        <button
-                          v-else
-                          type="button"
-                          class="quiet sm access-block"
-                          @click="blockUser(item)"
-                        >
-                          Блок
-                        </button>
-                      </div>
+                      <span class="access-status" :class="item.blocked ? 'off' : 'on'">
+                        {{ item.blocked ? 'Заблок.' : 'Активен' }}
+                      </span>
                     </td>
                     <td class="actions">
-                      <button
-                        type="button"
-                        class="icon-btn danger-ghost"
-                        title="Удалить"
-                        aria-label="Удалить"
-                        @click="deleteUser(item)"
-                      >
-                        <AppIcon name="trash" :size="15" />
-                      </button>
+                      <div class="user-actions" :class="{ open: userActionsId === item.id }">
+                        <button
+                          type="button"
+                          class="quiet sm user-actions-btn"
+                          :aria-expanded="userActionsId === item.id"
+                          aria-haspopup="menu"
+                          @click.stop="toggleUserActions(item.id)"
+                        >
+                          Действия
+                          <AppIcon name="chevron" :size="14" />
+                        </button>
+                        <div
+                          v-if="userActionsId === item.id"
+                          class="user-actions-menu"
+                          role="menu"
+                          @click.stop
+                        >
+                          <button
+                            type="button"
+                            role="menuitem"
+                            :disabled="!!userCreditBusy[item.id]"
+                            @click="runUserAction(() => openCreditModal(item))"
+                          >
+                            <AppIcon name="plus" :size="14" />
+                            Изменить баланс
+                          </button>
+                          <button
+                            v-if="item.blocked"
+                            type="button"
+                            role="menuitem"
+                            @click="runUserAction(() => unblockUser(item))"
+                          >
+                            Разблокировать
+                          </button>
+                          <button
+                            v-else
+                            type="button"
+                            role="menuitem"
+                            @click="runUserAction(() => blockUser(item))"
+                          >
+                            Заблокировать
+                          </button>
+                          <button
+                            type="button"
+                            role="menuitem"
+                            class="danger"
+                            @click="runUserAction(() => deleteUser(item))"
+                          >
+                            <AppIcon name="trash" :size="14" />
+                            Удалить
+                          </button>
+                        </div>
+                      </div>
                     </td>
                   </tr>
                 </tbody>
@@ -1817,12 +1936,27 @@
 </template>
 
 <script setup>
-import { onMounted } from 'vue'
+import { onBeforeUnmount, onMounted, ref } from 'vue'
 import { RouterLink } from 'vue-router'
 import AdminChart from '../components/AdminChart.vue'
 import AppIcon from '../components/ui/AppIcon.vue'
 import { useAdminPanel } from '../composables/useAdminPanel'
 import { useHead } from '../utils/useHead'
+
+const userActionsId = ref(null)
+
+function toggleUserActions(id) {
+  userActionsId.value = userActionsId.value === id ? null : id
+}
+
+function runUserAction(fn) {
+  userActionsId.value = null
+  return fn()
+}
+
+function closeUserActions() {
+  userActionsId.value = null
+}
 
 const {
   authPhase,
@@ -1942,6 +2076,17 @@ const {
   sendSupportReply,
   supportPerson,
   supportPreview,
+  emails,
+  emailsFailedCount,
+  emailsFilter,
+  emailsLoading,
+  emailsError,
+  emailRetryBusy,
+  loadEmails,
+  setEmailsFilter,
+  retryEmail,
+  emailStatusLabel,
+  emailStatusClass,
   referralGroups,
   referralRows,
   referralShowUserTokens,
@@ -2000,6 +2145,11 @@ const {
 
 onMounted(() => {
   useHead('Админка — Aimarket', true)
+  document.addEventListener('click', closeUserActions)
+})
+
+onBeforeUnmount(() => {
+  document.removeEventListener('click', closeUserActions)
 })
 </script>
 
@@ -2259,6 +2409,28 @@ onMounted(() => {
 }
 .admin-page .badge.ok { background: var(--ok-soft); color: var(--ok); border-color: #c7e3d4; }
 .admin-page .badge.warn { background: var(--warn-soft); color: var(--warn); border-color: #ecdca8; }
+.admin-page .tab-emails .users-sub { margin: 0 0 14px; }
+.admin-page .emails-table {
+  min-width: 960px;
+  width: 100%;
+}
+.admin-page .emails-table th,
+.admin-page .emails-table td {
+  padding: 10px 12px;
+  vertical-align: top;
+}
+.admin-page .email-to {
+  display: grid;
+  gap: 2px;
+}
+.admin-page .email-error {
+  max-width: 220px;
+  font-size: 12px;
+  color: var(--danger);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .admin-page .badge.neutral { background: var(--surface-soft); color: var(--muted); border-color: var(--border); }
 .admin-page .badge.mail { background: #eef2f7; color: #3d4f66; border-color: #c9d4e3; }
 .admin-page .badge.bad { background: var(--danger-soft); color: var(--danger); border-color: #e3b4b4; }
@@ -3342,7 +3514,7 @@ onMounted(() => {
   background: #fff;
 }
 .admin-page .users-table {
-  min-width: 860px;
+  min-width: 900px;
   table-layout: fixed;
   width: 100%;
 }
@@ -3352,21 +3524,24 @@ onMounted(() => {
   vertical-align: middle;
 }
 .admin-page .users-table th:nth-child(1),
-.admin-page .users-table td:nth-child(1) { width: 30%; }
+.admin-page .users-table td:nth-child(1) { width: 32%; }
 .admin-page .users-table th:nth-child(2),
 .admin-page .users-table td:nth-child(2) { width: 96px; }
 .admin-page .users-table th:nth-child(3),
 .admin-page .users-table td:nth-child(3) { width: 140px; }
 .admin-page .users-table th:nth-child(4),
-.admin-page .users-table td:nth-child(4) { width: 148px; }
+.admin-page .users-table td:nth-child(4) { width: 110px; }
 .admin-page .users-table th:nth-child(5),
-.admin-page .users-table td:nth-child(5) { width: 168px; }
+.admin-page .users-table td:nth-child(5) { width: 100px; }
 .admin-page .users-table th:nth-child(6),
 .admin-page .users-table td:nth-child(6) {
-  width: 52px;
-  padding-left: 4px;
+  width: 128px;
+  padding-left: 8px;
   padding-right: 12px;
+  overflow: visible;
 }
+.admin-page .users-table-wrap { overflow: visible; }
+.admin-page .tab-users .table-wrap.users-table-wrap { overflow-x: auto; overflow-y: visible; }
 .admin-page .user-cell {
   display: flex;
   align-items: flex-start;
@@ -3501,13 +3676,6 @@ onMounted(() => {
 @keyframes credit-spin {
   to { transform: rotate(360deg); }
 }
-.admin-page .access-cell {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: nowrap;
-  white-space: nowrap;
-}
 .admin-page .access-status {
   display: inline-flex;
   align-items: center;
@@ -3515,6 +3683,68 @@ onMounted(() => {
   font-size: 12px;
   font-weight: 600;
   color: var(--muted);
+}
+.admin-page .user-actions {
+  position: relative;
+  display: inline-flex;
+  justify-content: flex-end;
+  width: 100%;
+}
+.admin-page .user-actions-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  white-space: nowrap;
+}
+.admin-page .user-actions-btn .icon {
+  transition: transform 0.15s ease;
+}
+.admin-page .user-actions.open .user-actions-btn .icon {
+  transform: rotate(180deg);
+}
+.admin-page .user-actions-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  z-index: 40;
+  min-width: 196px;
+  padding: 6px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: #fff;
+  box-shadow: 0 12px 28px rgba(28, 25, 21, 0.14);
+  display: grid;
+  gap: 2px;
+}
+.admin-page .user-actions-menu button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  margin: 0;
+  padding: 9px 10px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  text-align: left;
+  cursor: pointer;
+}
+.admin-page .user-actions-menu button:hover {
+  background: var(--surface-soft);
+}
+.admin-page .user-actions-menu button:disabled {
+  opacity: 0.55;
+  cursor: wait;
+}
+.admin-page .user-actions-menu button.danger {
+  color: var(--danger);
+}
+.admin-page .user-actions-menu button.danger:hover {
+  background: var(--danger-soft);
 }
 .admin-page .access-status::before {
   content: '';
@@ -3525,7 +3755,6 @@ onMounted(() => {
 }
 .admin-page .access-status.on { color: var(--ok); }
 .admin-page .access-status.off { color: var(--danger); }
-.admin-page .access-block { color: var(--danger); border-color: #e3b4b4; }
 @media (max-width: 640px) {
   .admin-page .users-toolbar { width: 100%; }
   .admin-page .users-search { width: 100%; min-width: 0; }

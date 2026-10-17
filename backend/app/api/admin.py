@@ -12,7 +12,8 @@ from app.auth import check_password, make_token, require_admin
 from app.billing import BillingError, adjust_usd, block_user, unblock_user
 from app.db import pool
 from app.config import settings
-from app.mailer import enabled as mail_enabled
+from app.mailer import MailerError, enabled as mail_enabled
+from app.mailer import list_outbound_emails, retry_outbound_email
 from app.money import (
     bonus_tiers,
     min_topup_usd,
@@ -319,7 +320,7 @@ def list_users() -> dict:
         rows = conn.execute(
             """
             SELECT u.id, u.telegram_id, u.username, u.first_name, u.email, u.balance_usd,
-                   u.offer_accepted_at, u.blocked_at, u.blocked_reason, k.prefix,
+                   u.offer_accepted_at, u.blocked_at, u.blocked_reason, u.created_at, k.prefix,
                    u.nudge_topup_sent_at,
                    EXISTS (
                        SELECT 1 FROM topups t
@@ -346,6 +347,7 @@ def list_users() -> dict:
                 "blocked": row["blocked_at"] is not None,
                 "blocked_at": row["blocked_at"].isoformat() if row["blocked_at"] is not None else "",
                 "blocked_reason": row["blocked_reason"] or "",
+                "created_at": row["created_at"].isoformat() if row["created_at"] is not None else "",
                 "key_prefix": row["prefix"] or "",
                 "nudge_topup_sent_at": (
                     row["nudge_topup_sent_at"].isoformat()
@@ -1289,6 +1291,29 @@ def delete_referral_group_admin(group_id: int) -> dict:
     if not delete_group(group_id):
         raise HTTPException(status_code=404, detail="group")
     return {"ok": True}
+
+
+@router.get("/emails", dependencies=[Depends(require_admin)])
+def list_emails(
+    response: Response,
+    status: str | None = Query(default=None),
+    limit: int = Query(default=200, ge=1, le=500),
+) -> dict:
+    response.headers["Cache-Control"] = "no-store"
+    return list_outbound_emails(status=status, limit=limit)
+
+
+@router.post("/emails/{email_id}/retry", dependencies=[Depends(require_admin)])
+def retry_email(email_id: int) -> dict:
+    try:
+        item = retry_outbound_email(email_id)
+    except MailerError as exc:
+        detail = str(exc)
+        code = 404 if "не найдено" in detail else 400
+        if "не удалось отправить" in detail or detail.startswith("SMTP"):
+            code = 502
+        raise HTTPException(status_code=code, detail=detail) from exc
+    return {"item": item}
 
 
 @router.get("/support/threads", dependencies=[Depends(require_admin)])

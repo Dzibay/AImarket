@@ -283,6 +283,13 @@ export function useAdminPanel() {
   let supportPollTimer = null
   let supportThreadSeq = 0
 
+  const emails = ref([])
+  const emailsFailedCount = ref(0)
+  const emailsFilter = ref('all')
+  const emailsLoading = ref(false)
+  const emailsError = ref('')
+  const emailRetryBusy = ref({})
+
   const financeSummary = ref(null)
   const financeSection = ref('expenses')
   const financeError = ref('')
@@ -383,6 +390,12 @@ export function useAdminPanel() {
     },
     { id: 'ledger', label: 'Транзакции' },
     { id: 'users', label: 'Пользователи' },
+    {
+      id: 'emails',
+      label: emailsFailedCount.value > 0
+        ? `Письма (${emailsFailedCount.value})`
+        : 'Письма',
+    },
     {
       id: 'support',
       label: supportWaiting.value > 0 ? `Поддержка (${supportWaiting.value})` : 'Поддержка',
@@ -777,6 +790,7 @@ export function useAdminPanel() {
     await loadReferrals()
     await loadAnalytics()
     await loadSupportThreads()
+    await loadEmails()
     authPhase.value = 'in'
     bootError.value = ''
   }
@@ -1142,7 +1156,59 @@ export function useAdminPanel() {
       stopSupportPoll()
     }
     if (tab === 'finance') loadFinance()
+    if (tab === 'emails') loadEmails()
     if (tab !== 'users') closeUserDetail()
+  }
+
+  async function loadEmails() {
+    emailsLoading.value = true
+    emailsError.value = ''
+    try {
+      const status = emailsFilter.value === 'all' ? '' : emailsFilter.value
+      const data = await api(
+        '/api/admin/emails' + (status ? '?status=' + encodeURIComponent(status) : ''),
+      )
+      emails.value = data.items || []
+      emailsFailedCount.value = Number(data.failed_count || 0)
+    } catch (err) {
+      emailsError.value = err?.message || 'Не удалось загрузить письма'
+    } finally {
+      emailsLoading.value = false
+    }
+  }
+
+  async function setEmailsFilter(value) {
+    emailsFilter.value = value
+    await loadEmails()
+  }
+
+  async function retryEmail(item) {
+    if (!item?.id || emailRetryBusy.value[item.id]) return
+    emailsError.value = ''
+    emailRetryBusy.value = { ...emailRetryBusy.value, [item.id]: true }
+    try {
+      const data = await api('/api/admin/emails/' + item.id + '/retry', { method: 'POST' })
+      const updated = data.item
+      if (updated) {
+        emails.value = emails.value.map((row) => (row.id === updated.id ? updated : row))
+      }
+      await loadEmails()
+    } catch (err) {
+      emailsError.value = err?.message || 'Не удалось повторить отправку'
+      await loadEmails()
+    } finally {
+      const next = { ...emailRetryBusy.value }
+      delete next[item.id]
+      emailRetryBusy.value = next
+    }
+  }
+
+  function emailStatusLabel(status) {
+    return ({ sent: 'Отправлено', failed: 'Ошибка', pending: 'В очереди' }[status] || status)
+  }
+
+  function emailStatusClass(status) {
+    return ({ sent: 'ok', failed: 'bad', pending: 'warn' }[status] || 'neutral')
   }
 
   function renderUserDetailCharts(data) {
@@ -1825,6 +1891,17 @@ export function useAdminPanel() {
     sendSupportReply,
     supportPerson,
     supportPreview,
+    emails,
+    emailsFailedCount,
+    emailsFilter,
+    emailsLoading,
+    emailsError,
+    emailRetryBusy,
+    loadEmails,
+    setEmailsFilter,
+    retryEmail,
+    emailStatusLabel,
+    emailStatusClass,
     referralGroups,
     referralRows,
     referralShowUserTokens,
