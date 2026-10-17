@@ -58,9 +58,6 @@ log = logging.getLogger("app.web")
 
 _EMAIL = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 _RETURN_TOKEN_TTL = "24 hours"
-# /web/me часто поллит кабинет — не дёргаем ЮKassa на каждый запрос.
-_settle_at: dict[int, float] = {}
-_SETTLE_MIN_SEC = 30.0
 _config_cache: dict | None = None
 _config_cache_at = 0.0
 _CONFIG_TTL_SEC = 10.0
@@ -237,37 +234,6 @@ def _has_awaiting_supplier_topup(user_id: int) -> bool:
             (user_id,),
         ).fetchone()
     return row is not None
-
-
-def _settle_pending(user_id: int, *, force: bool = False) -> None:
-    """Досверяет свежие платежи, если человек вернулся в кабинет не через return_url."""
-    now = time.monotonic()
-    if not force and now - _settle_at.get(user_id, 0.0) < _SETTLE_MIN_SEC:
-        return
-    with pool.connection() as conn:
-        rows = conn.execute(
-            """
-            SELECT id, payment_id FROM topups
-            WHERE user_id = %s AND status IN ('pending', 'awaiting_supplier') AND payment_id IS NOT NULL
-              AND created_at >= NOW() - INTERVAL '2 days'
-            ORDER BY id DESC LIMIT 3
-            """,
-            (user_id,),
-        ).fetchall()
-    _settle_at[user_id] = time.monotonic()
-    for row in rows:
-        try:
-            settle_payment(str(row["payment_id"]))
-        except BillingError:
-            continue
-        except YooKassaError:
-            continue
-        except Exception:
-            log.exception("досверка topup %s user=%s", row["id"], user_id)
-            try:
-                recover_paid_topup(int(row["id"]), str(row["payment_id"]), user_id)
-            except Exception:
-                log.exception("восстановление topup %s user=%s", row["id"], user_id)
 
 
 def _profile(user_id: int) -> dict:
@@ -553,7 +519,6 @@ def login(body: LoginIn) -> dict:
 
 @router.get("/web/me")
 def me(user_id: int = Depends(require_web_user)) -> dict:
-    _settle_pending(user_id)
     return _profile(user_id)
 
 
