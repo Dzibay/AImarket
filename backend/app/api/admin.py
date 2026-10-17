@@ -17,6 +17,7 @@ from app.money import (
     bonus_tiers,
     min_topup_usd,
     normalize_bonus_tiers,
+    referral_bonus_percent,
     supplier_usd_price_rub,
     units_to_usd,
     usd_price_rub,
@@ -68,6 +69,7 @@ _TEXT_KEYS = (
     "supplier_usd_price_rub",
     "min_topup_usd",
     "topup_bonuses",
+    "referral_bonus_percent",
     "offer_email",
     "offer_date",
     "support_username",
@@ -90,6 +92,7 @@ class SettingsIn(BaseModel):
     supplier_usd_price_rub: str = Field(default="", max_length=32)
     min_topup_usd: str = Field(default="", max_length=32)
     topup_bonuses: list[BonusTierIn] = Field(default_factory=list, max_length=20)
+    referral_bonus_percent: str = Field(default="", max_length=32)
     offer_email: str = Field(default="", max_length=200)
     offer_date: str = Field(default="", max_length=32)
     support_username: str = Field(default="", max_length=64)
@@ -221,6 +224,9 @@ def _settings_payload() -> dict:
         ),
         "min_topup_usd": str(min_topup_usd()),
         "topup_bonuses": bonus_tiers(),
+        "referral_bonus_percent": (
+            str(referral_bonus_percent()) if referral_bonus_percent() > 0 else get_setting("referral_bonus_percent")
+        ),
         "mail_enabled": mail_enabled(),
         "mail_missing": _mail_missing(),
         "offer_email": get_setting("offer_email") or get_setting("seller_email"),
@@ -269,6 +275,16 @@ def write_settings(body: SettingsIn) -> dict:
                 raise ValueError
         except Exception as exc:
             raise HTTPException(status_code=422, detail="min_topup") from exc
+    referral_percent = body.referral_bonus_percent.strip().replace(",", ".")
+    if referral_percent:
+        try:
+            ref_value = Decimal(referral_percent)
+            if ref_value < 0 or ref_value > 100:
+                raise ValueError
+        except Exception as exc:
+            raise HTTPException(status_code=422, detail="referral_bonus") from exc
+    else:
+        referral_percent = ""
     offer_date = body.offer_date.strip()
     if offer_date:
         try:
@@ -282,6 +298,7 @@ def write_settings(body: SettingsIn) -> dict:
         "supplier_usd_price_rub": supplier_price,
         "min_topup_usd": min_topup,
         "topup_bonuses": json.dumps(tiers, ensure_ascii=False) if tiers else "",
+        "referral_bonus_percent": referral_percent,
         "offer_email": body.offer_email.strip(),
         "offer_date": offer_date,
         "support_username": body.support_username.strip().lstrip("@"),
@@ -1235,6 +1252,8 @@ def assign_referral_group(link_id: int, body: ReferralGroupAssignIn) -> dict:
     try:
         return set_link_group(link_id, body.group_id)
     except ReferralError as exc:
+        if exc.code == "user-link":
+            raise HTTPException(status_code=403, detail=exc.code) from exc
         status = 404 if exc.code in {"link", "group"} else 422
         raise HTTPException(status_code=status, detail=exc.code) from exc
 
@@ -1245,8 +1264,8 @@ def delete_referral_admin(link_id: int) -> dict:
         if not delete_link(link_id):
             raise HTTPException(status_code=404, detail="referral")
     except ReferralError as exc:
-        if exc.code == "system":
-            raise HTTPException(status_code=403, detail="system") from exc
+        if exc.code in {"system", "user-link"}:
+            raise HTTPException(status_code=403, detail=exc.code) from exc
         raise HTTPException(status_code=422, detail=exc.code) from exc
     return {"ok": True}
 

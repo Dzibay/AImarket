@@ -24,10 +24,18 @@ from app.history import HISTORY_PAGE, history_payload
 from app.installer import InstallError, create_install_command
 from app.mailer import enabled as mail_enabled
 from app.mailer import send_login_email
-from app.money import bonus_tiers, min_topup_rub, min_topup_usd, rub_to_usd, topup_bonus, usd_price_rub
+from app.money import (
+    bonus_tiers,
+    min_topup_rub,
+    min_topup_usd,
+    referral_bonus_percent,
+    rub_to_usd,
+    topup_bonus,
+    usd_price_rub,
+)
 from app.payments import ensure_web_key, recover_paid_topup, settle_payment
 from app.settings_store import get_setting, public_base_url, support_username
-from app.referrals import attribute_user, record_click
+from app.referrals import attribute_user, record_click, user_program_stats
 from app.support import (
     claim_guest_messages,
     ensure_guest_token,
@@ -260,6 +268,19 @@ def _profile(user_id: int) -> dict:
     with pool.connection() as conn:
         stats = usage_period_stats(conn, user_id)
     key_frozen = bool(key and key.get("frozen"))
+    referral = None
+    if not blocked:
+        try:
+            program = user_program_stats(user_id)
+            percent = float(referral_bonus_percent())
+            base = public_base_url().rstrip("/")
+            referral = {
+                **program,
+                "bonus_percent": percent,
+                "site_url": f"{base}/?ref={program['token']}" if base else "",
+            }
+        except Exception:
+            log.exception("реферальная программа user=%s", user_id)
     return {
         "id": int(row["id"]),
         "email": row["email"] or "",
@@ -275,6 +296,7 @@ def _profile(user_id: int) -> dict:
         "spent_month_usd": stats["spent_month_usd"],
         "spent_week_usd": stats["spent_week_usd"],
         "last_request_at": iso_utc(stats["last_request_at"]),
+        "referral": referral,
         **_config_payload(),
     }
 

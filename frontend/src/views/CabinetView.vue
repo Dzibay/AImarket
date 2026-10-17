@@ -322,6 +322,59 @@
               </div>
             </section>
 
+            <section v-if="profile.referral" id="referral" class="anchor">
+              <h2 class="section-title">Реферальная программа</h2>
+              <div class="referral-hero card">
+                <div class="referral-hero-main">
+                  <span class="referral-eyebrow"><AppIcon name="gift" :size="16" />Приглашайте друзей</span>
+                  <h3 class="referral-title">
+                    <template v-if="profile.referral.bonus_percent > 0">
+                      Получайте {{ formatPercent(profile.referral.bonus_percent) }}% с их пополнений
+                    </template>
+                    <template v-else>
+                      Делитесь своей ссылкой
+                    </template>
+                  </h3>
+                  <p class="referral-lead">
+                    <template v-if="profile.referral.bonus_percent > 0">
+                      Когда человек перейдёт по вашей ссылке и пополнит баланс, на ваш счёт зачислится
+                      {{ formatPercent(profile.referral.bonus_percent) }}% от суммы его оплаты.
+                      Бонус можно сразу тратить на запросы.
+                    </template>
+                    <template v-else>
+                      Поделитесь ссылкой — приглашённые пользователи закрепляются за вами.
+                      Начисление бонуса включается в настройках сервиса.
+                    </template>
+                  </p>
+                  <div class="referral-link-box">
+                    <code class="referral-url">{{ profile.referral.site_url || `/?ref=${profile.referral.token}` }}</code>
+                    <button type="button" class="btn sm light" @click="copyReferralLink">
+                      <AppIcon :name="referralCopied ? 'check' : 'copy'" :size="15" />
+                      {{ referralCopied ? 'Скопировано' : 'Скопировать' }}
+                    </button>
+                  </div>
+                </div>
+                <div class="referral-stats">
+                  <div class="referral-stat">
+                    <span>Переходы</span>
+                    <b>{{ profile.referral.visits }}</b>
+                  </div>
+                  <div class="referral-stat">
+                    <span>Приглашено</span>
+                    <b>{{ profile.referral.invited }}</b>
+                  </div>
+                  <div class="referral-stat">
+                    <span>С оплатой</span>
+                    <b>{{ profile.referral.payers }}</b>
+                  </div>
+                  <div class="referral-stat accent">
+                    <span>Заработано</span>
+                    <b>{{ usdSmart(profile.referral.earned_usd) }}</b>
+                  </div>
+                </div>
+              </div>
+            </section>
+
             <section id="history" class="anchor">
               <div class="section-head">
                 <h2 class="section-title">История операций</h2>
@@ -453,7 +506,7 @@ import AppIcon from '../components/ui/AppIcon.vue'
 import { errorText, webApi } from '../api/web'
 import { clearSession, useSession } from '../composables/useSession'
 import { useSupportUnread } from '../composables/useSupportUnread'
-import { toast } from '../composables/useToast'
+import { copyWithToast, toast } from '../composables/useToast'
 import { dateTime, rub, tokens, usd, usdSmart } from '../utils/format'
 import { useHead } from '../utils/useHead'
 
@@ -470,18 +523,28 @@ const reissuing = ref(false)
 const reissueError = ref('')
 const restoring = ref(false)
 const restoreError = ref('')
+const referralCopied = ref(false)
 const active = ref('overview')
 let watching = false
 let ticking = false
+let referralCopyTimer = 0
 
-const sections = [
-  { id: 'overview', label: 'Обзор', icon: 'home' },
-  { id: 'key', label: 'Ключ', icon: 'key' },
-  { id: 'setup', label: 'Подключение', icon: 'plug' },
-  { id: 'topup', label: 'Пополнение', icon: 'wallet' },
-  { id: 'history', label: 'История', icon: 'history' },
-  { id: 'help', label: 'Помощь', icon: 'help' },
-]
+const sections = computed(() => {
+  const items = [
+    { id: 'overview', label: 'Обзор', icon: 'home' },
+    { id: 'key', label: 'Ключ', icon: 'key' },
+    { id: 'setup', label: 'Подключение', icon: 'plug' },
+    { id: 'topup', label: 'Пополнение', icon: 'wallet' },
+  ]
+  if (profile.value?.referral) {
+    items.push({ id: 'referral', label: 'Рефералы', icon: 'gift' })
+  }
+  items.push(
+    { id: 'history', label: 'История', icon: 'history' },
+    { id: 'help', label: 'Помощь', icon: 'help' },
+  )
+  return items
+})
 
 const filters = [
   { id: 'all', label: 'Все' },
@@ -692,14 +755,16 @@ watch(mobileNavOpen, (open) => {
 // Подсветка раздела в меню: активен последний раздел, чей верх прошёл треть экрана.
 function updateActive() {
   ticking = false
+  const items = sections.value
+  if (!items.length) return
   const limit = window.innerHeight * 0.33
-  let currentId = sections[0].id
-  for (const item of sections) {
+  let currentId = items[0].id
+  for (const item of items) {
     const node = document.getElementById(item.id)
     if (node && node.getBoundingClientRect().top <= limit) currentId = item.id
   }
   if (window.innerHeight + window.scrollY >= document.documentElement.scrollHeight - 2) {
-    currentId = sections[sections.length - 1].id
+    currentId = items[items.length - 1].id
   }
   active.value = currentId
 }
@@ -779,6 +844,23 @@ async function restoreAccess() {
   }
 }
 
+function formatPercent(value) {
+  const n = Number(value) || 0
+  return Number.isInteger(n) ? String(n) : n.toFixed(2).replace(/\.?0+$/, '')
+}
+
+async function copyReferralLink() {
+  const url = profile.value?.referral?.site_url || ''
+  if (!url) return
+  const ok = await copyWithToast(url, 'Ссылка скопирована')
+  if (!ok) return
+  referralCopied.value = true
+  window.clearTimeout(referralCopyTimer)
+  referralCopyTimer = window.setTimeout(() => {
+    referralCopied.value = false
+  }, 1800)
+}
+
 async function reissue() {
   if (reissuing.value) return
   const ok = window.confirm(
@@ -809,7 +891,7 @@ onMounted(async () => {
   refreshUnread()
   await Promise.all([load(), fetchHistory(0)])
   const hash = window.location.hash.replace('#', '')
-  if (hash && sections.some((item) => item.id === hash)) {
+  if (hash && sections.value.some((item) => item.id === hash)) {
     requestAnimationFrame(() => scrollTo(hash))
   }
 })
@@ -893,6 +975,97 @@ onBeforeUnmount(() => {
 .head .page-lead { margin-bottom: 0; overflow-wrap: anywhere; }
 .anchor { scroll-margin-top: 20px; margin-bottom: 40px; }
 .section-title { margin: 0 0 14px; font-size: 1.35rem; letter-spacing: -0.03em; }
+
+.referral-hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1.35fr) minmax(0, 0.85fr);
+  gap: 22px;
+  padding: 24px 26px;
+  background:
+    radial-gradient(120% 90% at 100% 0%, rgba(196, 149, 82, 0.18), transparent 55%),
+    linear-gradient(165deg, #1f1b16 0%, #2a241c 55%, #1a1713 100%);
+  color: #f4f1ea;
+  border-color: #2a241c;
+  box-shadow: 0 18px 40px rgba(28, 25, 21, 0.18);
+}
+.referral-eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: rgba(244, 241, 234, 0.62);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.referral-title {
+  margin: 10px 0 8px;
+  font-size: clamp(1.35rem, 2.4vw, 1.75rem);
+  line-height: 1.2;
+  letter-spacing: -0.03em;
+}
+.referral-lead {
+  margin: 0 0 18px;
+  color: rgba(244, 241, 234, 0.72);
+  font-size: 14px;
+  line-height: 1.5;
+  max-width: 42rem;
+}
+.referral-link-box {
+  display: flex;
+  gap: 10px;
+  align-items: stretch;
+  flex-wrap: wrap;
+}
+.referral-url {
+  flex: 1 1 220px;
+  min-width: 0;
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: rgba(244, 241, 234, 0.08);
+  border: 1px solid rgba(244, 241, 234, 0.14);
+  color: #f4f1ea;
+  font-size: 13px;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+.referral-link-box .btn.light {
+  background: #f4f1ea;
+  color: #1c1915;
+  border-color: #f4f1ea;
+}
+.referral-stats {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  align-content: start;
+}
+.referral-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 14px 14px 12px;
+  border-radius: 14px;
+  background: rgba(244, 241, 234, 0.07);
+  border: 1px solid rgba(244, 241, 234, 0.1);
+}
+.referral-stat span {
+  color: rgba(244, 241, 234, 0.58);
+  font-size: 12px;
+  font-weight: 600;
+}
+.referral-stat b {
+  font-size: 1.25rem;
+  letter-spacing: -0.03em;
+  font-variant-numeric: tabular-nums;
+}
+.referral-stat.accent {
+  background: rgba(196, 149, 82, 0.22);
+  border-color: rgba(196, 149, 82, 0.35);
+}
+@media (max-width: 820px) {
+  .referral-hero { grid-template-columns: 1fr; padding: 20px; }
+}
 .section-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 14px; }
 .section-head .section-title { margin: 0; }
 .card-title { margin: 0 0 10px; font-size: 1.15rem; letter-spacing: -0.03em; }

@@ -185,16 +185,21 @@ CREATE TABLE IF NOT EXISTS referral_groups (
 );
 
 CREATE TABLE IF NOT EXISTS referral_links (
-    id         BIGSERIAL PRIMARY KEY,
-    token      TEXT NOT NULL UNIQUE,
-    group_id   BIGINT REFERENCES referral_groups (id) ON DELETE SET NULL,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    id             BIGSERIAL PRIMARY KEY,
+    token          TEXT NOT NULL UNIQUE,
+    group_id       BIGINT REFERENCES referral_groups (id) ON DELETE SET NULL,
+    owner_user_id  BIGINT REFERENCES users (id) ON DELETE CASCADE,
+    created_at     TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 ALTER TABLE referral_links ADD COLUMN IF NOT EXISTS group_id BIGINT
     REFERENCES referral_groups (id) ON DELETE SET NULL;
+ALTER TABLE referral_links ADD COLUMN IF NOT EXISTS owner_user_id BIGINT
+    REFERENCES users (id) ON DELETE CASCADE;
 
 CREATE INDEX IF NOT EXISTS idx_referral_links_group ON referral_links (group_id);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_referral_links_owner
+    ON referral_links (owner_user_id) WHERE owner_user_id IS NOT NULL;
 
 INSERT INTO referral_links (token) VALUES ('web') ON CONFLICT (token) DO NOTHING;
 

@@ -117,3 +117,19 @@ def topup_bonus(amount_usd: Decimal, tiers: list[dict] | None = None) -> tuple[D
         return Decimal(0), Decimal(0)
     bonus = (amount_usd * percent / Decimal(100)).quantize(Decimal("0.01"), rounding=ROUND_DOWN)
     return percent, bonus
+
+
+def referral_bonus_percent() -> Decimal:
+    """Процент реферального бонуса с оплаты приглашённого (0 — программа без начислений)."""
+    raw = get_setting("referral_bonus_percent").strip().replace(",", ".")
+    if not raw:
+        return Decimal(0)
+    try:
+        value = Decimal(raw).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    except Exception:
+        return Decimal(0)
+    if value < 0:
+        return Decimal(0)
+    if value > 100:
+        return Decimal(100)
+    return value

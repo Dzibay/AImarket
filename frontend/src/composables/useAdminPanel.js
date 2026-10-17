@@ -9,6 +9,7 @@ const REFERRAL_ERROR_MESSAGES = {
   format: 'Только латиница, цифры и _.',
   reserved: 'Этот токен зарезервирован системой.',
   system: 'Системный токен нельзя удалить.',
+  'user-link': 'Токен пользователя нельзя удалить или переместить.',
   empty: 'Введите токен.',
   long: 'Не длиннее 64 символов.',
 }
@@ -163,6 +164,7 @@ export function useAdminPanel() {
     usd_price_rub: '',
     supplier_usd_price_rub: '',
     min_topup_usd: '',
+    referral_bonus_percent: '',
     offer_date: '',
     offer_email: '',
     support_username: '',
@@ -255,6 +257,7 @@ export function useAdminPanel() {
   const referralSiteBase = ref('')
   const referralGroups = ref([])
   const referralItems = ref([])
+  const referralShowUserTokens = ref(false)
   const referralExpandedIds = ref([])
   const referralExpandInitialized = ref(false)
   const referralModalOpen = ref(false)
@@ -405,15 +408,24 @@ export function useAdminPanel() {
     return '$' + Number(supplierBalance.value).toFixed(2)
   })
 
+  const referralCampaignItems = computed(() =>
+    referralItems.value.filter((item) => !item.is_user),
+  )
+  const referralUserItems = computed(() =>
+    referralItems.value.filter((item) => item.is_user),
+  )
+
   const referralRows = computed(() => {
     const rows = []
-    if (!referralGroups.value.length && !referralItems.value.length) {
+    const campaignItems = referralCampaignItems.value
+    const userItems = referralShowUserTokens.value ? referralUserItems.value : []
+    if (!referralGroups.value.length && !campaignItems.length && !userItems.length) {
       return [{ type: 'empty' }]
     }
 
     const grouped = new Map(referralGroups.value.map((group) => [group.id, []]))
     const ungrouped = []
-    for (const item of referralItems.value) {
+    for (const item of campaignItems) {
       if (item.group_id && grouped.has(item.group_id)) grouped.get(item.group_id).push(item)
       else ungrouped.push(item)
     }
@@ -442,6 +454,17 @@ export function useAdminPanel() {
         stats: aggregateReferralStats(ungrouped),
       })
       for (const item of ungrouped) {
+        rows.push({ type: 'token', item, groupId: null })
+      }
+    }
+
+    if (userItems.length) {
+      rows.push({
+        type: 'section',
+        title: 'Пользователи',
+        stats: aggregateReferralStats(userItems),
+      })
+      for (const item of userItems) {
         rows.push({ type: 'token', item, groupId: null })
       }
     }
@@ -720,6 +743,7 @@ export function useAdminPanel() {
     settingsForm.usd_price_rub = settings.usd_price_rub || ''
     settingsForm.supplier_usd_price_rub = settings.supplier_usd_price_rub || ''
     settingsForm.min_topup_usd = settings.min_topup_usd || ''
+    settingsForm.referral_bonus_percent = settings.referral_bonus_percent || ''
     bonusTiers.value = (settings.topup_bonuses || []).map((tier) => ({
       min_usd: String(tier.min_usd),
       percent: String(tier.percent),
@@ -1313,6 +1337,7 @@ export function useAdminPanel() {
               percent: Number(String(tier.percent).replace(',', '.')),
             }))
             .filter((tier) => tier.min_usd > 0 && tier.percent > 0),
+          referral_bonus_percent: settingsForm.referral_bonus_percent,
           offer_date: settingsForm.offer_date,
           offer_email: settingsForm.offer_email,
           support_username: settingsForm.support_username,
@@ -1802,6 +1827,8 @@ export function useAdminPanel() {
     supportPreview,
     referralGroups,
     referralRows,
+    referralShowUserTokens,
+    referralUserItems,
     referralModalOpen,
     referralToken,
     referralGroupId,

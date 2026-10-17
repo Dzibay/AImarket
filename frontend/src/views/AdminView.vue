@@ -289,6 +289,20 @@
               <button type="button" class="quiet sm" @click="addBonusTier">Добавить порог</button>
             </div>
             <div class="settings-block">
+              <h3>Реферальная программа</h3>
+              <label for="referral-bonus">Бонус рефереру, %</label>
+              <input
+                id="referral-bonus"
+                v-model="settingsForm.referral_bonus_percent"
+                inputmode="decimal"
+                placeholder="10"
+              >
+              <p class="muted small">
+                Процент от суммы оплаты приглашённого (без бонуса к пополнению).
+                0 или пусто — начисления выключены, ссылки в кабинете остаются.
+              </p>
+            </div>
+            <div class="settings-block">
               <h3>Почта</h3>
               <p class="muted">
                 SMTP задаётся в <code>.env</code> в корне проекта, затем перезапустите backend:
@@ -1365,6 +1379,11 @@
               @keydown.enter="createReferralGroup"
             >
             <button type="button" class="quiet sm" @click="createReferralGroup">Создать группу</button>
+            <label class="referral-user-toggle">
+              <input v-model="referralShowUserTokens" type="checkbox">
+              Токены пользователей
+              <span v-if="referralUserItems.length" class="referral-count">{{ referralUserItems.length }}</span>
+            </label>
             <span v-if="groupError" class="error">{{ groupError }}</span>
           </div>
           <div class="table-wrap">
@@ -1434,6 +1453,10 @@
                     <td>
                       <code>{{ row.item.token }}</code>
                       <span v-if="row.item.system" class="badge ok referral-system">сайт</span>
+                      <span v-else-if="row.item.is_user" class="badge neutral referral-system">пользователь</span>
+                      <span v-if="row.item.is_user && row.item.owner_label" class="muted small referral-owner">
+                        {{ row.item.owner_label }}
+                      </span>
                     </td>
                     <td class="num">{{ row.item.visits || 0 }}</td>
                     <td class="num">{{ row.item.offers_accepted || 0 }}</td>
@@ -1473,6 +1496,7 @@
                     <td class="referral-created">{{ shortDate(row.item.created_at) }}</td>
                     <td class="referral-group">
                       <select
+                        v-if="!row.item.is_user"
                         :value="row.item.group_id ? String(row.item.group_id) : ''"
                         @change="updateReferralGroup(row.item, $event)"
                         @click.stop
@@ -1482,15 +1506,17 @@
                           {{ group.name }}
                         </option>
                       </select>
+                      <span v-else class="muted small">—</span>
                     </td>
                     <td class="referral-delete">
                       <button
-                        v-if="!row.item.system"
+                        v-if="!row.item.system && !row.item.is_user"
                         type="button"
                         class="danger sm"
                         @click.stop="deleteReferral(row.item)"
                       >Удалить</button>
-                      <span v-else class="muted small">системный</span>
+                      <span v-else-if="row.item.system" class="muted small">системный</span>
+                      <span v-else class="muted small">пользователь</span>
                     </td>
                   </tr>
                 </template>
@@ -1918,6 +1944,8 @@ const {
   supportPreview,
   referralGroups,
   referralRows,
+  referralShowUserTokens,
+  referralUserItems,
   referralModalOpen,
   referralToken,
   referralGroupId,
@@ -2183,7 +2211,19 @@ onMounted(() => {
 }
 .admin-page .inline-form { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-bottom: 14px; }
 .admin-page .inline-form input, .admin-page .inline-form select { width: auto; min-width: 160px; flex: 1 1 160px; max-width: 280px; }
-.admin-page .referral-toolbar { margin-bottom: 14px; }
+.admin-page .referral-toolbar { margin-bottom: 14px; flex-wrap: wrap; align-items: center; }
+.admin-page .referral-user-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+  font-size: 13px;
+  color: var(--muted-2);
+  cursor: pointer;
+  user-select: none;
+}
+.admin-page .referral-user-toggle input { margin: 0; }
+.admin-page .referral-owner { margin-left: 8px; }
 .admin-page .tab-referrals td.referral-copy,
 .admin-page .tab-referrals td.referral-delete,
 .admin-page .tab-referrals td.referral-group { width: 1%; white-space: nowrap; text-align: center; vertical-align: middle; }
