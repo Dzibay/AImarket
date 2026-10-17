@@ -55,7 +55,7 @@
 </template>
 
 <script setup>
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 import { errorText, webApi } from '../api/web'
 import {
   claimGuestSupportIfNeeded,
@@ -213,10 +213,18 @@ async function send() {
   }
 }
 
-async function scrollBottom() {
+function isNearBottom(threshold = 96) {
+  const el = scroller.value
+  if (!el) return true
+  return el.scrollHeight - el.scrollTop - el.clientHeight <= threshold
+}
+
+async function scrollBottom({ force = true } = {}) {
   await nextTick()
   const el = scroller.value
-  if (el) el.scrollTop = el.scrollHeight
+  if (!el) return
+  if (!force && !isNearBottom()) return
+  el.scrollTop = el.scrollHeight
 }
 
 async function pullMessages({ markRead = false } = {}) {
@@ -230,12 +238,16 @@ async function pullMessages({ markRead = false } = {}) {
     const lastId = messages.value.at(-1)?.id
     const nextLastId = next.at(-1)?.id
     const grew = next.length !== messages.value.length || nextLastId !== lastId
-    messages.value = next
     applyEmailNotify(data)
+    // Не перезаписываем массив без изменений — иначе Vue дергает DOM и «телепортирует» скролл.
+    if (grew) {
+      const stickToBottom = isNearBottom()
+      messages.value = next
+      if (markRead && stickToBottom) await scrollBottom({ force: true })
+    }
     if (markRead) {
       clearUnread()
       clearSupportNotify()
-      if (grew) await scrollBottom()
     } else if (grew) {
       // Вкладка в фоне — не помечаем прочитанным, чтобы сработали бейдж и unread.
       await refreshUnread()
@@ -273,10 +285,6 @@ async function onVisibility() {
     await pullMessages({ markRead: true })
   }
 }
-
-watch(messages, () => {
-  if (document.visibilityState === 'visible') scrollBottom()
-})
 
 onMounted(async () => {
   await load()
