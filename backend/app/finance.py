@@ -645,14 +645,29 @@ def build_summary() -> dict:
     withdrawals = list_operations("withdrawal", limit=200)
     operations = list_operations(limit=200)
 
+    from app.payment_buckets import finance_bucket_totals
+
+    buckets = finance_bucket_totals()
+
     with pool.connection() as conn:
         balances = conn.execute(
             "SELECT COALESCE(SUM(balance_usd), 0) AS total FROM users"
+        ).fetchone()
+        frozen = conn.execute(
+            """
+            SELECT COALESCE(SUM(u.balance_usd), 0) AS total,
+                   COUNT(*) AS count
+            FROM users u
+            JOIN api_keys k ON k.user_id = u.id
+             AND k.revoked_at IS NULL
+             AND k.frozen_at IS NOT NULL
+            """
         ).fetchone()
         paid = conn.execute(
             """
             SELECT COALESCE(SUM(amount_kopecks), 0) AS kop,
                    COALESCE(SUM(amount_usd), 0) AS usd,
+                   COALESCE(SUM(bonus_usd), 0) AS bonus,
                    COUNT(*) AS count
             FROM topups WHERE status = 'paid'
             """
@@ -660,6 +675,23 @@ def build_summary() -> dict:
 
     customer_liability_usd = _q4(_d(balances["total"]))
     customer_liability_rub = _q2(customer_liability_usd * customer_rate) if customer_rate > 0 else Decimal("0")
+
+    refund_liability_usd = _q4(buckets["refund_liability_usd"])
+    refund_liability_rub = (
+        _q2(refund_liability_usd * customer_rate) if customer_rate > 0 else Decimal("0")
+    )
+    settled_payment_usd = _q4(buckets["settled_payment_usd"])
+    settled_payment_rub = (
+        _q2(settled_payment_usd * customer_rate) if customer_rate > 0 else Decimal("0")
+    )
+    bonus_remaining_usd = _q4(buckets["bonus_remaining_usd"])
+    bonus_remaining_rub = (
+        _q2(bonus_remaining_usd * customer_rate) if customer_rate > 0 else Decimal("0")
+    )
+    supplier_reclaimed_usd = _q4(_d(frozen["total"]))
+    supplier_reclaimed_rub = (
+        _q2(supplier_reclaimed_usd * supplier_rate) if supplier_rate > 0 else Decimal("0")
+    )
 
     supplier = Decimal("0")
     supplier_error = ""
@@ -672,7 +704,8 @@ def build_summary() -> dict:
     shortfall_rub = _q2(shortfall_usd * supplier_rate) if supplier_rate > 0 else Decimal("0")
 
     cash_rub = _q2(sum((_d(a["balance_rub"]) for a in accounts), Decimal("0")))
-    available_rub = _q2(cash_rub - customer_liability_rub)
+    # Доступно к выводу = касса минус только обязательства к возврату (окно 14 дней).
+    available_rub = _q2(cash_rub - refund_liability_rub)
 
     expenses_rub = _q2(sum((_d(x["amount_rub"]) for x in expenses), Decimal("0")))
     withdrawals_rub = _q2(sum((_d(x["amount_rub"]) for x in withdrawals), Decimal("0")))
@@ -685,6 +718,16 @@ def build_summary() -> dict:
         "available_usd": float(_q4(available_rub / customer_rate)) if customer_rate > 0 else 0.0,
         "customer_liability_usd": float(customer_liability_usd),
         "customer_liability_rub": float(customer_liability_rub),
+        "refund_liability_usd": float(refund_liability_usd),
+        "refund_liability_rub": float(refund_liability_rub),
+        "settled_payment_usd": float(settled_payment_usd),
+        "settled_payment_rub": float(settled_payment_rub),
+        "bonus_remaining_usd": float(bonus_remaining_usd),
+        "bonus_remaining_rub": float(bonus_remaining_rub),
+        "bonus_granted_usd": float(_q4(_d(paid["bonus"]))),
+        "supplier_reclaimed_usd": float(supplier_reclaimed_usd),
+        "supplier_reclaimed_rub": float(supplier_reclaimed_rub),
+        "supplier_reclaimed_keys": int(frozen["count"] or 0),
         "supplier_balance_usd": float(supplier),
         "supplier_error": supplier_error,
         "supplier_shortfall_usd": float(shortfall_usd),
@@ -696,6 +739,7 @@ def build_summary() -> dict:
             "count": int(paid["count"] or 0),
             "rub": float(_q2(_d(paid["kop"]) / Decimal(100))),
             "usd": float(_q4(_d(paid["usd"]))),
+            "bonus_usd": float(_q4(_d(paid["bonus"]))),
         },
         "providers": [{"value": k, "label": v} for k, v in PROVIDERS.items()],
         "accounts": accounts,

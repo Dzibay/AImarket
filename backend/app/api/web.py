@@ -17,7 +17,7 @@ from decimal import Decimal, ROUND_HALF_UP, ROUND_UP
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
-from app.billing import BillingError, describe_key, reissue_key, sync_user, upstream_base
+from app.billing import BillingError, describe_key, reissue_key, restore_key, sync_user, upstream_base
 from app.datetime_util import iso_utc
 from app.db import pool
 from app.history import HISTORY_PAGE, history_payload
@@ -259,6 +259,7 @@ def _profile(user_id: int) -> dict:
     row = _user_row(user_id)
     with pool.connection() as conn:
         stats = usage_period_stats(conn, user_id)
+    key_frozen = bool(key and key.get("frozen"))
     return {
         "id": int(row["id"]),
         "email": row["email"] or "",
@@ -268,6 +269,7 @@ def _profile(user_id: int) -> dict:
         "created_at": iso_utc(row["created_at"]),
         "key": key,
         "key_error": key_error,
+        "key_frozen": key_frozen,
         "awaiting_supplier": awaiting_supplier,
         "spent_today_usd": stats["spent_today_usd"],
         "spent_month_usd": stats["spent_month_usd"],
@@ -551,6 +553,24 @@ def rotate_key(user_id: int = Depends(require_web_user)) -> dict:
         status = {"blocked": 403, "offer": 403, "no-key": 409, "empty": 402, "supplier": 409}.get(exc.code, 502)
         raise HTTPException(status_code=status, detail=exc.code) from exc
     return {"secret": result["secret"], "profile": _profile(user_id)}
+
+
+@router.post("/web/keys/restore")
+def restore_access(user_id: int = Depends(require_web_user)) -> dict:
+    """Возобновляет доступ по ключу после паузы из‑за отсутствия активности."""
+    try:
+        restore_key(user_id)
+    except BillingError as exc:
+        status = {
+            "blocked": 403,
+            "offer": 403,
+            "no-key": 409,
+            "not-frozen": 409,
+            "empty": 402,
+            "supplier": 409,
+        }.get(exc.code, 502)
+        raise HTTPException(status_code=status, detail=exc.code) from exc
+    return {"profile": _profile(user_id)}
 
 
 @router.post("/web/referral/visit")

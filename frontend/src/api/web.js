@@ -39,6 +39,7 @@ export const webApi = {
   topup: (payload) => request('/api/web/topups', { method: 'POST', body: JSON.stringify(payload) }),
   checkTopup: (id) => request(`/api/web/topups/${id}/check`, { method: 'POST' }),
   reissueKey: () => request('/api/web/keys/reissue', { method: 'POST' }),
+  restoreKey: () => request('/api/web/keys/restore', { method: 'POST' }),
   installCommand: (app, os, action = 'setup') =>
     request('/api/web/install', { method: 'POST', body: JSON.stringify({ app, os, action }) }),
   supportMessages: (markSeen = true) =>
@@ -79,8 +80,9 @@ export const ERRORS = {
   'guest-token': 'Сессия чата устарела. Откройте чат снова.',
   expired: 'Ссылка устарела или уже заменена новой. Запросите новое письмо или войдите по ключу.',
   topup: 'Платёж не найден.',
-  supplier: 'Оплата получена, но ключ доступа пока не выпущен — временная проблема с поставщиком API. Напишите в поддержку, мы зачислим баланс и выпустим ключ.',
+  supplier: 'Временная проблема с поставщиком API. Попробуйте позже или напишите в поддержку.',
   'no-key': 'Ключ ещё не выпущен.',
+  'not-frozen': 'Доступ уже активен.',
   empty: 'На балансе нет средств.',
   long: 'Слишком длинное сообщение.',
   message: 'Введите текст сообщения.',

@@ -350,7 +350,8 @@
             <span class="muted">
               (≈ {{ rub(financeSummary.supplier_shortfall_rub) }} по курсу поставщика
               {{ Number(financeSummary.supplier_rate || 0).toFixed(2) }} ₽/$).
-              Обязательства клиентам {{ usd(financeSummary.customer_liability_usd) }},
+              Обязательства к возврату {{ usd(financeSummary.refund_liability_usd) }},
+              балансы клиентов {{ usd(financeSummary.customer_liability_usd) }},
               у поставщика {{ usd(financeSummary.supplier_balance_usd) }}.
             </span>
           </div>
@@ -359,16 +360,39 @@
             <div class="finance-kpi emphasis" :class="financeSummary.available_rub >= 0 ? 'ok' : 'bad'">
               <span>Доступно к выводу</span>
               <b>{{ rub(financeSummary.available_rub) }}</b>
-              <small>касса − обязательства клиентам</small>
+              <small>касса − обязательства к возврату</small>
             </div>
             <div class="finance-kpi">
               <span>Касса по счетам</span>
               <b>{{ rub(financeSummary.cash_rub) }}</b>
             </div>
             <div class="finance-kpi">
-              <span>Обязательства клиентам</span>
+              <span>Обязательства к возврату</span>
+              <b>{{ usd(financeSummary.refund_liability_usd) }}</b>
+              <small>{{ rub(financeSummary.refund_liability_rub) }} · 14 дней с оплаты</small>
+            </div>
+            <div class="finance-kpi">
+              <span>Вне окна возврата</span>
+              <b>{{ usd(financeSummary.settled_payment_usd) }}</b>
+              <small>{{ rub(financeSummary.settled_payment_rub) }} · оплаченная часть</small>
+            </div>
+            <div class="finance-kpi">
+              <span>Бонусы на балансах</span>
+              <b>{{ usd(financeSummary.bonus_remaining_usd) }}</b>
+              <small>{{ rub(financeSummary.bonus_remaining_rub) }} · выдано {{ usd(financeSummary.bonus_granted_usd) }}</small>
+            </div>
+            <div class="finance-kpi">
+              <span>Разморожено у поставщика</span>
+              <b>{{ usd(financeSummary.supplier_reclaimed_usd) }}</b>
+              <small>
+                {{ rub(financeSummary.supplier_reclaimed_rub) }}
+                · ключей {{ financeSummary.supplier_reclaimed_keys || 0 }}
+              </small>
+            </div>
+            <div class="finance-kpi">
+              <span>Балансы клиентов</span>
               <b>{{ usd(financeSummary.customer_liability_usd) }}</b>
-              <small>{{ rub(financeSummary.customer_liability_rub) }} · курс клиентов</small>
+              <small>{{ rub(financeSummary.customer_liability_rub) }} · все остатки</small>
             </div>
             <div class="finance-kpi" :class="{ bad: financeSummary.supplier_needs_topup }">
               <span>Поставщик</span>

@@ -176,12 +176,20 @@ def settle_payment(payment_id: str) -> str:
             UPDATE topups
             SET status = 'paid', decided_at = COALESCE(decided_at, NOW())
             WHERE id = %s AND status IN ('pending', 'awaiting_supplier')
-            RETURNING id
+            RETURNING id, decided_at
             """,
             (topup_id,),
         ).fetchone()
     if credited is None:
         return "already"
+    from app.payment_buckets import init_paid_topup
+
+    init_paid_topup(
+        topup_id,
+        amount_usd=Decimal(row["amount_usd"]),
+        bonus_usd=bonus,
+        decided_at=credited.get("decided_at"),
+    )
     try:
         from app.finance import record_yookassa_payment
 

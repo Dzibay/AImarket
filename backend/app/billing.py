@@ -26,6 +26,9 @@ class BillingError(Exception):
         super().__init__(code)
 
 
+IDLE_FREEZE_DAYS = 14
+
+
 def sync_all() -> None:
     with billing_lock:
         with pool.connection() as conn:
@@ -33,7 +36,9 @@ def sync_all() -> None:
                 """
                 SELECT user_id, upstream_id
                 FROM api_keys
-                WHERE revoked_at IS NULL AND upstream_id IS NOT NULL
+                WHERE revoked_at IS NULL
+                  AND upstream_id IS NOT NULL
+                  AND frozen_at IS NULL
                 """
             ).fetchall()
         for row in rows:
@@ -61,13 +66,15 @@ def sync_user(user_id: int, *, force: bool = False) -> None:
         with pool.connection() as conn:
             row = conn.execute(
                 """
-                SELECT upstream_id
+                SELECT upstream_id, frozen_at
                 FROM api_keys
                 WHERE user_id = %s AND revoked_at IS NULL AND upstream_id IS NOT NULL
                 """,
                 (user_id,),
             ).fetchone()
         if row is None:
+            return
+        if row["frozen_at"] is not None:
             return
         _sync_key(user_id, int(row["upstream_id"]), force=force)
         _user_sync_at[user_id] = time.monotonic()
@@ -130,10 +137,20 @@ def add_usd(user_id: int, amount: Decimal, kind: str, note: str, amount_kopecks:
         if key is None:
             updated = (_balance(user_id) + amount).quantize(Decimal("0.0001"))
         else:
-            try:
-                updated = upstream.add_quota(int(key["upstream_id"]), amount)
-            except UpstreamError as exc:
-                _reraise(exc)
+            if key.get("frozen_at") is not None:
+                # Пополнение снова активирует ключ: квота = локальный остаток + сумма.
+                local = _balance(user_id)
+                target = (local + amount).quantize(Decimal("0.0001"))
+                try:
+                    updated = upstream.update_quota(int(key["upstream_id"]), target)
+                except UpstreamError as exc:
+                    _reraise(exc)
+                _clear_frozen(int(key["id"]))
+            else:
+                try:
+                    updated = upstream.add_quota(int(key["upstream_id"]), amount)
+                except UpstreamError as exc:
+                    _reraise(exc)
             _set_key_quota(int(key["id"]), updated)
             from app.notifications import clear_limit_alert
 
@@ -172,11 +189,17 @@ def adjust_usd(user_id: int, delta: Decimal, note: str = "") -> Decimal:
             kind = "adjust"
         key = _active_key(user_id)
         if key is not None:
-            try:
-                updated = upstream.update_quota(int(key["upstream_id"]), updated)
-            except UpstreamError as exc:
-                _reraise(exc)
-            _set_key_quota(int(key["id"]), updated)
+            if key.get("frozen_at") is not None and delta < 0:
+                # Замороженный ключ: локальное списание без квоты у поставщика.
+                pass
+            else:
+                try:
+                    updated = upstream.update_quota(int(key["upstream_id"]), updated)
+                except UpstreamError as exc:
+                    _reraise(exc)
+                _set_key_quota(int(key["id"]), updated)
+                if key.get("frozen_at") is not None and updated > 0:
+                    _clear_frozen(int(key["id"]))
             ledger_amount = (updated - current).quantize(Decimal("0.0001"))
             if ledger_amount == 0:
                 raise BillingError("empty")
@@ -193,6 +216,10 @@ def adjust_usd(user_id: int, delta: Decimal, note: str = "") -> Decimal:
             "начисление из админки" if ledger_amount > 0 else "списание из админки"
         )
         _set_balance(user_id, updated, kind, stamp_note, 0, ledger_amount)
+        if ledger_amount < 0:
+            from app.payment_buckets import apply_spend
+
+            apply_spend(user_id, abs(ledger_amount))
         return updated
 
 
@@ -233,17 +260,24 @@ def reissue_key(user_id: int, telegram_id: int | None) -> dict:
         if key is None:
             raise BillingError("no-key")
         upstream_id = int(key["upstream_id"])
-        try:
-            token = upstream.get_token(upstream_id)
-        except UpstreamError as exc:
-            _reraise(exc)
-        if token is not None:
-            amount = units_to_usd(int(token.get("remain_quota") or 0))
-            _record_balance(user_id, amount)
-        else:
+        frozen = key.get("frozen_at") is not None
+        if frozen:
             amount = _balance(user_id)
+        else:
+            try:
+                token = upstream.get_token(upstream_id)
+            except UpstreamError as exc:
+                _reraise(exc)
+            if token is not None:
+                amount = units_to_usd(int(token.get("remain_quota") or 0))
+                _record_balance(user_id, amount)
+            else:
+                amount = _balance(user_id)
         if amount <= 0:
             raise BillingError("empty")
+        if frozen:
+            # Баланс уже в promised (_ensure_pool считает frozen) — не удваиваем.
+            _ensure_pool(Decimal(0))
         try:
             upstream.delete_key(upstream_id)
         except UpstreamError as exc:
@@ -264,8 +298,128 @@ def reissue_key(user_id: int, telegram_id: int | None) -> dict:
             "base_url": _base_url(),
             "balance_usd": float(amount),
             "created_at": created_at.isoformat(),
+            "frozen": False,
             **stats,
         }
+
+
+def restore_key(user_id: int) -> dict:
+    """Возобновляет доступ по замороженному ключу: квота снова у поставщика, secret тот же."""
+    with billing_lock:
+        _require_not_blocked(user_id)
+        _require_offer(user_id)
+        key = _active_key(user_id)
+        if key is None:
+            raise BillingError("no-key")
+        if key.get("frozen_at") is None:
+            raise BillingError("not-frozen")
+        amount = _balance(user_id)
+        if amount <= 0:
+            raise BillingError("empty")
+        # Баланс frozen-ключа уже в promised — проверяем покрытие без удвоения.
+        _ensure_pool(Decimal(0))
+        try:
+            updated = upstream.update_quota(int(key["upstream_id"]), amount)
+        except UpstreamError as exc:
+            _reraise(exc)
+        _clear_frozen(int(key["id"]))
+        _set_key_quota(int(key["id"]), updated)
+        with pool.connection() as conn:
+            conn.execute("UPDATE users SET balance_usd = %s WHERE id = %s", (updated, user_id))
+        stats = _key_stats(user_id, int(key["id"]), int(key["upstream_id"]), updated)
+        secret = str(key.get("secret") or "")
+        return {
+            "secret": secret,
+            "prefix": key["prefix"],
+            "base_url": _base_url(),
+            "balance_usd": float(updated),
+            "frozen": False,
+            **stats,
+        }
+
+
+def freeze_idle_keys() -> int:
+    """Замораживает ключи без запросов ≥ IDLE_FREEZE_DAYS: квота у поставщика → 0, баланс локально."""
+    frozen_count = 0
+    with billing_lock:
+        with pool.connection() as conn:
+            rows = conn.execute(
+                """
+                SELECT k.id, k.user_id, k.upstream_id, u.balance_usd
+                FROM api_keys k
+                JOIN users u ON u.id = k.user_id
+                WHERE k.revoked_at IS NULL
+                  AND k.frozen_at IS NULL
+                  AND k.upstream_id IS NOT NULL
+                  AND u.balance_usd > 0
+                  AND u.blocked_at IS NULL
+                  AND COALESCE(
+                      (SELECT MAX(us.created_at) FROM usage us WHERE us.user_id = k.user_id),
+                      k.created_at
+                  ) < NOW() - (%s * INTERVAL '1 day')
+                """,
+                (IDLE_FREEZE_DAYS,),
+            ).fetchall()
+        for row in rows:
+            user_id = int(row["user_id"])
+            key_id = int(row["id"])
+            upstream_id = int(row["upstream_id"])
+            try:
+                _sync_key(user_id, upstream_id, force=True)
+                amount = _balance(user_id)
+                if amount <= 0:
+                    continue
+                try:
+                    upstream.update_quota(upstream_id, Decimal(0))
+                except UpstreamError as exc:
+                    log.warning(
+                        "не удалось обнулить квоту ключа %s user=%s: %s",
+                        upstream_id,
+                        user_id,
+                        exc.message,
+                    )
+                    continue
+                try:
+                    with pool.connection() as conn:
+                        marked = conn.execute(
+                            """
+                            UPDATE api_keys
+                            SET frozen_at = NOW(), quota_usd = 0
+                            WHERE id = %s AND revoked_at IS NULL AND frozen_at IS NULL
+                            RETURNING id
+                            """,
+                            (key_id,),
+                        ).fetchone()
+                        if marked is None:
+                            # Уже заморожен/отозван — вернём квоту на ключ.
+                            upstream.update_quota(upstream_id, amount)
+                            continue
+                        # Локальный баланс сохраняем — sync больше не трогает frozen.
+                        conn.execute(
+                            "UPDATE users SET balance_usd = %s WHERE id = %s",
+                            (amount, user_id),
+                        )
+                except Exception:
+                    # Квота уже 0 у поставщика — откатываем, чтобы sync не обнулил balance.
+                    try:
+                        upstream.update_quota(upstream_id, amount)
+                    except UpstreamError:
+                        log.exception(
+                            "не удалось откатить квоту после сбоя заморозки user=%s key=%s",
+                            user_id,
+                            upstream_id,
+                        )
+                    raise
+                frozen_count += 1
+                log.info(
+                    "ключ user=%s заморожен (простой ≥%s дн.), освобождено %.4f USD у поставщика",
+                    user_id,
+                    IDLE_FREEZE_DAYS,
+                    amount,
+                )
+            except Exception:
+                log.exception("не удалось заморозить ключ user=%s", user_id)
+    return frozen_count
 
 
 def _key_name(user_id: int, telegram_id: int | None) -> str:
@@ -289,6 +443,7 @@ def describe_key(user_id: int) -> dict:
             with pool.connection() as conn:
                 conn.execute("UPDATE api_keys SET secret = %s WHERE id = %s", (secret, key["id"]))
         created_at = key["created_at"]
+        frozen_at = key.get("frozen_at")
         upstream_id = int(key["upstream_id"]) if key["upstream_id"] else None
         with pool.connection() as conn:
             quota_row = conn.execute(
@@ -303,6 +458,8 @@ def describe_key(user_id: int) -> dict:
             "base_url": _base_url(),
             "balance_usd": float(_balance(user_id)),
             "created_at": created_at.isoformat() if created_at is not None else "",
+            "frozen": frozen_at is not None,
+            "frozen_at": iso_utc(frozen_at) if frozen_at is not None else "",
             **stats,
         }
 
@@ -430,8 +587,8 @@ def _sync_key(user_id: int, upstream_id: int, *, force: bool = False) -> None:
 
 
 def _ensure_pool(extra: Decimal) -> None:
-    # Баланс на уже выпущенном ключе уже списан со счёта поставщика.
-    # Сверяем только деньги, которые ещё предстоит оттуда забрать.
+    # Баланс на активном (незамороженном) ключе уже списан со счёта поставщика.
+    # Сверяем локальные остатки без ключа и замороженные ключи — их ещё нужно забрать.
     with pool.connection() as conn:
         row = conn.execute(
             """
@@ -439,7 +596,10 @@ def _ensure_pool(extra: Decimal) -> None:
             FROM users u
             WHERE NOT EXISTS (
                 SELECT 1 FROM api_keys k
-                WHERE k.user_id = u.id AND k.revoked_at IS NULL AND k.upstream_id IS NOT NULL
+                WHERE k.user_id = u.id
+                  AND k.revoked_at IS NULL
+                  AND k.upstream_id IS NOT NULL
+                  AND k.frozen_at IS NULL
             )
             """
         ).fetchone()
@@ -480,12 +640,20 @@ def _active_key(user_id: int) -> dict | None:
     with pool.connection() as conn:
         return conn.execute(
             """
-            SELECT id, upstream_id, prefix, secret, created_at
+            SELECT id, upstream_id, prefix, secret, created_at, frozen_at
             FROM api_keys
             WHERE user_id = %s AND revoked_at IS NULL AND upstream_id IS NOT NULL
             """,
             (user_id,),
         ).fetchone()
+
+
+def _clear_frozen(key_id: int) -> None:
+    with pool.connection() as conn:
+        conn.execute(
+            "UPDATE api_keys SET frozen_at = NULL WHERE id = %s",
+            (key_id,),
+        )
 
 
 def _balance(user_id: int) -> Decimal:
@@ -528,6 +696,10 @@ def _record_balance(user_id: int, amount: Decimal, spent: Decimal | None = None)
                 """,
                 (user_id, adjustment),
             )
+    if consumed > 0:
+        from app.payment_buckets import apply_spend
+
+        apply_spend(user_id, consumed)
 
 
 def _set_balance(

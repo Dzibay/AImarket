@@ -78,6 +78,7 @@ CREATE TABLE IF NOT EXISTS api_keys (
     upstream_id                 BIGINT,
     quota_usd                   NUMERIC(12, 2) NOT NULL DEFAULT 0,
     limit_exhausted_notified_at TIMESTAMPTZ,
+    frozen_at                   TIMESTAMPTZ,
     created_at                  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     revoked_at                  TIMESTAMPTZ
 );
@@ -86,8 +87,11 @@ ALTER TABLE api_keys ADD COLUMN IF NOT EXISTS upstream_id BIGINT;
 ALTER TABLE api_keys ADD COLUMN IF NOT EXISTS quota_usd NUMERIC(12, 2) NOT NULL DEFAULT 0;
 ALTER TABLE api_keys ADD COLUMN IF NOT EXISTS secret TEXT NOT NULL DEFAULT '';
 ALTER TABLE api_keys ADD COLUMN IF NOT EXISTS limit_exhausted_notified_at TIMESTAMPTZ;
+ALTER TABLE api_keys ADD COLUMN IF NOT EXISTS frozen_at TIMESTAMPTZ;
 
 CREATE INDEX IF NOT EXISTS idx_api_keys_user ON api_keys (user_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_api_keys_frozen
+    ON api_keys (frozen_at) WHERE frozen_at IS NOT NULL AND revoked_at IS NULL;
 CREATE UNIQUE INDEX IF NOT EXISTS idx_api_keys_one_active
     ON api_keys (user_id) WHERE revoked_at IS NULL;
 
@@ -140,23 +144,34 @@ CREATE INDEX IF NOT EXISTS idx_usage_user_time ON usage (user_id, created_at DES
 -- status: pending | awaiting_supplier | paid | failed | rejected
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS topups (
-    id                BIGSERIAL PRIMARY KEY,
-    user_id           BIGINT NOT NULL REFERENCES users (id),
-    amount_kopecks    BIGINT NOT NULL CHECK (amount_kopecks > 0),
-    amount_usd        NUMERIC(12, 4) NOT NULL DEFAULT 0,
-    bonus_usd         NUMERIC(12, 4) NOT NULL DEFAULT 0,
-    status            TEXT NOT NULL DEFAULT 'pending',
-    payment_id        TEXT,
-    return_token_hash TEXT NOT NULL DEFAULT '',
-    created_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    decided_at        TIMESTAMPTZ
+    id                     BIGSERIAL PRIMARY KEY,
+    user_id                BIGINT NOT NULL REFERENCES users (id),
+    amount_kopecks         BIGINT NOT NULL CHECK (amount_kopecks > 0),
+    amount_usd             NUMERIC(12, 4) NOT NULL DEFAULT 0,
+    bonus_usd              NUMERIC(12, 4) NOT NULL DEFAULT 0,
+    payment_remaining_usd  NUMERIC(12, 4) NOT NULL DEFAULT 0,
+    bonus_remaining_usd    NUMERIC(12, 4) NOT NULL DEFAULT 0,
+    refund_window_ends_at  TIMESTAMPTZ,
+    buckets_initialized    BOOLEAN NOT NULL DEFAULT FALSE,
+    status                 TEXT NOT NULL DEFAULT 'pending',
+    payment_id             TEXT,
+    return_token_hash      TEXT NOT NULL DEFAULT '',
+    created_at             TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    decided_at             TIMESTAMPTZ
 );
 
 ALTER TABLE topups ADD COLUMN IF NOT EXISTS payment_id TEXT;
 ALTER TABLE topups ADD COLUMN IF NOT EXISTS return_token_hash TEXT NOT NULL DEFAULT '';
 ALTER TABLE topups ADD COLUMN IF NOT EXISTS bonus_usd NUMERIC(12, 4) NOT NULL DEFAULT 0;
+ALTER TABLE topups ADD COLUMN IF NOT EXISTS payment_remaining_usd NUMERIC(12, 4) NOT NULL DEFAULT 0;
+ALTER TABLE topups ADD COLUMN IF NOT EXISTS bonus_remaining_usd NUMERIC(12, 4) NOT NULL DEFAULT 0;
+ALTER TABLE topups ADD COLUMN IF NOT EXISTS refund_window_ends_at TIMESTAMPTZ;
+ALTER TABLE topups ADD COLUMN IF NOT EXISTS buckets_initialized BOOLEAN NOT NULL DEFAULT FALSE;
 
 CREATE INDEX IF NOT EXISTS idx_topups_status ON topups (status, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_topups_refund_window
+    ON topups (status, refund_window_ends_at)
+    WHERE status = 'paid' AND payment_remaining_usd > 0;
 CREATE UNIQUE INDEX IF NOT EXISTS idx_topups_payment
     ON topups (payment_id) WHERE payment_id IS NOT NULL;
 

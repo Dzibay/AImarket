@@ -14,7 +14,7 @@ from app.api.support_bot import router as support_bot_router
 from app.api.users import router as users_router
 from app.api.web import router as web_router
 from app.api.yookassa import router as yookassa_router
-from app.billing import sync_all
+from app.billing import freeze_idle_keys, sync_all
 from app.reminders import send_lifecycle_emails, send_offer_reminders
 from app.config import settings
 from app.db import ensure_schema, pool
@@ -25,6 +25,7 @@ from app.settings_store import bootstrap_settings
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger("app.main")
 _stop = threading.Event()
+_IDLE_FREEZE_INTERVAL_SEC = 300
 _WEB = Path(__file__).resolve().parent / "web"
 _SETUP_DIR = _WEB / "downloads" / "setup"
 _SETUP_NAME = re.compile(r"aimarket-[a-z0-9-]+-(windows|macos)\.zip|setup-aimarket-[a-z0-9-]+\.sh")
@@ -64,6 +65,18 @@ def _reminder_loop() -> None:
         _stop.wait(120)
 
 
+def _idle_freeze_loop() -> None:
+    _stop.wait(60)
+    while not _stop.is_set():
+        try:
+            n = freeze_idle_keys()
+            if n:
+                log.info("заморожено неактивных ключей: %s", n)
+        except Exception:
+            log.exception("заморозка неактивных ключей")
+        _stop.wait(_IDLE_FREEZE_INTERVAL_SEC)
+
+
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
     if not settings.bot_internal_token:
@@ -77,6 +90,7 @@ async def lifespan(_app: FastAPI):
     ensure_system_links()
     threading.Thread(target=_sync_loop, name="balance-sync", daemon=True).start()
     threading.Thread(target=_reminder_loop, name="offer-reminders", daemon=True).start()
+    threading.Thread(target=_idle_freeze_loop, name="idle-freeze", daemon=True).start()
     yield
     _stop.set()
     pool.close()

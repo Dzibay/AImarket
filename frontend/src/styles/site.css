@@ -158,6 +158,9 @@ code, .mono {
 }
 .notice.ok { border-color: #c7e3d4; background: var(--ok-soft); color: #1f4d39; }
 .notice.bad { border-color: #e3b4b4; background: var(--danger-soft); color: var(--danger); }
+.notice.warn { border-color: #e6d4a0; background: #fbf6e8; color: #6b5a2a; }
+.notice.warn .btn { margin-top: 10px; }
+.notice.warn .error-text { margin-top: 8px; }
 
 /* Кнопка-иконка: копировать, показать и т.п. */
 .icon-btn {

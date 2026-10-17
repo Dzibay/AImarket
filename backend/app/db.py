@@ -40,6 +40,12 @@ def ensure_schema(retries: int = 10, delay: float = 2.0) -> None:
             pool.open()
             with pool.connection() as conn:
                 conn.execute(sql)
+            try:
+                from app.payment_buckets import backfill_uninitialized
+
+                backfill_uninitialized()
+            except Exception:
+                log.exception("не удалось инициализировать корзины платежей")
             log.info("Схема БД готова")
             return
         except Exception as exc:  # noqa: BLE001 — ждём поднятия postgres

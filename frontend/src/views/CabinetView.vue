@@ -134,9 +134,18 @@
                     <span v-if="daysLeft" class="chip chip-days">При текущем темпе хватит на {{ daysLeft }}</span>
                   </div>
                   <div class="hero-actions">
+                    <button
+                      v-if="profile.key_frozen"
+                      type="button"
+                      class="btn light"
+                      :disabled="restoring"
+                      @click="restoreAccess"
+                    >
+                      <AppIcon name="plug" :size="16" />{{ restoring ? 'Возобновляем…' : 'Возобновить доступ' }}
+                    </button>
                     <button type="button" class="btn light" @click="scrollTo('topup')"><AppIcon name="wallet" :size="16" />Пополнить</button>
                     <button
-                      v-if="profile.key"
+                      v-if="profile.key && !profile.key_frozen"
                       type="button"
                       class="btn ghost keep-mobile"
                       @click="scrollTo('setup')"
@@ -144,7 +153,7 @@
                       <AppIcon name="plug" :size="16" />Подключить приложение
                     </button>
                     <button
-                      v-else
+                      v-else-if="!profile.key"
                       type="button"
                       class="btn ghost"
                       @click="scrollTo('topup')"
@@ -188,7 +197,18 @@
                 </div>
               </div>
 
-              <p v-if="lowBalance" class="notice">
+              <div v-if="profile.key_frozen" class="notice warn">
+                <p>
+                  Доступ приостановлен из‑за отсутствия запросов более 14 дней.
+                  Остаток условных единиц сохранён на вашей учётной записи.
+                </p>
+                <p v-if="restoreError" class="error-text">{{ restoreError }}</p>
+                <button type="button" class="btn sm" :disabled="restoring" @click="restoreAccess">
+                  {{ restoring ? 'Возобновляем…' : 'Возобновить доступ' }}
+                </button>
+              </div>
+
+              <p v-else-if="lowBalance" class="notice">
                 Баланс почти закончился: при нуле запросы начнут возвращать ошибку.
                 <a href="#topup" @click.prevent="scrollTo('topup')">Пополнить заранее</a>.
               </p>
@@ -221,7 +241,11 @@
                 :base-url="profile.api_base_url"
                 title="Ваш ключ"
               />
-              <div v-else class="card">
+              <p v-if="profile.key && profile.key_frozen" class="notice warn">
+                Сейчас запросы по ключу не выполняются. Остаток баланса сохранён —
+                нажмите «Возобновить доступ», чтобы снова пользоваться сервисом.
+              </p>
+              <div v-else-if="!profile.key" class="card">
                 <h2 class="card-title">Ключ доступа</h2>
                 <p class="muted">
                   <template v-if="profile.awaiting_supplier || profile.key_error === 'supplier'">
@@ -444,6 +468,8 @@ const loading = ref(false)
 const loadError = ref('')
 const reissuing = ref(false)
 const reissueError = ref('')
+const restoring = ref(false)
+const restoreError = ref('')
 const active = ref('overview')
 let watching = false
 let ticking = false
@@ -500,6 +526,7 @@ const status = computed(() => {
     }
     return p.balance_usd > 0 ? { kind: 'warn', text: 'Ключ выпускается' } : { kind: 'warn', text: 'Ключ появится после пополнения' }
   }
+  if (p.key_frozen) return { kind: 'warn', text: 'Доступ приостановлен' }
   if (p.balance_usd <= 0) return { kind: 'bad', text: 'Баланс исчерпан' }
   if (lowBalance.value) return { kind: 'warn', text: 'Баланс на исходе' }
   return { kind: 'ok', text: 'Ключ активен' }
@@ -522,7 +549,7 @@ const tiers = computed(() =>
 
 const onboarding = computed(() => {
   const p = profile.value
-  if (!p || p.last_request_at || p.blocked) return null
+  if (!p || p.last_request_at || p.blocked || p.key_frozen) return null
   if (!p.key && p.balance_usd <= 0) {
     return {
       title: 'Пополните баланс, чтобы получить ключ',
@@ -731,6 +758,25 @@ function setFilter(next) {
 
 function loadMore() {
   fetchHistory(history.value.length)
+}
+
+async function restoreAccess() {
+  if (restoring.value) return
+  restoring.value = true
+  restoreError.value = ''
+  try {
+    const result = await webApi.restoreKey()
+    profile.value = result.profile
+    toast('Доступ возобновлён — можно снова отправлять запросы')
+  } catch (error) {
+    if (error.status === 401) {
+      router.replace('/login')
+      return
+    }
+    restoreError.value = errorText(error)
+  } finally {
+    restoring.value = false
+  }
 }
 
 async function reissue() {
