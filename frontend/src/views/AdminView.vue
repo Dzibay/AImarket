@@ -950,7 +950,16 @@
                     class="support-bubble"
                     :class="msg.author === 'staff' ? 'staff' : 'user'"
                   >
-                    <p>{{ msg.body }}</p>
+                    <p v-if="msg.body">{{ msg.body }}</p>
+                    <div v-if="msg.attachments?.length" class="support-shots">
+                      <SupportShot
+                        v-for="file in msg.attachments"
+                        :key="file.id"
+                        :src="`/api/admin/support/files/${file.id}`"
+                        :headers="supportFileHeaders()"
+                        :alt="file.name || 'Скриншот'"
+                      />
+                    </div>
                     <time>{{ formatRecentAt(msg.created_at) }}</time>
                   </div>
                 </div>
@@ -962,9 +971,26 @@
                     placeholder="Ответ поддержки…"
                     :disabled="supportSending"
                     @keydown.enter.exact.prevent="sendSupportReply"
+                    @paste="onSupportPaste"
                   />
+                  <div v-if="supportFiles.length" class="support-pending">
+                    <span v-for="item in supportFiles" :key="item.id" class="support-pending-item">
+                      <img :src="item.url" alt="">
+                      <button type="button" aria-label="Убрать фото" @click="removeSupportFile(item.id)">×</button>
+                    </span>
+                  </div>
                   <div class="row">
-                    <button type="submit" :disabled="supportSending || !supportDraft.trim()">
+                    <label class="support-attach" :class="{ off: supportSending || supportFiles.length >= 4 }">
+                      Фото
+                      <input
+                        type="file"
+                        accept="image/jpeg,image/png,image/webp,image/gif"
+                        multiple
+                        :disabled="supportSending || supportFiles.length >= 4"
+                        @change="onSupportPick"
+                      >
+                    </label>
+                    <button type="submit" :disabled="supportSending || (!supportDraft.trim() && !supportFiles.length)">
                       {{ supportSending ? 'Отправка…' : 'Ответить' }}
                     </button>
                     <span v-if="supportError" class="error">{{ supportError }}</span>
@@ -1329,7 +1355,16 @@
                       <b>{{ msg.author === 'staff' ? 'Саппорт' : 'Клиент' }}</b>
                       <span class="muted">{{ formatRecentAt(msg.created_at) }} · {{ msg.source }}</span>
                     </div>
-                    <p>{{ msg.body }}</p>
+                    <p v-if="msg.body">{{ msg.body }}</p>
+                    <div v-if="msg.attachments?.length" class="support-shots">
+                      <SupportShot
+                        v-for="file in msg.attachments"
+                        :key="file.id"
+                        :src="`/api/admin/support/files/${file.id}`"
+                        :headers="supportFileHeaders()"
+                        :alt="file.name || 'Скриншот'"
+                      />
+                    </div>
                   </div>
                 </div>
               </div>
@@ -1940,6 +1975,7 @@
 import { onBeforeUnmount, onMounted, ref } from 'vue'
 import { RouterLink } from 'vue-router'
 import AdminChart from '../components/AdminChart.vue'
+import SupportShot from '../components/SupportShot.vue'
 import AppIcon from '../components/ui/AppIcon.vue'
 import { useAdminPanel } from '../composables/useAdminPanel'
 import { useHead } from '../utils/useHead'
@@ -2071,6 +2107,10 @@ const {
   supportDraft,
   supportError,
   supportSending,
+  supportFiles,
+  addSupportFiles,
+  removeSupportFile,
+  supportFileHeaders,
   supportLoading,
   loadSupportThreads,
   openSupportThread,
@@ -2143,6 +2183,25 @@ const {
   conversion,
   statusBadgeClass,
 } = useAdminPanel()
+
+function onSupportPick(event) {
+  addSupportFiles(event.target.files || [])
+  event.target.value = ''
+}
+
+function onSupportPaste(event) {
+  const items = event.clipboardData?.items || []
+  const files = []
+  for (const item of items) {
+    if (item.type && item.type.startsWith('image/')) {
+      const file = item.getAsFile()
+      if (file) files.push(file)
+    }
+  }
+  if (!files.length) return
+  event.preventDefault()
+  addSupportFiles(files)
+}
 
 onMounted(() => {
   useHead('Админка — Aimarket', true)
@@ -3932,6 +3991,64 @@ onBeforeUnmount(() => {
   white-space: pre-wrap;
   word-break: break-word;
   font-size: 14px;
+}
+.admin-page .support-shots {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.admin-page .support-pending {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.admin-page .support-pending-item {
+  position: relative;
+  width: 64px;
+  height: 64px;
+}
+.admin-page .support-pending-item img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+}
+.admin-page .support-pending-item button {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  width: 18px;
+  height: 18px;
+  border: 0;
+  border-radius: 50%;
+  background: #1c1917;
+  color: #fff;
+  line-height: 18px;
+  padding: 0;
+  cursor: pointer;
+}
+.admin-page .support-attach {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  height: 32px;
+  padding: 0 12px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  font-size: 13px;
+  cursor: pointer;
+  background: #fff;
+}
+.admin-page .support-attach.off {
+  opacity: 0.5;
+  pointer-events: none;
+}
+.admin-page .support-attach input {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  cursor: pointer;
 }
 .admin-page .support-bubble time { font-size: 11px; color: var(--muted); }
 .admin-page .support-bubble.user {

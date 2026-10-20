@@ -4,7 +4,8 @@ from datetime import date, datetime, timedelta
 from decimal import Decimal
 from zoneinfo import ZoneInfo
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Response
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Response, UploadFile
+from fastapi.responses import FileResponse
 from psycopg.errors import UniqueViolation
 from pydantic import BaseModel, Field
 
@@ -42,13 +43,17 @@ from app.settings_store import (
     set_setting,
 )
 from app.support import (
+    discard_images,
     list_guest_messages_by_id,
     list_messages,
     list_threads,
+    message_error_code,
+    open_attachment,
     post_staff_guest_message,
     post_staff_message,
     waiting_count,
 )
+from app.support_media import read_upload_images
 from app.finance import (
     archive_category,
     build_summary,
@@ -521,6 +526,18 @@ def user_detail(user_id: int, days: int = Query(default=30, ge=7, le=90)) -> dic
             """,
             (user_id,),
         ).fetchall()
+        support_ids = [int(row["id"]) for row in support_rows]
+        attachment_rows = []
+        if support_ids:
+            attachment_rows = conn.execute(
+                """
+                SELECT id, message_id, mime, filename
+                FROM support_attachments
+                WHERE message_id = ANY(%s)
+                ORDER BY id ASC
+                """,
+                (support_ids,),
+            ).fetchall()
 
     spend_series = _fill_days(start, days, [dict(row) for row in spend_rows])
 
@@ -657,6 +674,7 @@ def user_detail(user_id: int, days: int = Query(default=30, ge=7, le=90)) -> dic
                 "body": row["body"] or "",
                 "source": row["source"] or "site",
                 "created_at": _ts(row["created_at"]),
+                "attachments": _support_attachment_map(attachment_rows).get(int(row["id"]), []),
             }
             for row in reversed(support_rows)
         ],
@@ -1398,9 +1416,58 @@ def support_reply(kind: str, thread_id: int, body: SupportReplyIn) -> dict:
     except LookupError:
         raise HTTPException(status_code=404, detail=kind if kind in {"user", "guest"} else "user") from None
     except ValueError as exc:
-        code = str(exc) if str(exc) in {"message", "long"} else "message"
-        raise HTTPException(status_code=400, detail=code) from None
+        raise HTTPException(status_code=400, detail=message_error_code(exc)) from None
     return {"message": message}
+
+
+@router.post("/support/threads/{kind}/{thread_id}/reply/media", dependencies=[Depends(require_admin)])
+async def support_reply_media(
+    kind: str,
+    thread_id: int,
+    body: str = Form(default=""),
+    files: list[UploadFile] | None = File(default=None),
+) -> dict:
+    try:
+        images = await read_upload_images(files or [])
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=message_error_code(exc)) from None
+    try:
+        if kind == "user":
+            message = post_staff_message(thread_id, body, images)
+        elif kind == "guest":
+            message = post_staff_guest_message(thread_id, body, images)
+        else:
+            discard_images(images)
+            raise HTTPException(status_code=404, detail="kind")
+    except LookupError:
+        discard_images(images)
+        raise HTTPException(status_code=404, detail=kind if kind in {"user", "guest"} else "user") from None
+    except ValueError as exc:
+        discard_images(images)
+        raise HTTPException(status_code=400, detail=message_error_code(exc)) from None
+    return {"message": message}
+
+
+@router.get("/support/files/{attachment_id}", dependencies=[Depends(require_admin)])
+def support_file(attachment_id: int) -> FileResponse:
+    opened = open_attachment(attachment_id, admin=True)
+    if opened is None:
+        raise HTTPException(status_code=404, detail="file")
+    path, mime, filename = opened
+    return FileResponse(path, media_type=mime, filename=filename, headers={"Cache-Control": "private, no-store"})
+
+
+def _support_attachment_map(rows) -> dict[int, list]:
+    grouped: dict[int, list] = {}
+    for row in rows:
+        grouped.setdefault(int(row["message_id"]), []).append(
+            {
+                "id": int(row["id"]),
+                "mime": row["mime"],
+                "name": row["filename"] or "",
+            }
+        )
+    return grouped
 
 
 def _finance_when(raw: str):

@@ -15,6 +15,7 @@ from psycopg.errors import UniqueViolation
 from app.config import settings
 from app.db import pool
 from app.settings_store import get_setting
+from app.support_media import file_path
 
 log = logging.getLogger("app.support_telegram")
 
@@ -361,21 +362,72 @@ def _publish(
         if error:
             return None, error
     last_sent: int | None = None
+    files_map = _files_for_messages([int(row["id"]) for row in rows])
     for row in rows:
         # В живой теме ответ оператора уже лежит сообщением Telegram — повторно его не шлём.
         if not intro and row.get("source") == "telegram":
             last_sent = int(row["id"])
             continue
-        error = _send_topic_message(
-            token,
-            chat_id,
-            topic_id,
-            _format_line(row["author_kind"], row["body"]),
-        )
+        error = _send_row(token, chat_id, topic_id, row, files_map.get(int(row["id"]), []))
         if error:
             return last_sent, error
         last_sent = int(row["id"])
     return last_sent, ""
+
+
+def _files_for_messages(message_ids: list[int]) -> dict[int, list[dict]]:
+    if not message_ids:
+        return {}
+    with pool.connection() as conn:
+        rows = conn.execute(
+            """
+            SELECT message_id, mime, filename, storage_name
+            FROM support_attachments
+            WHERE message_id = ANY(%s)
+            ORDER BY id ASC
+            """,
+            (message_ids,),
+        ).fetchall()
+    grouped: dict[int, list[dict]] = {}
+    for row in rows:
+        path = file_path(str(row["storage_name"]))
+        if path is None:
+            continue
+        grouped.setdefault(int(row["message_id"]), []).append(
+            {
+                "path": path,
+                "mime": str(row["mime"]),
+                "filename": str(row["filename"] or path.name),
+            }
+        )
+    return grouped
+
+
+def _send_row(token: str, chat_id: int, topic_id: int, row, files: list[dict]) -> str | None:
+    text = str(row.get("body") or "").strip()
+    author = str(row.get("author_kind") or "user")
+    if not files:
+        if not text:
+            return None
+        return _send_topic_message(token, chat_id, topic_id, _format_line(author, text))
+    caption_body = text or "Скриншот"
+    caption = _format_line(author, caption_body)
+    if text and len(caption) > 1000:
+        error = _send_topic_message(token, chat_id, topic_id, caption)
+        if error:
+            return error
+        caption = ""
+    for index, item in enumerate(files):
+        error = _send_topic_photo(
+            token,
+            chat_id,
+            topic_id,
+            caption if index == 0 else "",
+            item,
+        )
+        if error:
+            return error
+    return None
 
 
 def _format_line(author_kind: str, body: str) -> str:
@@ -440,6 +492,82 @@ def _format_guest_history(guest_messages: list[dict]) -> str:
             head += f" · <i>{when}</i>"
         blocks.append(f"{head}\n{body}" if body else head)
     return "\n\n".join(blocks)
+
+
+def _send_topic_photo(token: str, chat_id: int, topic_id: int, caption: str, item: dict) -> str | None:
+    path = item["path"]
+    try:
+        data = path.read_bytes()
+    except OSError as exc:
+        return str(exc)
+    fields = {
+        "chat_id": str(chat_id),
+        "message_thread_id": str(topic_id),
+    }
+    if caption:
+        fields["caption"] = caption[:1024]
+        fields["parse_mode"] = "HTML"
+    try:
+        _telegram_call_file(
+            token,
+            "sendPhoto",
+            fields,
+            file_field="photo",
+            filename=item["filename"],
+            content=data,
+            mime=item["mime"],
+        )
+    except (urllib.error.URLError, TimeoutError, OSError, json.JSONDecodeError) as exc:
+        detail = str(exc)
+        log.warning("sendPhoto в тему %s failed: %s", topic_id, detail)
+        return detail
+    return None
+
+
+def _telegram_call_file(
+    token: str,
+    method: str,
+    fields: dict[str, str],
+    *,
+    file_field: str,
+    filename: str,
+    content: bytes,
+    mime: str,
+) -> dict:
+    boundary = "----aimarket-support-file"
+    body = bytearray()
+    for name, value in fields.items():
+        body.extend(
+            (
+                f"--{boundary}\r\n"
+                f'Content-Disposition: form-data; name="{name}"\r\n\r\n'
+                f"{value}\r\n"
+            ).encode()
+        )
+    safe_name = filename.replace('"', "") or "image.jpg"
+    body.extend(
+        (
+            f"--{boundary}\r\n"
+            f'Content-Disposition: form-data; name="{file_field}"; filename="{safe_name}"\r\n'
+            f"Content-Type: {mime}\r\n\r\n"
+        ).encode()
+    )
+    body.extend(content)
+    body.extend(f"\r\n--{boundary}--\r\n".encode())
+    req = urllib.request.Request(
+        f"https://api.telegram.org/bot{token}/{method}",
+        data=bytes(body),
+        headers={
+            "Content-Type": f"multipart/form-data; boundary={boundary}",
+            "User-Agent": "aimarket",
+        },
+        method="POST",
+    )
+    with urllib.request.urlopen(req, timeout=40) as resp:
+        payload = json.loads(resp.read().decode())
+    if not isinstance(payload, dict) or not payload.get("ok"):
+        raise urllib.error.URLError(str(payload)[:300])
+    return payload
 
 
 def _telegram_call(token: str, method: str, fields: dict[str, str]) -> dict:

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import time
+from io import BytesIO
 
 from aiogram import F, Router
 from aiogram.enums import ChatType
@@ -85,9 +86,20 @@ async def support_group_message(message: Message) -> None:
         return
 
     text = (message.text or message.caption or "").strip()
-    if not text:
+    images = await _images_from_message(message)
+    had_image = bool(message.photo) or (
+        message.document is not None and (message.document.mime_type or "").startswith("image/")
+    )
+    if had_image and not images:
         try:
-            await message.reply("На сайт уходит только текст. Пришлите ответ сообщением.")
+            await message.reply("Не удалось прочитать фото. Пришлите его ещё раз.")
+        except Exception:
+            pass
+        if not text:
+            return
+    if not text and not images:
+        try:
+            await message.reply("На сайт уходят текст и фото. Пришлите сообщение или картинку.")
         except Exception:
             pass
         return
@@ -97,7 +109,7 @@ async def support_group_message(message: Message) -> None:
     if reply is not None:
         anchor = reply.text or reply.caption or ""
     try:
-        await support_telegram_reply(topic_id, text, anchor)
+        await support_telegram_reply(topic_id, text, anchor, images)
         log.info("ответ из темы %s отправлен на сайт", topic_id)
     except BackendError as exc:
         if exc.status == 404:
@@ -107,7 +119,41 @@ async def support_group_message(message: Message) -> None:
                 pass
             return
         log.warning("ответ в поддержку не принят (%s): %s", exc.status, exc.detail)
+        notice = {
+            "too-big": "Фото больше 8 МБ. Сожмите его и пришлите снова.",
+            "too-many": "За раз можно отправить не больше 4 фото.",
+            "image": "Нужен файл JPEG, PNG, WEBP или GIF.",
+            "message": "На сайт уходят текст и фото. Пришлите сообщение или картинку.",
+        }.get(exc.detail, "Не удалось отправить на сайт. Попробуйте ещё раз.")
         try:
-            await message.reply("Не удалось отправить на сайт. Попробуйте ещё раз.")
+            await message.reply(notice)
         except Exception:
             pass
+
+
+async def _images_from_message(message: Message) -> list[tuple[str, bytes, str]]:
+    found: list[tuple[str, bytes, str]] = []
+    if message.photo:
+        item = await _download(message, message.photo[-1], "photo.jpg", "image/jpeg")
+        if item is not None:
+            found.append(item)
+    document = message.document
+    mime = (document.mime_type or "") if document is not None else ""
+    if document is not None and mime.startswith("image/"):
+        item = await _download(message, document, document.file_name or "image", mime)
+        if item is not None:
+            found.append(item)
+    return found
+
+
+async def _download(message: Message, file_obj, name: str, mime: str) -> tuple[str, bytes, str] | None:
+    try:
+        buffer = BytesIO()
+        await message.bot.download(file_obj, destination=buffer)
+    except Exception as exc:
+        log.warning("не удалось скачать вложение из темы: %s", exc)
+        return None
+    data = buffer.getvalue()
+    if not data:
+        return None
+    return name, data, mime

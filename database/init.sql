@@ -328,6 +328,19 @@ CREATE INDEX IF NOT EXISTS idx_support_messages_guest_author
     ON support_messages (guest_id, author_kind, created_at DESC)
     WHERE guest_id IS NOT NULL;
 
+CREATE TABLE IF NOT EXISTS support_attachments (
+    id            BIGSERIAL PRIMARY KEY,
+    message_id    BIGINT NOT NULL REFERENCES support_messages (id) ON DELETE CASCADE,
+    mime          TEXT NOT NULL,
+    filename      TEXT NOT NULL DEFAULT '',
+    storage_name  TEXT NOT NULL,
+    size_bytes    INTEGER NOT NULL CHECK (size_bytes > 0),
+    created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_support_attachments_message
+    ON support_attachments (message_id);
+
 -- ---------------------------------------------------------------------------
 -- Настройки
 -- ---------------------------------------------------------------------------

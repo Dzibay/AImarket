@@ -9,7 +9,9 @@ export class ApiError extends Error {
 }
 
 async function request(path, options = {}) {
-  const headers = { 'Content-Type': 'application/json', ...(options.headers || {}) }
+  const headers = { ...(options.headers || {}) }
+  const isForm = typeof FormData !== 'undefined' && options.body instanceof FormData
+  if (!isForm && !headers['Content-Type']) headers['Content-Type'] = 'application/json'
   const session = getSession()
   if (session) headers.Authorization = `Bearer ${session}`
   const response = await fetch(path, { cache: 'no-store', ...options, headers })
@@ -48,6 +50,7 @@ export const webApi = {
   supportClaim: (token) =>
     request('/api/web/support/claim', { method: 'POST', body: JSON.stringify({ token }) }),
   supportSend: (body) => request('/api/web/support/messages', { method: 'POST', body: JSON.stringify({ body }) }),
+  supportSendMedia: (form) => request('/api/web/support/messages/media', { method: 'POST', body: form }),
   supportEmailNotify: (enabled) =>
     request('/api/web/support/email-notify', {
       method: 'PUT',
@@ -66,6 +69,8 @@ export const webApi = {
       method: 'POST',
       body: JSON.stringify({ token, body }),
     }),
+  supportGuestSendMedia: (form) =>
+    request('/api/web/support/guest/messages/media', { method: 'POST', body: form }),
 }
 
 export const ERRORS = {
@@ -85,7 +90,11 @@ export const ERRORS = {
   'not-frozen': 'Доступ уже активен.',
   empty: 'На балансе нет средств.',
   long: 'Слишком длинное сообщение.',
-  message: 'Введите текст сообщения.',
+  message: 'Напишите текст или прикрепите фото.',
+  image: 'Нужен файл JPEG, PNG, WEBP или GIF.',
+  'too-big': 'Файл больше 8 МБ.',
+  'too-many': 'Не больше 4 изображений за раз.',
+  file: 'Изображение не найдено.',
   mail: 'Почта временно недоступна. Попробуйте позже или войдите по ключу.',
   unauthorized: 'Сессия истекла. Войдите снова.',
 }

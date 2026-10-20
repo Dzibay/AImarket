@@ -18,7 +18,16 @@
         class="bubble"
         :class="item.author === 'user' ? 'mine' : 'theirs'"
       >
-        <p class="text">{{ item.body }}</p>
+        <p v-if="item.body" class="text">{{ item.body }}</p>
+        <div v-if="item.attachments?.length" class="shots">
+          <SupportShot
+            v-for="file in item.attachments"
+            :key="file.id"
+            :src="shotSrc(file.id)"
+            :headers="shotHeaders"
+            :alt="file.name || 'Скриншот'"
+          />
+        </div>
         <time class="when">{{ dateTime(item.created_at) }}</time>
       </div>
     </div>
@@ -42,13 +51,32 @@
         :disabled="sending || blocked || !ready"
         :placeholder="blocked ? 'Доступ заблокирован' : 'Ваше сообщение…'"
         @keydown.enter.exact.prevent="send"
+        @paste="onPaste"
       />
+      <div v-if="pending.length" class="pending">
+        <span v-for="item in pending" :key="item.id" class="pending-item">
+          <img :src="item.url" alt="">
+          <button type="button" class="pending-remove" aria-label="Убрать фото" @click="removePending(item.id)">×</button>
+        </span>
+      </div>
       <div class="composer-foot">
         <span v-if="error" class="error-text">{{ error }}</span>
-        <span v-else class="muted small">Enter — отправить · Shift+Enter — новая строка</span>
-        <button type="submit" class="btn sm" :disabled="sending || blocked || !ready || !draft.trim()">
-          {{ sending ? 'Отправка…' : 'Отправить' }}
-        </button>
+        <span v-else class="muted small">Enter — отправить · можно вставить скриншот</span>
+        <div class="composer-actions">
+          <label class="attach" :class="{ off: sending || blocked || !ready || pending.length >= 4 }">
+            Фото
+            <input
+              type="file"
+              accept="image/jpeg,image/png,image/webp,image/gif"
+              multiple
+              :disabled="sending || blocked || !ready || pending.length >= 4"
+              @change="onPick"
+            >
+          </label>
+          <button type="submit" class="btn sm" :disabled="sending || blocked || !ready || (!draft.trim() && !pending.length)">
+            {{ sending ? 'Отправка…' : 'Отправить' }}
+          </button>
+        </div>
       </div>
     </form>
   </div>
@@ -57,6 +85,7 @@
 <script setup>
 import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 import { errorText, webApi } from '../api/web'
+import SupportShot from './SupportShot.vue'
 import {
   claimGuestSupportIfNeeded,
   ensureGuestSupportToken,
@@ -76,6 +105,7 @@ defineProps({
 const { isLoggedIn } = useSession()
 const messages = ref([])
 const draft = ref('')
+const pending = ref([])
 const loading = ref(false)
 const sending = ref(false)
 const ready = ref(false)
@@ -92,6 +122,72 @@ let guestToken = ''
 const { clearUnread, refreshUnread } = useSupportUnread()
 
 const isGuest = computed(() => !isLoggedIn.value)
+const shotHeaders = computed(() => {
+  const session = getSession()
+  return session ? { Authorization: `Bearer ${session}` } : {}
+})
+
+function shotSrc(id) {
+  if (getSession()) return `/api/web/support/files/${id}`
+  const token = guestToken || getGuestSupportToken()
+  return `/api/web/support/guest/files/${id}?token=${encodeURIComponent(token)}`
+}
+
+function addPending(fileList) {
+  const next = [...pending.value]
+  for (const file of fileList) {
+    if (next.length >= 4) {
+      error.value = 'Не больше 4 изображений за раз.'
+      break
+    }
+    if (!file || !String(file.type || '').startsWith('image/')) {
+      error.value = 'Нужен файл JPEG, PNG, WEBP или GIF.'
+      continue
+    }
+    if (file.size > 8 * 1024 * 1024) {
+      error.value = 'Файл больше 8 МБ.'
+      continue
+    }
+    next.push({
+      id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      file,
+      url: URL.createObjectURL(file),
+    })
+  }
+  pending.value = next
+}
+
+function removePending(id) {
+  const item = pending.value.find((row) => row.id === id)
+  if (item?.url) URL.revokeObjectURL(item.url)
+  pending.value = pending.value.filter((row) => row.id !== id)
+}
+
+function clearPending() {
+  for (const item of pending.value) {
+    if (item.url) URL.revokeObjectURL(item.url)
+  }
+  pending.value = []
+}
+
+function onPick(event) {
+  addPending(event.target.files || [])
+  event.target.value = ''
+}
+
+function onPaste(event) {
+  const items = event.clipboardData?.items || []
+  const files = []
+  for (const item of items) {
+    if (item.type && item.type.startsWith('image/')) {
+      const file = item.getAsFile()
+      if (file) files.push(file)
+    }
+  }
+  if (!files.length) return
+  event.preventDefault()
+  addPending(files)
+}
 
 const emptyTitle = computed(() =>
   isGuest.value
@@ -146,7 +242,15 @@ async function saveEmailNotify() {
   }
 }
 
-async function postMessage(body) {
+async function postMessage(body, files = []) {
+  if (files.length) {
+    const form = new FormData()
+    form.append('body', body)
+    for (const file of files) form.append('files', file, file.name || 'image.png')
+    if (getSession()) return webApi.supportSendMedia(form)
+    form.append('token', guestToken || getGuestSupportToken())
+    return webApi.supportGuestSendMedia(form)
+  }
   if (getSession()) return webApi.supportSend(body)
   return webApi.supportGuestSend(guestToken || getGuestSupportToken(), body)
 }
@@ -184,22 +288,25 @@ async function load() {
 
 async function send() {
   const body = draft.value.trim()
-  if (!body || sending.value || !ready.value) return
+  const files = pending.value.map((item) => item.file)
+  if ((!body && !files.length) || sending.value || !ready.value) return
   sending.value = true
   error.value = ''
   try {
-    const data = await postMessage(body)
+    const data = await postMessage(body, files)
     messages.value = [...messages.value, data.message]
     draft.value = ''
+    clearPending()
     await scrollBottom()
     input.value?.focus()
   } catch (err) {
     if (!getSession() && (err?.code === 'guest-token' || err?.status === 404)) {
       try {
         guestToken = await resetGuestSupportToken()
-        const data = await postMessage(body)
+        const data = await postMessage(body, files)
         messages.value = [...messages.value, data.message]
         draft.value = ''
+        clearPending()
         await scrollBottom()
         return
       } catch (retryErr) {
@@ -297,6 +404,7 @@ onBeforeUnmount(() => {
   document.removeEventListener('visibilitychange', onVisibility)
   stopPoll()
   refreshUnread()
+  clearPending()
 })
 
 defineExpose({ load, refresh: load })
@@ -405,11 +513,75 @@ defineExpose({ load, refresh: load })
   resize: vertical;
   line-height: 1.45;
 }
+.shots {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.pending {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.pending-item {
+  position: relative;
+  width: 64px;
+  height: 64px;
+}
+.pending-item img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+}
+.pending-remove {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  width: 18px;
+  height: 18px;
+  border: 0;
+  border-radius: 50%;
+  background: #1c1917;
+  color: #fff;
+  line-height: 18px;
+  padding: 0;
+  cursor: pointer;
+}
 .composer-foot {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
   flex-wrap: wrap;
+}
+.composer-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+}
+.attach {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  height: 32px;
+  padding: 0 12px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  font-size: 13px;
+  cursor: pointer;
+  background: #fff;
+}
+.attach.off {
+  opacity: 0.5;
+  pointer-events: none;
+}
+.attach input {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  cursor: pointer;
 }
 </style>

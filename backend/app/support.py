@@ -7,6 +7,7 @@ import secrets
 
 from app.datetime_util import iso_utc
 from app.db import pool
+from app.support_media import file_path
 from app.support_telegram import (
     after_guest_claim,
     forward_staff_message,
@@ -30,13 +31,77 @@ def normalize_body(raw: str) -> str:
     return text
 
 
-def _message_row(row: dict) -> dict:
+def _message_row(row: dict, attachments: list | None = None) -> dict:
     return {
         "id": int(row["id"]),
         "author": row["author_kind"],
-        "body": row["body"],
+        "body": row["body"] or "",
         "created_at": iso_utc(row["created_at"]),
+        "attachments": attachments or [],
     }
+
+
+def _load_attachments(conn, message_ids: list[int]) -> dict[int, list]:
+    if not message_ids:
+        return {}
+    rows = conn.execute(
+        """
+        SELECT id, message_id, mime, filename
+        FROM support_attachments
+        WHERE message_id = ANY(%s)
+        ORDER BY id ASC
+        """,
+        (message_ids,),
+    ).fetchall()
+    grouped: dict[int, list] = {}
+    for row in rows:
+        grouped.setdefault(int(row["message_id"]), []).append(
+            {
+                "id": int(row["id"]),
+                "mime": row["mime"],
+                "name": row["filename"] or "",
+            }
+        )
+    return grouped
+
+
+def _rows_with_attachments(conn, rows: list) -> list[dict]:
+    grouped = _load_attachments(conn, [int(row["id"]) for row in rows])
+    return [_message_row(row, grouped.get(int(row["id"]), [])) for row in rows]
+
+
+def _insert_attachments(conn, message_id: int, images: list[dict]) -> None:
+    for image in images:
+        conn.execute(
+            """
+            INSERT INTO support_attachments (message_id, mime, filename, storage_name, size_bytes)
+            VALUES (%s, %s, %s, %s, %s)
+            """,
+            (
+                message_id,
+                image["mime"],
+                image["filename"],
+                image["storage_name"],
+                image["size_bytes"],
+            ),
+        )
+
+
+def _preview_body(body: str | None, has_image: bool) -> str:
+    text = (body or "").strip()
+    if text:
+        return text
+    return "Скриншот" if has_image else ""
+
+
+def _prepare_text(body: str, images: list | None) -> str:
+    images = images or []
+    text = (body or "").strip()
+    if text:
+        return normalize_body(text)
+    if not images:
+        raise ValueError("message")
+    return ""
 
 
 def ensure_guest_token(raw_token: str = "") -> str:
@@ -57,6 +122,26 @@ def ensure_guest_token(raw_token: str = "") -> str:
             (key_hash(token),),
         )
     return token
+
+
+def guest_id_for_token(token: str) -> int:
+    with pool.connection() as conn:
+        return _guest_id(conn, token)
+
+
+def discard_images(images: list[dict] | None) -> None:
+    for row in images or []:
+        path = file_path(str(row.get("storage_name") or ""))
+        if path is not None:
+            path.unlink(missing_ok=True)
+
+
+MESSAGE_ERROR_CODES = {"message", "long", "image", "too-big", "too-many"}
+
+
+def message_error_code(exc: BaseException) -> str:
+    code = getattr(exc, "code", None) or str(exc)
+    return code if code in MESSAGE_ERROR_CODES else "message"
 
 
 def _guest_id(conn, token: str) -> int:
@@ -203,6 +288,7 @@ def _recent_messages(conn, column: str, ref_id: int) -> list:
 def list_messages(user_id: int, *, mark_seen: bool = False) -> dict:
     with pool.connection() as conn:
         rows = _recent_messages(conn, "user_id", user_id)
+        messages = _rows_with_attachments(conn, rows)
         unread = _unread_for_user(conn, user_id)
         prefs = conn.execute(
             """
@@ -221,7 +307,7 @@ def list_messages(user_id: int, *, mark_seen: bool = False) -> dict:
 
     has_email = bool(prefs and (prefs["email"] or "").strip())
     return {
-        "messages": [_message_row(row) for row in rows],
+        "messages": messages,
         "unread": unread,
         "email_notify": {
             "available": has_email and mail_enabled(),
@@ -267,6 +353,7 @@ def list_guest_messages(token: str, *, mark_seen: bool = False) -> dict:
     with pool.connection() as conn:
         guest_id = _guest_id(conn, token)
         rows = _recent_messages(conn, "guest_id", guest_id)
+        messages = _rows_with_attachments(conn, rows)
         unread = _unread_for_guest(conn, guest_id)
         if mark_seen:
             conn.execute(
@@ -274,11 +361,19 @@ def list_guest_messages(token: str, *, mark_seen: bool = False) -> dict:
                 (guest_id,),
             )
             unread = 0
-    return {"messages": [_message_row(row) for row in rows], "unread": unread}
+    return {"messages": messages, "unread": unread}
 
 
-def post_user_message(user_id: int, body: str) -> dict:
-    text = normalize_body(body)
+def _finish_message(conn, row, images: list[dict]) -> dict:
+    if images:
+        _insert_attachments(conn, int(row["id"]), images)
+    grouped = _load_attachments(conn, [int(row["id"])])
+    return _message_row(row, grouped.get(int(row["id"]), []))
+
+
+def post_user_message(user_id: int, body: str, images: list[dict] | None = None) -> dict:
+    images = images or []
+    text = _prepare_text(body, images)
     with pool.connection() as conn:
         blocked = conn.execute(
             "SELECT blocked_at FROM users WHERE id = %s",
@@ -296,17 +391,18 @@ def post_user_message(user_id: int, body: str) -> dict:
             """,
             (user_id, text),
         ).fetchone()
+        message = _finish_message(conn, row, images)
         conn.execute(
             "UPDATE users SET support_seen_at = NOW() WHERE id = %s",
             (user_id,),
         )
-    message = _message_row(row)
     forward_user_message(user_id=user_id, body=text, message_id=message["id"])
     return message
 
 
-def post_guest_message(token: str, body: str) -> dict:
-    text = normalize_body(body)
+def post_guest_message(token: str, body: str, images: list[dict] | None = None) -> dict:
+    images = images or []
+    text = _prepare_text(body, images)
     with pool.connection() as conn:
         guest_id = _guest_id(conn, token)
         row = conn.execute(
@@ -317,17 +413,18 @@ def post_guest_message(token: str, body: str) -> dict:
             """,
             (guest_id, text),
         ).fetchone()
+        message = _finish_message(conn, row, images)
         conn.execute(
             "UPDATE support_guests SET seen_at = NOW() WHERE id = %s",
             (guest_id,),
         )
-    message = _message_row(row)
     forward_user_message(guest_id=guest_id, body=text, message_id=message["id"])
     return message
 
 
-def post_staff_message(user_id: int, body: str) -> dict:
-    text = normalize_body(body)
+def post_staff_message(user_id: int, body: str, images: list[dict] | None = None) -> dict:
+    images = images or []
+    text = _prepare_text(body, images)
     with pool.connection() as conn:
         exists = conn.execute("SELECT 1 FROM users WHERE id = %s", (user_id,)).fetchone()
         if exists is None:
@@ -340,14 +437,15 @@ def post_staff_message(user_id: int, body: str) -> dict:
             """,
             (user_id, text),
         ).fetchone()
-    message = _message_row(row)
+        message = _finish_message(conn, row, images)
     forward_staff_message(user_id=user_id, body=text, message_id=message["id"])
-    _notify_support_email(user_id, text)
+    _notify_support_email(user_id, text or "Скриншот в чате поддержки")
     return message
 
 
-def post_staff_guest_message(guest_id: int, body: str) -> dict:
-    text = normalize_body(body)
+def post_staff_guest_message(guest_id: int, body: str, images: list[dict] | None = None) -> dict:
+    images = images or []
+    text = _prepare_text(body, images)
     with pool.connection() as conn:
         exists = conn.execute("SELECT 1 FROM support_guests WHERE id = %s", (guest_id,)).fetchone()
         if exists is None:
@@ -360,13 +458,14 @@ def post_staff_guest_message(guest_id: int, body: str) -> dict:
             """,
             (guest_id, text),
         ).fetchone()
-    message = _message_row(row)
+        message = _finish_message(conn, row, images)
     forward_staff_message(guest_id=guest_id, body=text, message_id=message["id"])
     return message
 
-# Keep a silent path for Telegram→site replies (без эха обратно в группу).
-def post_staff_message_from_telegram(user_id: int, body: str) -> dict:
-    text = normalize_body(body)
+
+def post_staff_message_from_telegram(user_id: int, body: str, images: list[dict] | None = None) -> dict:
+    images = images or []
+    text = _prepare_text(body, images)
     with pool.connection() as conn:
         exists = conn.execute("SELECT 1 FROM users WHERE id = %s", (user_id,)).fetchone()
         if exists is None:
@@ -379,14 +478,19 @@ def post_staff_message_from_telegram(user_id: int, body: str) -> dict:
             """,
             (user_id, text),
         ).fetchone()
-    message = _message_row(row)
+        message = _finish_message(conn, row, images)
     notify_telegram_message(user_id=user_id, message_id=message["id"])
-    _notify_support_email(user_id, text)
+    _notify_support_email(user_id, text or "Скриншот в чате поддержки")
     return message
 
 
-def post_staff_guest_message_from_telegram(guest_id: int, body: str) -> dict:
-    text = normalize_body(body)
+def post_staff_guest_message_from_telegram(
+    guest_id: int,
+    body: str,
+    images: list[dict] | None = None,
+) -> dict:
+    images = images or []
+    text = _prepare_text(body, images)
     with pool.connection() as conn:
         exists = conn.execute("SELECT 1 FROM support_guests WHERE id = %s", (guest_id,)).fetchone()
         if exists is None:
@@ -399,9 +503,44 @@ def post_staff_guest_message_from_telegram(guest_id: int, body: str) -> dict:
             """,
             (guest_id, text),
         ).fetchone()
-    message = _message_row(row)
+        message = _finish_message(conn, row, images)
     notify_telegram_message(guest_id=guest_id, message_id=message["id"])
     return message
+
+
+def open_attachment(
+    attachment_id: int,
+    *,
+    user_id: int | None = None,
+    guest_id: int | None = None,
+    admin: bool = False,
+) -> tuple[object, str, str] | None:
+    """Файл вложения, если зритель имеет к нему доступ. (path, mime, filename) или None."""
+    with pool.connection() as conn:
+        row = conn.execute(
+            """
+            SELECT a.storage_name, a.mime, a.filename, m.user_id, m.guest_id
+            FROM support_attachments a
+            JOIN support_messages m ON m.id = a.message_id
+            WHERE a.id = %s
+            """,
+            (attachment_id,),
+        ).fetchone()
+    if row is None:
+        return None
+    if not admin:
+        if user_id is not None:
+            if row["user_id"] is None or int(row["user_id"]) != int(user_id):
+                return None
+        elif guest_id is not None:
+            if row["guest_id"] is None or int(row["guest_id"]) != int(guest_id):
+                return None
+        else:
+            return None
+    path = file_path(row["storage_name"])
+    if path is None:
+        return None
+    return path, str(row["mime"]), str(row["filename"] or "image")
 
 
 def unread_count(user_id: int) -> int:
@@ -451,7 +590,8 @@ def list_guest_messages_by_id(guest_id: int) -> dict:
         if exists is None:
             raise LookupError("guest")
         rows = _recent_messages(conn, "guest_id", guest_id)
-    return {"messages": [_message_row(row) for row in rows], "unread": 0}
+        messages = _rows_with_attachments(conn, rows)
+    return {"messages": messages, "unread": 0}
 
 
 def list_threads(*, waiting_only: bool = False) -> list[dict]:
@@ -482,6 +622,9 @@ def list_threads(*, waiting_only: bool = False) -> list[dict]:
             SELECT u.id, u.email, u.username, u.first_name, u.telegram_id,
                    l.author_kind AS last_author, l.body AS last_body,
                    l.created_at AS last_at,
+                   EXISTS (
+                       SELECT 1 FROM support_attachments a WHERE a.message_id = l.id
+                   ) AS last_has_image,
                    COALESCE(w.pending, 0) AS pending
             FROM last l
             JOIN users u ON u.id = l.user_id
@@ -513,6 +656,9 @@ def list_threads(*, waiting_only: bool = False) -> list[dict]:
             SELECT g.id, g.created_at AS guest_created,
                    l.author_kind AS last_author, l.body AS last_body,
                    l.created_at AS last_at,
+                   EXISTS (
+                       SELECT 1 FROM support_attachments a WHERE a.message_id = l.id
+                   ) AS last_has_image,
                    COALESCE(w.pending, 0) AS pending
             FROM last l
             JOIN support_guests g ON g.id = l.guest_id
@@ -535,7 +681,7 @@ def list_threads(*, waiting_only: bool = False) -> list[dict]:
                 "first_name": row["first_name"] or "",
                 "telegram_id": int(row["telegram_id"]) if row["telegram_id"] else None,
                 "last_author": row["last_author"],
-                "last_body": row["last_body"],
+                "last_body": _preview_body(row["last_body"], row["last_has_image"]),
                 "last_at": iso_utc(row["last_at"]),
                 "pending": pending,
                 "waiting": pending > 0,
@@ -556,7 +702,7 @@ def list_threads(*, waiting_only: bool = False) -> list[dict]:
                 "first_name": f"Гость #{guest_id}",
                 "telegram_id": None,
                 "last_author": row["last_author"],
-                "last_body": row["last_body"],
+                "last_body": _preview_body(row["last_body"], row["last_has_image"]),
                 "last_at": iso_utc(row["last_at"]),
                 "pending": pending,
                 "waiting": pending > 0,

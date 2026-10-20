@@ -15,7 +15,8 @@ import secrets
 import time
 from decimal import Decimal, ROUND_HALF_UP, ROUND_UP
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
+from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
 from app.billing import BillingError, describe_key, reissue_key, restore_key, sync_user, upstream_base
@@ -39,15 +40,20 @@ from app.settings_store import get_setting, public_base_url, support_username
 from app.referrals import attribute_user, record_click, user_program_stats
 from app.support import (
     claim_guest_messages,
+    discard_images,
     ensure_guest_token,
+    guest_id_for_token,
     guest_unread_count,
     list_guest_messages,
     list_messages,
+    message_error_code,
+    open_attachment,
     post_guest_message,
     post_user_message,
     set_support_email_notify,
     unread_count,
 )
+from app.support_media import read_upload_images
 from app.telegram_link import bot_start_url
 from app.usage_stats import usage_period_stats
 from app.web_auth import key_hash, make_session, require_web_user
@@ -653,9 +659,38 @@ def support_send(body: SupportMessageIn, user_id: int = Depends(require_web_user
     except PermissionError:
         raise HTTPException(status_code=403, detail="blocked") from None
     except ValueError as exc:
-        code = str(exc) if str(exc) in {"message", "long"} else "message"
-        raise HTTPException(status_code=400, detail=code) from None
+        raise HTTPException(status_code=400, detail=message_error_code(exc)) from None
     return {"message": message}
+
+
+@router.post("/web/support/messages/media")
+async def support_send_media(
+    user_id: int = Depends(require_web_user),
+    body: str = Form(default=""),
+    files: list[UploadFile] | None = File(default=None),
+) -> dict:
+    images = await _read_support_images(files)
+    try:
+        message = post_user_message(user_id, body, images)
+    except LookupError:
+        discard_images(images)
+        raise HTTPException(status_code=401, detail="unauthorized") from None
+    except PermissionError:
+        discard_images(images)
+        raise HTTPException(status_code=403, detail="blocked") from None
+    except ValueError as exc:
+        discard_images(images)
+        raise HTTPException(status_code=400, detail=message_error_code(exc)) from None
+    return {"message": message}
+
+
+@router.get("/web/support/files/{attachment_id}")
+def support_file(attachment_id: int, user_id: int = Depends(require_web_user)) -> FileResponse:
+    opened = open_attachment(attachment_id, user_id=user_id)
+    if opened is None:
+        raise HTTPException(status_code=404, detail="file")
+    path, mime, filename = opened
+    return FileResponse(path, media_type=mime, filename=filename, headers={"Cache-Control": "private, no-store"})
 
 
 @router.put("/web/support/email-notify")
@@ -700,6 +735,45 @@ def support_guest_send(body: GuestMessageIn) -> dict:
     except LookupError:
         raise HTTPException(status_code=404, detail="guest-token") from None
     except ValueError as exc:
-        code = str(exc) if str(exc) in {"message", "long"} else "message"
-        raise HTTPException(status_code=400, detail=code) from None
+        raise HTTPException(status_code=400, detail=message_error_code(exc)) from None
     return {"message": message}
+
+
+@router.post("/web/support/guest/messages/media")
+async def support_guest_send_media(
+    token: str = Form(default=""),
+    body: str = Form(default=""),
+    files: list[UploadFile] | None = File(default=None),
+) -> dict:
+    images = await _read_support_images(files)
+    try:
+        message = post_guest_message(token, body, images)
+    except LookupError:
+        discard_images(images)
+        raise HTTPException(status_code=404, detail="guest-token") from None
+    except ValueError as exc:
+        discard_images(images)
+        raise HTTPException(status_code=400, detail=message_error_code(exc)) from None
+    return {"message": message}
+
+
+@router.get("/web/support/guest/files/{attachment_id}")
+def support_guest_file(attachment_id: int, token: str = "") -> FileResponse:
+    if not token.strip():
+        raise HTTPException(status_code=400, detail="guest-token")
+    try:
+        guest_id = guest_id_for_token(token)
+    except LookupError:
+        raise HTTPException(status_code=404, detail="guest-token") from None
+    opened = open_attachment(attachment_id, guest_id=guest_id)
+    if opened is None:
+        raise HTTPException(status_code=404, detail="file")
+    path, mime, filename = opened
+    return FileResponse(path, media_type=mime, filename=filename, headers={"Cache-Control": "private, no-store"})
+
+
+async def _read_support_images(files: list[UploadFile] | None) -> list[dict]:
+    try:
+        return await read_upload_images(files or [])
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=message_error_code(exc)) from None

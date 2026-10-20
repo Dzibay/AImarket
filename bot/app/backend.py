@@ -136,9 +136,44 @@ async def support_telegram_config() -> dict:
     return await _request("GET", "/api/support/telegram/config")
 
 
-async def support_telegram_reply(topic_id: int, body: str, anchor: str = "") -> dict:
-    payload = {"topic_id": topic_id, "body": body}
+async def support_telegram_reply(
+    topic_id: int,
+    body: str,
+    anchor: str = "",
+    images: list[tuple[str, bytes, str]] | None = None,
+) -> dict:
     text = (anchor or "").strip()
+    files = list(images or [])
+    if files:
+        data = {
+            "topic_id": str(topic_id),
+            "body": (body or "")[:4000],
+            "anchor": text[:4000],
+        }
+        parts = [("files", (name or "image.jpg", content, mime or "image/jpeg")) for name, content, mime in files]
+        try:
+            async with _client() as client:
+                response = await client.post(
+                    "/api/support/telegram/reply/media",
+                    data=data,
+                    files=parts,
+                    timeout=90.0,
+                )
+        except httpx.HTTPError as exc:
+            log.warning("backend недоступен: %s", exc)
+            raise BackendError(0, "unavailable") from exc
+        if response.status_code >= 400:
+            detail = ""
+            try:
+                payload = response.json()
+                if isinstance(payload, dict):
+                    raw = payload.get("detail") or ""
+                    detail = raw if isinstance(raw, str) else str(raw)
+            except ValueError:
+                detail = ""
+            raise BackendError(response.status_code, detail)
+        return response.json()
+    payload = {"topic_id": topic_id, "body": body}
     if text:
         payload["anchor"] = text[:4000]
     return await _request("POST", "/api/support/telegram/reply", payload)

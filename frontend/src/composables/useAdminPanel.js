@@ -279,6 +279,7 @@ export function useAdminPanel() {
   const supportDraft = ref('')
   const supportError = ref('')
   const supportSending = ref(false)
+  const supportFiles = ref([])
   const supportLoading = ref(false)
   let supportPollTimer = null
   let supportThreadSeq = 0
@@ -485,18 +486,20 @@ export function useAdminPanel() {
     return rows
   })
 
-  function authHeaders() {
-    return {
+  function authHeaders(json = true) {
+    const headers = {
       Authorization: 'Bearer ' + sessionStorage.getItem(TOKEN_KEY),
-      'Content-Type': 'application/json',
     }
+    if (json) headers['Content-Type'] = 'application/json'
+    return headers
   }
 
   async function api(path, options = {}) {
+    const isForm = typeof FormData !== 'undefined' && options.body instanceof FormData
     const response = await fetch(path, {
       ...options,
       cache: 'no-store',
-      headers: { ...authHeaders(), ...options.headers },
+      headers: { ...authHeaders(!isForm), ...options.headers },
     })
     if (response.status === 401) {
       sessionStorage.removeItem(TOKEN_KEY)
@@ -1311,6 +1314,7 @@ export function useAdminPanel() {
     if (!quiet) {
       supportError.value = ''
       supportLoading.value = true
+      clearSupportFiles()
     }
     try {
       const data = await api(path)
@@ -1339,25 +1343,83 @@ export function useAdminPanel() {
     }
   }
 
+  function clearSupportFiles() {
+    for (const item of supportFiles.value) {
+      if (item.url) URL.revokeObjectURL(item.url)
+    }
+    supportFiles.value = []
+  }
+
+  function addSupportFiles(list) {
+    const next = [...supportFiles.value]
+    for (const file of list || []) {
+      if (next.length >= 4) {
+        supportError.value = 'Не больше 4 изображений за раз'
+        break
+      }
+      if (!file || !String(file.type || '').startsWith('image/')) {
+        supportError.value = 'Нужен файл JPEG, PNG, WEBP или GIF'
+        continue
+      }
+      if (file.size > 8 * 1024 * 1024) {
+        supportError.value = 'Файл больше 8 МБ'
+        continue
+      }
+      next.push({
+        id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        file,
+        url: URL.createObjectURL(file),
+      })
+    }
+    supportFiles.value = next
+  }
+
+  function removeSupportFile(id) {
+    const item = supportFiles.value.find((row) => row.id === id)
+    if (item?.url) URL.revokeObjectURL(item.url)
+    supportFiles.value = supportFiles.value.filter((row) => row.id !== id)
+  }
+
+  function supportFileHeaders() {
+    return { Authorization: 'Bearer ' + sessionStorage.getItem(TOKEN_KEY) }
+  }
+
   async function sendSupportReply() {
     const body = supportDraft.value.trim()
+    const files = supportFiles.value.map((item) => item.file)
     const path = supportThreadPath(supportActiveId.value)
-    if (!body || !path || supportSending.value) return
+    if ((!body && !files.length) || !path || supportSending.value) return
     supportSending.value = true
     supportError.value = ''
     try {
-      const data = await api(path + '/reply', {
-        method: 'POST',
-        body: JSON.stringify({ body }),
-      })
+      let data
+      if (files.length) {
+        const form = new FormData()
+        form.append('body', body)
+        for (const file of files) form.append('files', file, file.name || 'image.png')
+        data = await api(path + '/reply/media', { method: 'POST', body: form })
+      } else {
+        data = await api(path + '/reply', {
+          method: 'POST',
+          body: JSON.stringify({ body }),
+        })
+      }
       supportMessages.value = [...supportMessages.value, data.message]
       supportDraft.value = ''
+      clearSupportFiles()
       await loadSupportThreads()
       await nextTick()
       const scroller = document.querySelector('.admin-support-thread')
       if (scroller) scroller.scrollTop = scroller.scrollHeight
     } catch (error) {
-      supportError.value = error.message || 'error'
+      const labels = {
+        message: 'Напишите текст или прикрепите фото',
+        long: 'Слишком длинное сообщение',
+        image: 'Нужен файл JPEG, PNG, WEBP или GIF',
+        'too-big': 'Файл больше 8 МБ',
+        'too-many': 'Не больше 4 изображений за раз',
+      }
+      supportError.value = labels[error.message] || error.message || 'error'
     } finally {
       supportSending.value = false
     }
@@ -1885,6 +1947,10 @@ export function useAdminPanel() {
     supportDraft,
     supportError,
     supportSending,
+    supportFiles,
+    addSupportFiles,
+    removeSupportFile,
+    supportFileHeaders,
     supportLoading,
     loadSupportThreads,
     openSupportThread,

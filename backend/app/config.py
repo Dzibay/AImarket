@@ -65,6 +65,9 @@ class Settings(BaseSettings):
     yookassa_receipt_email: str = ""
     yookassa_vat_code: int = 1
 
+    # Каталог скриншотов чата поддержки. Пусто — backend/data/support.
+    support_upload_dir: str = ""
+
     @property
     def dsn(self) -> str:
         return (
