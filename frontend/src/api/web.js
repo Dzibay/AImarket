@@ -9,14 +9,24 @@ export class ApiError extends Error {
 }
 
 async function request(path, options = {}) {
+  if (import.meta.env.DEV) {
+    const { demoResponse, demoScenario } = await import('../dev/demo.js')
+    if (demoScenario()) {
+      const demo = await demoResponse(path, options, (p) => request(p, { headers: { Authorization: '' } }))
+      if (demo !== undefined) return demo
+      // Демо-сессия не настоящая — не отправляем её и не разлогиниваем по 401.
+      options = { ...options, headers: { ...(options.headers || {}), Authorization: '' } }
+    }
+  }
   const headers = { ...(options.headers || {}) }
   const isForm = typeof FormData !== 'undefined' && options.body instanceof FormData
   if (!isForm && !headers['Content-Type']) headers['Content-Type'] = 'application/json'
   const session = getSession()
-  if (session) headers.Authorization = `Bearer ${session}`
+  if (session && headers.Authorization !== '') headers.Authorization = `Bearer ${session}`
+  if (headers.Authorization === '') delete headers.Authorization
   const response = await fetch(path, { cache: 'no-store', ...options, headers })
   const body = await response.json().catch(() => ({}))
-  if (response.status === 401 && session && !path.endsWith('/login')) {
+  if (response.status === 401 && session && headers.Authorization && !path.endsWith('/login')) {
     clearSession()
   }
   if (!response.ok) throw new ApiError(body.detail || 'error', response.status)

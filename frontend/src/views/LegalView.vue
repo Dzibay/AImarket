@@ -1,6 +1,7 @@
 <template>
   <div class="docs-page">
     <SiteHeader />
+    <div class="docs-aurora" aria-hidden="true"><i /><i /></div>
 
     <div class="docs-shell">
       <aside class="docs-side" :class="{ open: navOpen }">
@@ -789,5 +790,123 @@ watch(() => props.page, load, { immediate: true })
     z-index: 35;
     background: rgba(28, 25, 21, 0.28);
   }
+}
+</style>
+
+<style scoped>
+/* Рестайл в духе главной: аврора, стекло, градиентные акценты. Без тяжёлых анимаций. */
+.docs-page { position: relative; isolation: isolate; overflow-x: clip; background: var(--bg); }
+.docs-aurora { position: absolute; inset: 0 0 auto; height: 760px; z-index: -1; pointer-events: none; overflow: hidden; }
+.docs-aurora i { position: absolute; border-radius: 50%; filter: blur(110px); opacity: 0.38; }
+.docs-aurora i:nth-child(1) { width: 560px; height: 420px; left: -160px; top: -40px; background: #f2b27a; }
+.docs-aurora i:nth-child(2) { width: 520px; height: 400px; right: -140px; top: 120px; background: #c9b2f0; }
+.docs-shell { padding-top: 24px; }
+
+.docs-side { top: 96px; }
+.side-head h2 { font-size: 1.35rem; letter-spacing: -0.04em; }
+.docs-nav {
+  padding: 8px;
+  border-radius: 22px;
+  background: rgba(255, 255, 255, 0.6);
+  border: 1px solid rgba(255, 255, 255, 0.95);
+  box-shadow: 0 24px 50px -40px rgba(60, 40, 15, 0.55);
+  backdrop-filter: blur(16px) saturate(1.2);
+  -webkit-backdrop-filter: blur(16px) saturate(1.2);
+}
+.docs-nav-item { border-radius: 14px; transition: background 0.2s ease, color 0.2s ease; }
+.docs-nav-item:hover { background: rgba(255, 255, 255, 0.8); }
+.docs-nav-item.on { background: linear-gradient(160deg, #2b2620, #15120e); color: #fff; box-shadow: 0 12px 24px -16px rgba(21, 18, 14, 0.8); }
+.docs-nav-item.on .nav-icon { background: rgba(255, 255, 255, 0.12); color: #ffb487; }
+.help-card {
+  border-radius: 20px;
+  background: rgba(255, 255, 255, 0.66);
+  border-color: rgba(255, 255, 255, 0.95);
+  box-shadow: 0 20px 40px -32px rgba(60, 40, 15, 0.6);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  transition: transform 0.25s var(--ease-out), box-shadow 0.25s ease;
+}
+.help-card:hover { transform: translateY(-2px); box-shadow: 0 26px 46px -30px rgba(60, 40, 15, 0.65); }
+.help-icon { background: linear-gradient(135deg, #d9653b, #b07be0); color: #fff; }
+
+.doc-card {
+  border-radius: 30px;
+  background: rgba(255, 255, 255, 0.76);
+  border: 1px solid rgba(255, 255, 255, 0.95);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.9) inset, 0 40px 80px -50px rgba(60, 40, 15, 0.5);
+  backdrop-filter: blur(20px) saturate(1.25);
+  -webkit-backdrop-filter: blur(20px) saturate(1.25);
+}
+.doc-badge { background: rgba(217, 101, 59, 0.1); color: #c4572f; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; }
+.doc-head h1 { letter-spacing: -0.05em; font-weight: 680; }
+.help-page .doc-head h1 {
+  background: linear-gradient(90deg, var(--text) 30%, #c4572f 70%, #8f5fd0);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+.download-btn { border-radius: 14px; transition: transform 0.2s var(--ease-out), box-shadow 0.2s ease; }
+.download-btn:hover { transform: translateY(-1px); box-shadow: 0 10px 20px -14px rgba(40, 28, 12, 0.6); }
+
+.doc-summary {
+  position: relative;
+  overflow: hidden;
+  border-radius: 20px;
+  background: linear-gradient(160deg, #241e18, #15120e);
+  color: #fff;
+}
+.doc-summary::after {
+  content: "";
+  position: absolute;
+  right: -60px;
+  top: -80px;
+  width: 240px;
+  height: 200px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(217, 101, 59, 0.45), transparent 70%);
+  pointer-events: none;
+}
+.doc-summary p { color: rgba(255, 255, 255, 0.68); }
+.summary-icon { background: rgba(255, 255, 255, 0.1); color: #ffb487; box-shadow: none; }
+
+.section-num { background: linear-gradient(135deg, #d9653b, #b07be0); color: #fff; }
+.section-title h2 { letter-spacing: -0.03em; }
+
+/* Аккордеон FAQ — как на главной */
+.faq-list { border: 0; border-radius: 0; overflow: visible; display: grid; gap: 10px; }
+.faq-list details {
+  border: 1px solid rgba(28, 25, 21, 0.07);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.7);
+  transition: background 0.2s ease, box-shadow 0.25s ease, border-color 0.2s ease;
+}
+.faq-list details:last-child { border-bottom: 1px solid rgba(28, 25, 21, 0.07); }
+.faq-list details:hover { background: #fff; }
+.faq-list details[open] { background: #fff; border-color: rgba(217, 101, 59, 0.25); box-shadow: 0 20px 40px -30px rgba(60, 40, 15, 0.55); }
+.faq-list summary { font-weight: 600; }
+.faq-list .chev {
+  flex: none;
+  display: inline-grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  padding: 6px;
+  border-radius: 50%;
+  background: rgba(28, 25, 21, 0.05);
+  box-sizing: border-box;
+}
+.faq-list details[open] .chev { background: linear-gradient(135deg, #d9653b, #b07be0); color: #fff; }
+
+.help-cta {
+  border-radius: 22px;
+  background: linear-gradient(160deg, #241e18, #15120e);
+  color: #fff;
+}
+.help-cta p { color: rgba(255, 255, 255, 0.65); }
+.help-cta .btn { background: #fff; color: var(--text); }
+
+@media (max-width: 960px) {
+  .docs-side { top: 0; background: rgba(250, 247, 242, 0.96); }
+  .doc-card { border-radius: 22px; }
 }
 </style>

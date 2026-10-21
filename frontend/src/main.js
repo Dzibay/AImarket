@@ -6,4 +6,12 @@ import router from './router'
 import { reveal } from './directives/reveal'
 import './styles/site.css'
 
-createApp(App).use(router).directive('reveal', reveal).mount('#app')
+async function boot() {
+  if (import.meta.env.DEV) {
+    const [{ applyDemoFlag }, { setSession }] = await Promise.all([import('./dev/demo.js'), import('./composables/useSession')])
+    applyDemoFlag(setSession)
+  }
+  createApp(App).use(router).directive('reveal', reveal).mount('#app')
+}
+
+boot()

@@ -14,7 +14,7 @@
     </div>
 
     <div class="fields">
-      <CopyField label="API-ключ" :value="secret" masked :reveal-by-default="revealByDefault" toast="Ключ скопирован" />
+      <CopyField label="API-ключ" :value="secret" masked :reveal-by-default="revealByDefault" toast="Ключ скопирован" goal="key_copy" />
       <CopyField v-if="baseUrl" label="Base URL" :value="baseUrl" toast="Адрес скопирован" />
     </div>
 

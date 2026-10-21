@@ -1,5 +1,5 @@
 <template>
-  <div class="site" :class="{ 'nav-open': mobileNavOpen }">
+  <div class="site cabinet" :class="{ 'nav-open': mobileNavOpen }">
     <SiteHeader
       v-if="profile"
       cabinet-menu
@@ -48,6 +48,7 @@
       </Transition>
     </Teleport>
     <main class="site-main">
+      <div class="cab-aurora" aria-hidden="true"><i /><i /><i /></div>
       <div class="container wrap">
         <template v-if="loading && !profile">
           <div class="layout">
@@ -104,12 +105,14 @@
           <div class="content">
             <div class="head">
               <div>
-                <h1 class="page-title">Личный кабинет</h1>
+                <p class="head-kicker">Личный кабинет</p>
+                <h1 class="page-title">{{ greeting }}</h1>
                 <p class="page-lead">
                   <template v-if="profile.email">{{ profile.email }} · </template>
                   аккаунт с {{ shortDate(profile.created_at) }}
                 </p>
               </div>
+              <span class="head-status" :class="status.kind"><i />{{ status.text }}</span>
             </div>
 
             <div v-if="profile.blocked" class="notice bad">
@@ -118,7 +121,64 @@
             </div>
 
             <section id="overview" class="anchor">
-              <div class="hero card">
+              <div v-if="starter" class="starter">
+                <div class="starter-head">
+                  <span class="starter-badge"><AppIcon name="check" :size="14" />Аккаунт создан</span>
+                  <h2 class="starter-title">Остался один шаг —<br><span class="grad-text">пополните баланс</span></h2>
+                  <p class="starter-lead">
+                    API-ключ выпустится автоматически сразу после оплаты: появится здесь и придёт на почту.
+                    Карта РФ или СБП, от {{ usd(minUsd, 0) }}<template v-if="profile.usd_price_rub"> ({{ rub(minUsd * profile.usd_price_rub, 0) }})</template>.
+                  </p>
+                </div>
+
+                <ol class="track" aria-label="Шаги до первого запроса">
+                  <li v-for="(step, i) in track" :key="step.label" :class="step.state">
+                    <span class="track-dot">
+                      <AppIcon v-if="step.state === 'done'" name="check" :size="14" />
+                      <template v-else>{{ i + 1 }}</template>
+                    </span>
+                    <span class="track-text"><b>{{ step.label }}</b><small>{{ step.hint }}</small></span>
+                  </li>
+                </ol>
+
+                <div class="starter-grid">
+                  <div id="topup" class="starter-pay">
+                    <div class="pay-frame">
+                      <span class="pay-ring" aria-hidden="true" />
+                      <div class="pay-inner">
+                        <TopupForm mode="topup" :config="profile" source="cabinet_start" />
+                        <p class="pay-secure"><AppIcon name="shield" :size="14" />Платёж защищён ЮKassa · 3-D Secure · возврат 14 дней</p>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div class="starter-side">
+                    <div class="glass starter-get">
+                      <h3>Что будет сразу после оплаты</h3>
+                      <ul>
+                        <li><span class="get-icon"><AppIcon name="key" :size="16" /></span><span><b>API-ключ и Base URL</b>На экране и в письме — копируете и вставляете.</span></li>
+                        <li><span class="get-icon"><AppIcon name="terminal" :size="16" /></span><span><b>Подключение одной командой</b>Cursor, Claude Code, Codex и другие приложения.</span></li>
+                        <li><span class="get-icon"><AppIcon name="spark" :size="16" /></span><span><b>Все модели по одному ключу</b>Списание — 10% от официальной цены, только за токены.</span></li>
+                      </ul>
+                    </div>
+                    <div v-if="profile.usd_price_rub" class="glass starter-prices">
+                      <div class="sp-head">
+                        <h3>Сколько стоит</h3>
+                        <RouterLink to="/prices">Все цены →</RouterLink>
+                      </div>
+                      <div v-for="m in starterModels" :key="m.id" class="sp-row">
+                        <span class="sp-logo"><BrandLogo :brand="m.brand" :size="16" /></span>
+                        <code>{{ m.id }}</code>
+                        <span class="sp-price"><b>{{ tokenRub(m.rub) }}</b><s>{{ tokenRub(m.ref) }}</s></span>
+                      </div>
+                      <p class="sp-note">за 1 млн входных токенов · −90% к официальной цене</p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div v-else class="hero card">
+                <span class="hero-glow" aria-hidden="true" />
                 <div class="hero-main">
                   <div class="hero-top">
                     <span class="hero-label">Баланс</span>
@@ -127,7 +187,7 @@
                       <b>{{ usdSmart(weekTotal) }}</b>
                     </div>
                   </div>
-                  <b class="hero-balance">{{ usd(profile.balance_usd) }}</b>
+                  <b class="hero-balance">{{ usd(shownBalance) }}</b>
                   <span class="hero-rub">≈ {{ rub(profile.balance_usd * profile.usd_price_rub) }} · 1 $ = {{ rub(profile.usd_price_rub) }}</span>
                   <div class="hero-chips">
                     <span class="chip" :class="status.kind"><i />{{ status.text }}</span>
@@ -169,9 +229,10 @@
                   </div>
                   <div class="chart">
                     <div
-                      v-for="day in weekDays"
+                      v-for="(day, i) in weekDays"
                       :key="day.date"
                       class="bar-wrap"
+                      :style="{ '--i': i }"
                       :title="`${day.label}: ${usdSmart(day.usd)}`"
                     >
                       <span class="bar-value">{{ day.usd ? usdSmart(day.usd) : '' }}</span>
@@ -182,7 +243,7 @@
                 </div>
               </div>
 
-              <div class="stats">
+              <div v-if="!starter" class="stats">
                 <div class="card stat">
                   <span class="muted small">Потрачено сегодня</span>
                   <b>{{ usdSmart(profile.spent_today_usd) }}</b>
@@ -213,7 +274,7 @@
                 <a href="#topup" @click.prevent="scrollTo('topup')">Пополнить заранее</a>.
               </p>
 
-              <section v-if="onboarding" class="card onboarding">
+              <section v-if="onboarding && !starter" class="card onboarding">
                 <div class="onb-head">
                   <h2 class="card-title">{{ onboarding.title }}</h2>
                   <p class="muted small">{{ onboarding.lead }}</p>
@@ -292,10 +353,10 @@
               <SetupGuide :secret="profile.key?.secret || ''" :base-url="profile.api_base_url" />
             </section>
 
-            <section id="topup" class="anchor">
+            <section v-if="!starter" id="topup" class="anchor">
               <h2 class="section-title">Пополнение</h2>
               <div class="grid topup-grid">
-                <TopupForm v-if="!profile.blocked" mode="topup" :config="profile" />
+                <TopupForm v-if="!profile.blocked" mode="topup" :config="profile" source="cabinet" />
                 <div v-else class="card"><p class="muted">Пополнение недоступно: аккаунт заблокирован.</p></div>
                 <div class="col">
                   <div class="card soft bonus">
@@ -544,11 +605,14 @@ import SiteFooter from '../components/SiteFooter.vue'
 import SiteHeader from '../components/SiteHeader.vue'
 import TopupForm from '../components/TopupForm.vue'
 import AppIcon from '../components/ui/AppIcon.vue'
+import BrandLogo from '../components/BrandLogo.vue'
 import { errorText, webApi } from '../api/web'
 import { clearSession, useSession } from '../composables/useSession'
 import { useSupportUnread } from '../composables/useSupportUnread'
 import { copyWithToast, toast } from '../composables/useToast'
-import { dateTime, rub, tokens, usd, usdSmart } from '../utils/format'
+import { findModel, ourRubPerMillion, referenceRubPerMillion } from '../data/tokenPrices'
+import { reachMetrikaGoal } from '../utils/cookiesConsent'
+import { dateTime, rub, tokenRub, tokens, usd, usdSmart } from '../utils/format'
 import { useHead } from '../utils/useHead'
 
 const PAGE = 10
@@ -569,6 +633,71 @@ const active = ref('overview')
 let watching = false
 let ticking = false
 let referralCopyTimer = 0
+let openTracked = false
+let balanceFrame = 0
+const shownBalance = ref(0)
+
+// Новый пользователь без денег и ключа: вместо пустой статистики — экран первой оплаты.
+const starter = computed(() => {
+  const p = profile.value
+  if (!p || p.blocked || p.key || p.awaiting_supplier || p.key_error === 'supplier') return false
+  return !(Number(p.balance_usd) > 0)
+})
+const minUsd = computed(() => Number(profile.value?.min_topup_usd || 10))
+const greeting = computed(() => {
+  if (starter.value) return 'Добро пожаловать'
+  const h = new Date().getHours()
+  if (h < 5) return 'Доброй ночи'
+  if (h < 12) return 'Доброе утро'
+  if (h < 18) return 'Добрый день'
+  return 'Добрый вечер'
+})
+const track = [
+  { label: 'Аккаунт', hint: 'Готово', state: 'done' },
+  { label: 'Пополнение', hint: 'Сейчас', state: 'current' },
+  { label: 'Ключ', hint: 'Сразу после оплаты', state: 'next' },
+  { label: 'Подключение', hint: 'Одна команда', state: 'next' },
+]
+const STARTER_MODELS = [
+  { id: 'claude-opus-5-5', brand: 'claude' },
+  { id: 'gpt-6-astra', brand: 'gpt' },
+  { id: 'gemini-3.1-pro-preview', brand: 'gemini' },
+  { id: 'deepseek-v4-pro', brand: 'deepseek' },
+]
+const starterModels = computed(() => {
+  const rate = Number(profile.value?.usd_price_rub || 0)
+  return STARTER_MODELS.map((item) => {
+    const model = findModel(item.id)
+    if (!model) return null
+    return { ...item, rub: ourRubPerMillion(model.input, rate), ref: referenceRubPerMillion(model.input, rate) }
+  }).filter(Boolean)
+})
+
+// Баланс «докручивается» до нового значения.
+watch(() => Number(profile.value?.balance_usd || 0), (to) => {
+  cancelAnimationFrame(balanceFrame)
+  const from = shownBalance.value
+  if (from === to || window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+    shownBalance.value = to
+    return
+  }
+  const start = performance.now()
+  const step = (now) => {
+    const t = Math.min(1, (now - start) / 1100)
+    shownBalance.value = from + (to - from) * (1 - Math.pow(1 - t, 3))
+    if (t < 1) balanceFrame = requestAnimationFrame(step)
+  }
+  balanceFrame = requestAnimationFrame(step)
+})
+
+function trackOpen(p) {
+  if (openTracked) return
+  openTracked = true
+  reachMetrikaGoal('cabinet_open', {
+    balance: Number(p.balance_usd) > 0 ? 'positive' : 'zero',
+    has_key: Boolean(p.key),
+  })
+}
 
 const sections = computed(() => {
   const items = [
@@ -835,6 +964,7 @@ async function load() {
   loadError.value = ''
   try {
     profile.value = await webApi.me()
+    trackOpen(profile.value)
     await nextTick()
     watchSections()
   } catch (error) {
@@ -944,6 +1074,7 @@ onMounted(async () => {
 })
 
 onBeforeUnmount(() => {
+  cancelAnimationFrame(balanceFrame)
   window.removeEventListener('scroll', onScroll)
   window.removeEventListener('resize', onScroll)
   document.body.classList.remove('cabinet-nav-open')
@@ -1479,6 +1610,265 @@ td .rub { display: block; font-weight: 400; }
   td .rub { display: block; }
   .op { align-items: flex-start; }
   .skeleton-row { display: grid; }
+}
+</style>
+
+<style scoped>
+/* ===== Редизайн кабинета: «вау, но сдержанно» ===== */
+.cabinet .site-main { position: relative; isolation: isolate; }
+.cab-aurora {
+  position: absolute;
+  inset: -80px 0 auto;
+  height: 720px;
+  z-index: -1;
+  overflow: hidden;
+  pointer-events: none;
+}
+.cab-aurora i {
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(90px);
+  opacity: 0.45;
+  animation: cab-drift 18s ease-in-out infinite alternate;
+}
+.cab-aurora i:nth-child(1) { width: 520px; height: 420px; left: -120px; top: 40px; background: #f2b27a; }
+.cab-aurora i:nth-child(2) { width: 480px; height: 380px; right: -100px; top: -40px; background: #c9b2f0; animation-delay: -6s; }
+.cab-aurora i:nth-child(3) { width: 360px; height: 300px; left: 40%; top: 260px; background: #f6d3a8; opacity: 0.35; animation-delay: -12s; }
+@keyframes cab-drift { to { transform: translate(60px, 40px) scale(1.12); } }
+
+.cabinet .wrap { padding-top: 34px; }
+.cabinet .anchor { scroll-margin-top: 96px; margin-bottom: 56px; }
+.cabinet .section-title { margin: 0 0 18px; font-size: clamp(1.4rem, 2.4vw, 1.8rem); font-weight: 680; letter-spacing: -0.045em; }
+
+/* Шапка страницы */
+.cabinet .head { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; flex-wrap: wrap; margin-bottom: 26px; }
+.head-kicker { margin: 0 0 6px; color: #c4572f; font-size: 12px; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; }
+.cabinet .page-title { margin: 0 0 6px; font-size: clamp(2rem, 4.2vw, 3rem); font-weight: 680; line-height: 1.02; letter-spacing: -0.055em; }
+.head-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.7);
+  border: 1px solid rgba(255, 255, 255, 0.95);
+  box-shadow: 0 10px 26px -18px rgba(60, 40, 15, 0.45);
+  backdrop-filter: blur(12px);
+  font-size: 13px;
+  font-weight: 600;
+}
+.head-status i { width: 8px; height: 8px; border-radius: 50%; background: #c9a94a; }
+.head-status.ok i { background: #3f9b6f; animation: cab-ping 2s ease-out infinite; }
+.head-status.bad i { background: #c95454; }
+@keyframes cab-ping { 0% { box-shadow: 0 0 0 0 rgba(63, 155, 111, 0.55); } 100% { box-shadow: 0 0 0 9px rgba(63, 155, 111, 0); } }
+
+/* Стеклянные карточки */
+.cabinet :deep(.card:not(.hero):not(.referral-hero)) {
+  background: rgba(255, 255, 255, 0.68);
+  border: 1px solid rgba(255, 255, 255, 0.95);
+  border-radius: 22px;
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.9) inset, 0 18px 44px -30px rgba(60, 40, 15, 0.45);
+  backdrop-filter: blur(16px) saturate(1.3);
+  -webkit-backdrop-filter: blur(16px) saturate(1.3);
+}
+.cabinet :deep(.card.soft) { background: rgba(255, 255, 255, 0.45); }
+.cabinet :deep(.notice) { border-radius: 16px; }
+
+/* Боковое меню */
+.cabinet .side { top: 96px; }
+.cabinet .side-inner {
+  padding: 10px;
+  border-radius: 24px;
+  background: rgba(255, 255, 255, 0.55);
+  border: 1px solid rgba(255, 255, 255, 0.95);
+  box-shadow: 0 18px 40px -28px rgba(60, 40, 15, 0.45);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+}
+.cabinet .side-nav a { border-radius: 14px; padding: 10px 12px; }
+.cabinet .side-nav a.on {
+  background: linear-gradient(180deg, #2b2620, var(--ink, #15120e));
+  color: #fff;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.16), 0 10px 22px -12px rgba(21, 18, 14, 0.7);
+}
+.cabinet .side-nav a.on .icon { color: #f0a35e; }
+.cabinet .side-foot { border-top-color: rgba(28, 25, 21, 0.08); padding: 12px 12px 4px; }
+.cabinet .mobile-nav-panel { background: rgba(250, 247, 242, 0.92); backdrop-filter: blur(20px); border-radius: 26px 0 0 26px; }
+.cabinet .mobile-nav-links a.on { background: linear-gradient(180deg, #2b2620, #15120e); color: #fff; }
+
+/* Карточка баланса */
+.cabinet .hero {
+  position: relative;
+  overflow: hidden;
+  isolation: isolate;
+  padding: 30px 32px;
+  border-radius: 28px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: linear-gradient(160deg, #241e18 0%, #15120e 70%);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08), 0 30px 60px -30px rgba(21, 18, 14, 0.7);
+  color: #f6f1e8;
+}
+.hero-glow { position: absolute; inset: 0; z-index: -1; pointer-events: none; }
+.hero-glow::before, .hero-glow::after {
+  content: "";
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(60px);
+}
+.hero-glow::before { width: 340px; height: 260px; left: -80px; top: -120px; background: rgba(217, 101, 59, 0.45); }
+.hero-glow::after { width: 320px; height: 260px; right: -60px; bottom: -140px; background: rgba(150, 110, 230, 0.35); }
+.cabinet .hero-balance {
+  font-size: clamp(2.6rem, 5.4vw, 3.8rem);
+  font-weight: 700;
+  letter-spacing: -0.05em;
+  background: linear-gradient(180deg, #fff 30%, #f3c9a4);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+.cabinet .hero .btn.light { background: #fff; color: #15120e; border-radius: 999px; }
+.cabinet .hero .btn.ghost { border-radius: 999px; color: #f6f1e8; border-color: rgba(255, 255, 255, 0.2); }
+.cabinet .chip { background: rgba(255, 255, 255, 0.07); border-color: rgba(255, 255, 255, 0.12); }
+.cabinet .chart { height: 160px; }
+.cabinet .bar-wrap i {
+  border-radius: 8px 8px 4px 4px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.34), rgba(255, 255, 255, 0.12));
+  transform-origin: bottom;
+  animation: cab-grow 0.9s var(--ease-out) both;
+  animation-delay: calc(var(--i, 0) * 70ms + 150ms);
+}
+.cabinet .bar-wrap i.today:not(.empty) { background: linear-gradient(180deg, #f0a35e, #d9653b); box-shadow: 0 0 24px rgba(217, 101, 59, 0.55); }
+.cabinet .bar-wrap:hover i:not(.empty) { background: linear-gradient(180deg, #f6c08a, #e0824f); }
+@keyframes cab-grow { from { transform: scaleY(0); } }
+
+/* Статистика */
+.cabinet .stats { gap: 14px; margin-top: 14px; }
+.cabinet .stat { padding: 18px 20px; transition: transform 0.3s var(--ease-out), box-shadow 0.3s ease; }
+.cabinet .stat:hover { transform: translateY(-2px); }
+.cabinet .stat b { font-size: 26px; font-weight: 680; letter-spacing: -0.04em; }
+.cabinet .stat b.date { font-size: 17px; }
+.cabinet .onboarding .step-dot {
+  display: inline-grid; place-items: center; flex: 0 0 30px; width: 30px; height: 30px;
+  border-radius: 50%; background: linear-gradient(135deg, #d9653b, #b07be0); color: #fff; font-weight: 700; font-size: 13px;
+}
+
+/* Стартовый экран */
+.starter { display: grid; gap: 26px; }
+.starter-badge {
+  display: inline-flex; align-items: center; gap: 7px; padding: 6px 12px 6px 8px;
+  border-radius: 999px; background: rgba(63, 155, 111, 0.12); color: #2d6a4f; font-size: 13px; font-weight: 650;
+}
+.starter-badge .icon { padding: 2px; border-radius: 50%; background: #3f9b6f; color: #fff; }
+.starter-title { margin: 14px 0 12px; font-size: clamp(2rem, 4.4vw, 3.2rem); font-weight: 680; line-height: 1.02; letter-spacing: -0.055em; }
+.starter-lead { margin: 0; max-width: 60ch; color: var(--muted-2); font-size: 16.5px; line-height: 1.55; }
+
+.track {
+  list-style: none; margin: 0; padding: 8px; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px;
+  border-radius: 22px; background: rgba(255, 255, 255, 0.55); border: 1px solid rgba(255, 255, 255, 0.95);
+  backdrop-filter: blur(14px); box-shadow: 0 16px 40px -30px rgba(60, 40, 15, 0.5);
+}
+.track li { position: relative; display: flex; align-items: center; gap: 12px; padding: 12px 14px; border-radius: 16px; min-width: 0; }
+.track-dot {
+  flex: 0 0 32px; width: 32px; height: 32px; display: grid; place-items: center; border-radius: 50%;
+  background: rgba(28, 25, 21, 0.06); color: var(--muted); font-size: 13px; font-weight: 700;
+}
+.track-text { display: flex; flex-direction: column; min-width: 0; }
+.track-text b { font-size: 14.5px; letter-spacing: -0.02em; }
+.track-text small { color: var(--muted); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.track li.done .track-dot { background: #3f9b6f; color: #fff; }
+.track li.current { background: #fff; box-shadow: 0 10px 26px -16px rgba(60, 40, 15, 0.5); }
+.track li.current .track-dot { background: linear-gradient(135deg, #d9653b, #b07be0); color: #fff; animation: cab-pulse 2.2s ease-out infinite; }
+.track li.current small { color: #c4572f; font-weight: 600; }
+.track li.next { opacity: 0.7; }
+@keyframes cab-pulse { 0% { box-shadow: 0 0 0 0 rgba(217, 101, 59, 0.5); } 100% { box-shadow: 0 0 0 12px rgba(217, 101, 59, 0); } }
+
+.starter-grid { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, 0.85fr); gap: 22px; align-items: start; }
+.starter-pay { scroll-margin-top: 96px; }
+.pay-frame { position: relative; padding: 2px; border-radius: 30px; isolation: isolate; }
+.pay-ring {
+  position: absolute; inset: 0; border-radius: inherit;
+  background: conic-gradient(from var(--cab-angle, 0deg), #d9653b, #e8a04a, #b07be0, #6f7cf0, #d9653b);
+  animation: cab-spin 6s linear infinite;
+}
+.pay-ring::after {
+  content: ""; position: absolute; inset: 12%; z-index: -1; border-radius: inherit;
+  background: inherit; filter: blur(46px); opacity: 0.55;
+}
+@property --cab-angle { syntax: "<angle>"; initial-value: 0deg; inherits: false; }
+@keyframes cab-spin { to { --cab-angle: 360deg; } }
+.pay-inner { position: relative; border-radius: 28px; background: #fbf8f3; overflow: hidden; }
+.pay-inner :deep(.topup.card) { border: 0; box-shadow: none; background: transparent; backdrop-filter: none; padding: 26px 26px 10px; }
+.pay-inner :deep(.btn) { min-height: 52px; border-radius: 16px; font-size: 16px; }
+.pay-secure {
+  display: flex; align-items: center; gap: 8px; margin: 0; padding: 13px 26px 16px;
+  border-top: 1px solid var(--border); color: var(--muted); font-size: 12.5px;
+}
+
+.starter-side { display: grid; gap: 16px; }
+.glass {
+  padding: 22px; border-radius: 24px; background: rgba(255, 255, 255, 0.66); border: 1px solid rgba(255, 255, 255, 0.95);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.9) inset, 0 18px 44px -30px rgba(60, 40, 15, 0.45);
+  backdrop-filter: blur(16px);
+}
+.glass h3 { margin: 0 0 14px; font-size: 1.05rem; letter-spacing: -0.03em; }
+.starter-get ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 14px; }
+.starter-get li { display: flex; gap: 12px; color: var(--muted-2); font-size: 14px; line-height: 1.45; }
+.starter-get b { display: block; color: var(--text); font-size: 14.5px; }
+.get-icon {
+  flex: 0 0 36px; height: 36px; display: grid; place-items: center; border-radius: 12px;
+  background: linear-gradient(160deg, #2b2620, #15120e); color: #f0a35e;
+}
+.sp-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
+.sp-head a { color: #c4572f; font-size: 13.5px; font-weight: 600; }
+.sp-row { display: flex; align-items: center; gap: 10px; padding: 9px 0; border-top: 1px solid rgba(28, 25, 21, 0.06); }
+.sp-logo { flex: 0 0 28px; height: 28px; display: grid; place-items: center; border-radius: 9px; background: #fff; border: 1px solid var(--border); }
+.sp-row code { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 500 12.5px var(--font-mono); }
+.sp-price { display: flex; align-items: baseline; gap: 6px; white-space: nowrap; }
+.sp-price b { font-size: 14px; }
+.sp-price s { color: var(--muted); font-size: 12px; }
+.sp-note { margin: 8px 0 0; color: var(--muted); font-size: 12px; }
+
+/* Таблица истории */
+.cabinet .history { padding: 0; }
+.cabinet th { background: rgba(255, 255, 255, 0.4); }
+.cabinet th, .cabinet td { border-bottom-color: rgba(28, 25, 21, 0.06); }
+.cabinet tbody tr:hover td { background: rgba(255, 255, 255, 0.6); }
+.cabinet .model { font-family: var(--font-mono); font-size: 12px; background: rgba(255, 255, 255, 0.8); }
+.cabinet .segmented { border-radius: 999px; }
+
+/* Реферальный блок */
+.cabinet .referral-hero {
+  position: relative;
+  border-radius: 28px;
+  background:
+    radial-gradient(60% 80% at 100% 0%, rgba(217, 101, 59, 0.35), transparent 60%),
+    radial-gradient(50% 70% at 0% 100%, rgba(150, 110, 230, 0.28), transparent 60%),
+    linear-gradient(160deg, #241e18, #15120e);
+  border-color: rgba(255, 255, 255, 0.08);
+}
+.cabinet .referral-stat.accent { background: linear-gradient(135deg, rgba(217, 101, 59, 0.35), rgba(176, 123, 224, 0.3)); }
+
+@media (max-width: 1040px) {
+  .cabinet .anchor { scroll-margin-top: 84px; }
+}
+@media (max-width: 900px) {
+  .starter-grid { grid-template-columns: 1fr; }
+  .track { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 640px) {
+  .cabinet .wrap { padding-top: 20px; }
+  .cabinet .head { margin-bottom: 18px; }
+  .head-status { display: none; }
+  .cabinet .hero { padding: 22px 18px 18px; border-radius: 24px; }
+  .track li { padding: 10px; gap: 10px; }
+  .track-dot { flex-basis: 28px; width: 28px; height: 28px; }
+  .pay-inner :deep(.topup.card) { padding: 20px 16px 8px; }
+  .pay-secure { padding: 12px 16px 14px; }
+  .glass { padding: 18px; }
+  .cabinet .stat b { font-size: 22px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .cab-aurora i, .pay-ring, .track li.current .track-dot, .head-status.ok i, .cabinet .bar-wrap i { animation: none; }
 }
 </style>
 

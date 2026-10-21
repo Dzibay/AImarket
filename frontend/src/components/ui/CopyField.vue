@@ -34,6 +34,7 @@
 <script setup>
 import { computed, ref } from 'vue'
 import { copyWithToast } from '../../composables/useToast'
+import { reachMetrikaGoal } from '../../utils/cookiesConsent'
 import AppIcon from './AppIcon.vue'
 
 const props = defineProps({
@@ -42,6 +43,7 @@ const props = defineProps({
   masked: { type: Boolean, default: false },
   revealByDefault: { type: Boolean, default: false },
   toast: { type: String, default: 'Скопировано' },
+  goal: { type: String, default: '' },
 })
 
 const revealed = ref(props.revealByDefault)
@@ -61,6 +63,7 @@ async function copy() {
     return
   }
   copied.value = true
+  if (props.goal) reachMetrikaGoal(props.goal)
   setTimeout(() => { copied.value = false }, 1500)
 }
 </script>

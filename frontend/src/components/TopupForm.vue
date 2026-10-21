@@ -117,6 +117,8 @@ import { getReferralToken } from '../utils/referral'
 const props = defineProps({
   mode: { type: String, default: 'checkout' },
   config: { type: Object, default: null },
+  // Откуда начата оплата — уходит параметром в цель Метрики.
+  source: { type: String, default: '' },
 })
 
 const MAX_USD = 10_000
@@ -275,7 +277,9 @@ async function submit() {
       : await webApi.topup(payload)
     reachMetrikaGoal(props.mode === 'checkout' ? 'checkout_start' : 'topup_start', {
       amount_usd: result.amount_usd,
+      ...(props.source ? { source: props.source } : {}),
     })
+    if (props.mode !== 'checkout') reachMetrikaGoal('cabinet_checkout_start', { amount_usd: result.amount_usd, source: props.source || 'cabinet' })
     window.location.href = result.pay_url
   } catch (error) {
     submitError.value = errorText(error)
