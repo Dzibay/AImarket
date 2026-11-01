@@ -541,7 +541,31 @@ def _sync_key(user_id: int, upstream_id: int, *, force: bool = False) -> None:
             "DELETE FROM usage WHERE user_id = %s AND upstream_log_id IS NULL",
             (user_id,),
         )
-    _record_balance(user_id, amount, spent)
+    # Ключ обнулён у поставщика, а у клиента остался баланс, не объяснённый расходом, —
+    # считаем его замороженным (как после простоя): баланс сохраняем, клиент может восстановить ключ.
+    frozen_now = False
+    if amount <= 0 and key_id is not None:
+        current = _balance(user_id)
+        consumed = min(max(spent or Decimal(0), Decimal(0)), current)
+        leftover = (current - consumed).quantize(Decimal("0.0001"))
+        if leftover > 0:
+            _record_balance(user_id, leftover, consumed)
+            with pool.connection() as conn:
+                conn.execute(
+                    """
+                    UPDATE api_keys SET frozen_at = NOW(), quota_usd = 0
+                    WHERE id = %s AND revoked_at IS NULL AND frozen_at IS NULL
+                    """,
+                    (key_id,),
+                )
+            frozen_now = True
+            log.info(
+                "ключ user=%s обнулён у поставщика при балансе %.4f USD — помечен замороженным",
+                user_id,
+                leftover,
+            )
+    if not frozen_now:
+        _record_balance(user_id, amount, spent)
     _warn_if_usage_differs(user_id, token)
     with pool.connection() as conn:
         conn.execute(
@@ -586,14 +610,15 @@ def _sync_key(user_id: int, upstream_id: int, *, force: bool = False) -> None:
         ).fetchone()
     user_balance = Decimal(balance_row["balance_usd"]) if balance_row else amount
     process_new_usages(user_id, telegram_id, key_id, new_usages, user_balance)
-    process_balance_alerts(
-        user_id,
-        telegram_id,
-        key_id,
-        amount,
-        limit_usd,
-        key_label=key_label,
-    )
+    if not frozen_now:
+        process_balance_alerts(
+            user_id,
+            telegram_id,
+            key_id,
+            amount,
+            limit_usd,
+            key_label=key_label,
+        )
     if _is_blocked(user_id):
         try:
             status = int(token.get("status") or 1)

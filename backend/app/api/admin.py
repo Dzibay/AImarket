@@ -869,7 +869,27 @@ def analytics(days: int = Query(default=30, ge=7, le=90)) -> dict:
         keys = conn.execute(
             "SELECT COUNT(*) AS active FROM api_keys WHERE revoked_at IS NULL"
         ).fetchone()
-        balances = conn.execute("SELECT COALESCE(SUM(balance_usd), 0) AS total FROM users").fetchone()
+        # Считаем по остаткам самих ключей (quota_usd обновляется сверкой с поставщиком),
+        # поэтому замороженные и вручную обнулённые у поставщика ключи дают 0.
+        # Пользователи без активного ключа учитываются по локальному балансу.
+        balances = conn.execute(
+            """
+            SELECT
+                COALESCE((
+                    SELECT SUM(k.quota_usd) FROM api_keys k
+                    WHERE k.revoked_at IS NULL AND k.upstream_id IS NOT NULL
+                ), 0)
+                + COALESCE((
+                    SELECT SUM(u.balance_usd) FROM users u
+                    WHERE NOT EXISTS (
+                        SELECT 1 FROM api_keys k
+                        WHERE k.user_id = u.id
+                          AND k.revoked_at IS NULL
+                          AND k.upstream_id IS NOT NULL
+                    )
+                ), 0) AS total
+            """
+        ).fetchone()
         revenue_rows = conn.execute(
             """
             SELECT (COALESCE(decided_at, created_at) AT TIME ZONE 'Europe/Moscow')::date AS day,
