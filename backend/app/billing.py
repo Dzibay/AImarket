@@ -30,18 +30,19 @@ IDLE_FREEZE_DAYS = 14
 
 
 def sync_all() -> None:
-    with billing_lock:
-        with pool.connection() as conn:
-            rows = conn.execute(
-                """
-                SELECT user_id, upstream_id
-                FROM api_keys
-                WHERE revoked_at IS NULL
-                  AND upstream_id IS NOT NULL
-                  AND frozen_at IS NULL
-                """
-            ).fetchall()
-        for row in rows:
+    with pool.connection() as conn:
+        rows = conn.execute(
+            """
+            SELECT user_id, upstream_id
+            FROM api_keys
+            WHERE revoked_at IS NULL
+              AND upstream_id IS NOT NULL
+              AND frozen_at IS NULL
+            """
+        ).fetchall()
+    for row in rows:
+        # Блокировка на один ключ, а не на весь проход: иначе зачисления ждут всю сверку.
+        with billing_lock:
             try:
                 _sync_key(int(row["user_id"]), int(row["upstream_id"]))
             except Exception:
@@ -156,8 +157,8 @@ def add_usd(
             _set_balance(user_id, updated, kind, note, amount_kopecks, amount)
             return updated
 
-        sync_all()
-        _ensure_pool(amount)
+        sync_user(user_id, force=True)
+        _ensure_pool(amount, user_id)
         key = _active_key(user_id)
         if key is None:
             updated = (_balance(user_id) + amount).quantize(Decimal("0.0001"))
@@ -197,10 +198,10 @@ def adjust_usd(user_id: int, delta: Decimal, note: str = "") -> Decimal:
             exists = conn.execute("SELECT id FROM users WHERE id = %s", (user_id,)).fetchone()
         if exists is None:
             raise BillingError("user")
-        sync_all()
+        sync_user(user_id, force=True)
         current = _balance(user_id)
         if delta > 0:
-            _ensure_pool(delta)
+            _ensure_pool(delta, user_id)
             updated = (current + delta).quantize(Decimal("0.0001"))
             kind = "credit"
             ledger_amount = delta
@@ -255,11 +256,10 @@ def issue_key(user_id: int, telegram_id: int | None) -> dict:
         _require_offer(user_id)
         if _active_key(user_id) is not None:
             raise BillingError("key-exists")
-        sync_all()
         amount = _balance(user_id)
         if amount <= 0:
             raise BillingError("balance")
-        _ensure_pool(Decimal(0))
+        _ensure_pool(Decimal(0), user_id)
         name = _key_name(user_id, telegram_id)
         try:
             upstream_id, secret = upstream.create_child_key(name, amount)
@@ -302,7 +302,7 @@ def reissue_key(user_id: int, telegram_id: int | None) -> dict:
             raise BillingError("empty")
         if frozen:
             # Баланс уже в promised (_ensure_pool считает frozen) — не удваиваем.
-            _ensure_pool(Decimal(0))
+            _ensure_pool(Decimal(0), user_id)
         try:
             upstream.delete_key(upstream_id)
         except UpstreamError as exc:
@@ -342,7 +342,7 @@ def restore_key(user_id: int) -> dict:
         if amount <= 0:
             raise BillingError("empty")
         # Баланс frozen-ключа уже в promised — проверяем покрытие без удвоения.
-        _ensure_pool(Decimal(0))
+        _ensure_pool(Decimal(0), user_id)
         try:
             updated = upstream.update_quota(int(key["upstream_id"]), amount)
         except UpstreamError as exc:
@@ -636,22 +636,27 @@ def _sync_key(user_id: int, upstream_id: int, *, force: bool = False) -> None:
                 )
 
 
-def _ensure_pool(extra: Decimal) -> None:
+def _ensure_pool(extra: Decimal, user_id: int) -> None:
     # Баланс на активном (незамороженном) ключе уже списан со счёта поставщика.
-    # Сверяем локальные остатки без ключа и замороженные ключи — их ещё нужно забрать.
+    # Проверяем только то, что нужно забрать у поставщика сейчас: сумму операции и
+    # локальный остаток этого пользователя, если его ключ заморожен или отсутствует.
+    # Остатки других замороженных пользователей не учитываем — они забираются, когда
+    # те сами возвращаются, и каждый раз проходят эту же проверку.
     with pool.connection() as conn:
         row = conn.execute(
             """
             SELECT COALESCE(SUM(u.balance_usd), 0) AS total
             FROM users u
-            WHERE NOT EXISTS (
+            WHERE u.id = %s
+              AND NOT EXISTS (
                 SELECT 1 FROM api_keys k
                 WHERE k.user_id = u.id
                   AND k.revoked_at IS NULL
                   AND k.upstream_id IS NOT NULL
                   AND k.frozen_at IS NULL
             )
-            """
+            """,
+            (user_id,),
         ).fetchone()
     promised = Decimal(row["total"]) + extra
     try:

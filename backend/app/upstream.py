@@ -15,6 +15,7 @@ log = logging.getLogger("app.upstream")
 # /api/log/token жёстко лимитируется — cooldown отдельно на каждый ключ.
 _token_log_blocked_until: dict[str, float] = {}
 _TOKEN_LOG_COOLDOWN_SEC = 300
+_ADMIN_LOG_COOLDOWN_SEC = 3600
 
 
 class UpstreamError(Exception):
@@ -32,6 +33,7 @@ class RouterCheap:
         self._user_id = ""
         self._pricing_at = 0.0
         self._pricing: list[dict] = []
+        self._admin_log_blocked_until = 0.0
 
     def list_models(self) -> list[dict]:
         now = time.monotonic()
@@ -212,6 +214,8 @@ class RouterCheap:
     def _spend_logs_by_admin(self, token_name: str, *, page: int, page_size: int) -> list[dict]:
         if not self._has_root_key():
             return []
+        if time.monotonic() < self._admin_log_blocked_until:
+            return []
         query = urllib.parse.urlencode(
             {
                 "p": str(page),
@@ -227,6 +231,11 @@ class RouterCheap:
             except UpstreamError as exc:
                 text = exc.message.lower()
                 if "401" in text or "403" in text or "privilege" in text or "unauthorized" in text:
+                    return []
+                if "permission" in text:
+                    # Админский журнал корневому ключу недоступен — не дёргаем его на каждом ключе.
+                    self._admin_log_blocked_until = time.monotonic() + _ADMIN_LOG_COOLDOWN_SEC
+                    log.warning("журнал /api/log/ недоступен корневому ключу, пропускаем на %s с", _ADMIN_LOG_COOLDOWN_SEC)
                     return []
                 log.warning("журнал /api/log/ не прочитан: %s", exc.message)
                 return []
