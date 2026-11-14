@@ -234,6 +234,11 @@ let speed = 1
 let visible = true
 const mouse = { x: 0, y: 0, tx: 0, ty: 0 }
 const reduced = typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
+// Тач-устройства: без мыши нет параллакса, а blur-фильтр на каждой планете каждый кадр — главный источник лагов.
+const touch = typeof window !== 'undefined' && window.matchMedia?.('(hover: none) and (pointer: coarse)').matches
+const planetState = [] // последние записанные значения, чтобы не трогать DOM без нужды
+let lastPx = NaN
+let lastPy = NaN
 
 function frame(now) {
   raf = requestAnimationFrame(frame)
@@ -251,6 +256,7 @@ function frame(now) {
   const sx = scaleX()
   const sy = scaleY()
   const compact = isCompact()
+  const lite = touch || compact
   for (let i = 0; i < planets.length; i++) {
     const el = planetEls[i]
     if (!el) continue
@@ -263,18 +269,28 @@ function frame(now) {
     const x = cx + Math.cos(theta) * size.w * ring.kx * sx + mouse.x * par
     const y = cy + sin * size.h * ring.ky * sy + mouse.y * par * 0.7
     const scale = (compact ? 0.62 : 0.74) + 0.36 * depth
-    const blur = (1 - depth) * 2.2
     el.style.transform = `translate3d(${x.toFixed(1)}px, ${y.toFixed(1)}px, 0) translate(-50%, -50%) scale(${scale.toFixed(3)})`
-    el.style.opacity = (0.5 + 0.5 * depth).toFixed(3)
-    el.style.filter = hovered.value === i ? 'none' : `blur(${blur.toFixed(2)}px)`
-    el.style.zIndex = String(Math.round(depth * 100))
+    const st = planetState[i] || (planetState[i] = {})
+    const opacity = (0.5 + 0.5 * depth).toFixed(2)
+    if (st.opacity !== opacity) el.style.opacity = st.opacity = opacity
+    // Размытие «дальних» планет — только на десктопе и с шагом 0.25px, чтобы не перерисовывать каждый кадр.
+    const filter = lite || hovered.value === i ? 'none' : `blur(${(Math.round((1 - depth) * 8.8) / 4).toFixed(2)}px)`
+    if (st.filter !== filter) el.style.filter = st.filter = filter
+    const z = String(Math.round(depth * 20))
+    if (st.z !== z) el.style.zIndex = st.z = z
   }
-  if (ringsGroup.value) {
-    ringsGroup.value.setAttribute('transform', `translate(${(mouse.x * 18).toFixed(1)} ${(mouse.y * 12).toFixed(1)})`)
-  }
-  if (root.value) {
-    root.value.style.setProperty('--px', mouse.x.toFixed(3))
-    root.value.style.setProperty('--py', mouse.y.toFixed(3))
+  const px = mouse.x.toFixed(3)
+  const py = mouse.y.toFixed(3)
+  if (px !== lastPx || py !== lastPy) {
+    lastPx = px
+    lastPy = py
+    if (ringsGroup.value) {
+      ringsGroup.value.setAttribute('transform', `translate(${(mouse.x * 18).toFixed(1)} ${(mouse.y * 12).toFixed(1)})`)
+    }
+    if (root.value) {
+      root.value.style.setProperty('--px', px)
+      root.value.style.setProperty('--py', py)
+    }
   }
 }
 
@@ -700,6 +716,25 @@ onBeforeUnmount(() => {
   .meta { flex-direction: column; align-items: center; gap: 6px; font-size: 13.5px; }
   .proof { font-size: 12.5px; text-align: left; }
   .scroll-cue { display: none; }
+}
+/* Телефоны и тач-устройства: убираем всё, что заставляет GPU перерисовывать большие области. */
+@media (max-width: 760px), (hover: none) and (pointer: coarse) {
+  .grain, .spot { display: none; }
+  .aurora { filter: blur(48px); will-change: auto; }
+  .grid { transform: none; }
+  .ring-1 { animation: none; }
+  .planet {
+    will-change: transform;
+    background: rgba(255, 255, 255, 0.96);
+    box-shadow: inset 0 1px 0 #fff, 0 8px 18px -10px rgba(40, 28, 12, 0.35);
+  }
+  .core-glow { animation: none; }
+  .word { animation-name: word-in-lite; }
+  .word.grad-text { animation: word-in-lite 0.9s var(--ease-out) both; animation-delay: calc(var(--i) * 90ms + 100ms); }
+  .hero-in { animation-name: fade-up-lite; }
+  .proof { background: rgba(255, 255, 255, 0.8); }
+  @keyframes word-in-lite { from { opacity: 0; transform: translateY(0.35em); } to { opacity: 1; transform: none; } }
+  @keyframes fade-up-lite { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: none; } }
 }
 @media (prefers-reduced-motion: reduce) {
   .aurora, .ring-1, .word, .hero-in, .core-glow { animation: none !important; }

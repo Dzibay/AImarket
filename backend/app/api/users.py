@@ -3,7 +3,7 @@ from decimal import Decimal, ROUND_HALF_UP
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
-from app.billing import BillingError, describe_key, issue_key, reissue_key, sync_user, upstream_base
+from app.billing import BillingError, describe_key, issue_key, reissue_key, restore_key, sync_user, upstream_base
 from app.datetime_util import iso_utc
 from app.history import HISTORY_PAGE as _HISTORY_PAGE, history_payload
 from app.installer import InstallError, create_install_command
@@ -55,6 +55,7 @@ def raise_billing(exc: BillingError) -> None:
         "no-payment": 402,
         "key-exists": 409,
         "no-key": 409,
+        "not-frozen": 409,
         "supplier": 409,
     }.get(exc.code, 502)
     raise HTTPException(status_code=status, detail=exc.code)
@@ -66,7 +67,7 @@ def _profile(conn, telegram_id: int) -> dict | None:
         SELECT u.id, u.telegram_id, u.username, u.first_name, u.balance_usd,
                u.offer_accepted_at, u.blocked_at, u.blocked_reason,
                u.notify_spend, u.notify_low_balance, u.notify_limit_exhausted, u.notify_topup,
-               k.prefix AS key_prefix, k.created_at AS key_created_at
+               k.prefix AS key_prefix, k.created_at AS key_created_at, k.frozen_at AS key_frozen_at
         FROM users u
         LEFT JOIN api_keys k ON k.user_id = u.id AND k.revoked_at IS NULL
         WHERE u.telegram_id = %s
@@ -94,6 +95,7 @@ def _public(conn, row: dict) -> dict:
         "key_prefix": row["key_prefix"] or "",
         "key_created_at": iso_utc(created),
         "has_key": bool(row["key_prefix"]),
+        "key_frozen": row.get("key_frozen_at") is not None,
         "offer_url": offer_url(),
         "privacy_url": privacy_url(),
         "consent_url": consent_url(),
@@ -414,5 +416,18 @@ def rotate_key(telegram_id: int) -> dict:
         user_id = int(row["id"])
     try:
         return reissue_key(user_id, telegram_id)
+    except BillingError as exc:
+        raise_billing(exc)
+
+
+@router.post("/users/{telegram_id}/keys/restore")
+def restore_access(telegram_id: int) -> dict:
+    """Возобновляет доступ по ключу, приостановленному из‑за простоя (тот же secret)."""
+    with pool.connection() as conn:
+        row = _user_or_404(conn, telegram_id)
+        _require_active(row)
+        user_id = int(row["id"])
+    try:
+        return restore_key(user_id)
     except BillingError as exc:
         raise_billing(exc)

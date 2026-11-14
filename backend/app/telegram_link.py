@@ -189,6 +189,40 @@ def notify_limit_exhausted(telegram_id: int, key_label: str, limit_usd: Decimal)
     _send_text(token, telegram_id, text, keyboard=keyboard)
 
 
+def notify_key_frozen(telegram_id: int, balance_usd: Decimal, idle_days: int) -> None:
+    """Ключ приостановлен из‑за простоя: баланс сохранён, доступ можно возобновить из бота."""
+    token = settings.telegram_bot_token.strip()
+    if not token or telegram_id <= 0:
+        return
+    text = (
+        "⏸ <b>Доступ приостановлен</b>\n\n"
+        f"По вашему ключу не было запросов более {idle_days} дней, поэтому мы временно приостановили доступ.\n"
+        f"💰 Остаток <b>${balance_usd:.2f}</b> сохранён на вашей учётной записи.\n\n"
+        "Чтобы снова отправлять запросы, нажмите «Возобновить доступ» — ключ останется прежним."
+    )
+    keyboard = {
+        "inline_keyboard": [
+            [{"text": "▶️ Возобновить доступ", "callback_data": "key:restore", "style": "success"}],
+            [{"text": "🏠 Главное меню", "callback_data": "cabinet"}],
+        ]
+    }
+    _send_text(token, telegram_id, text, keyboard=keyboard)
+
+
+def notify_key_frozen_async(telegram_id: int, balance_usd: Decimal, idle_days: int) -> None:
+    """Отправка в фоне — вызывается под billing_lock, сеть не должна его держать."""
+    if telegram_id <= 0 or not settings.telegram_bot_token.strip():
+        return
+
+    def run() -> None:
+        try:
+            notify_key_frozen(telegram_id, balance_usd, idle_days)
+        except Exception:
+            log.exception("уведомление о приостановке ключа telegram_id=%s", telegram_id)
+
+    threading.Thread(target=run, name="notify-key-frozen", daemon=True).start()
+
+
 def _fmt_tokens(value: int) -> str:
     return f"{int(value):,}".replace(",", ",")
 

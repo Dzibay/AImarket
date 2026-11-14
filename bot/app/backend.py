@@ -104,6 +104,10 @@ async def install_command(telegram_id: int, app: str, os: str, action: str = "se
     )
 
 
+async def restore_key(telegram_id: int) -> dict:
+    return await _request("POST", f"/api/users/{telegram_id}/keys/restore")
+
+
 async def reissue_key(telegram_id: int) -> dict:
     return await _request("POST", f"/api/users/{telegram_id}/keys/reissue")
 

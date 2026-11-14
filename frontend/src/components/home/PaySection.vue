@@ -185,7 +185,7 @@ const gets = [
   inset: 10%;
   z-index: -1;
   border-radius: inherit;
-  background: inherit;
+  background: conic-gradient(#d9653b, #e8a04a, #b07be0, #6f7cf0, #d9653b);
   filter: blur(50px);
   opacity: 0.7;
 }

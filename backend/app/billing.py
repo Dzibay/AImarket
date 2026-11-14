@@ -9,6 +9,7 @@ from decimal import Decimal
 from app.datetime_util import iso_utc
 from app.db import pool
 from app.money import usd_to_units, units_to_usd
+from app.telegram_link import notify_key_frozen_async
 from app.upstream import UpstreamError, upstream
 from app.usage_logs import parse_usage_log
 from app.usage_stats import usage_period_stats
@@ -370,7 +371,7 @@ def freeze_idle_keys() -> int:
         with pool.connection() as conn:
             rows = conn.execute(
                 """
-                SELECT k.id, k.user_id, k.upstream_id, u.balance_usd
+                SELECT k.id, k.user_id, k.upstream_id, u.balance_usd, u.telegram_id
                 FROM api_keys k
                 JOIN users u ON u.id = k.user_id
                 WHERE k.revoked_at IS NULL
@@ -436,6 +437,7 @@ def freeze_idle_keys() -> int:
                         )
                     raise
                 frozen_count += 1
+                notify_key_frozen_async(int(row["telegram_id"] or 0), amount, IDLE_FREEZE_DAYS)
                 log.info(
                     "ключ user=%s заморожен (простой ≥%s дн.), освобождено %.4f USD у поставщика",
                     user_id,
@@ -551,13 +553,20 @@ def _sync_key(user_id: int, upstream_id: int, *, force: bool = False) -> None:
         if leftover > 0:
             _record_balance(user_id, leftover, consumed)
             with pool.connection() as conn:
-                conn.execute(
+                marked = conn.execute(
                     """
                     UPDATE api_keys SET frozen_at = NOW(), quota_usd = 0
                     WHERE id = %s AND revoked_at IS NULL AND frozen_at IS NULL
+                    RETURNING id
                     """,
                     (key_id,),
-                )
+                ).fetchone()
+                tg_row = conn.execute(
+                    "SELECT telegram_id FROM users WHERE id = %s AND blocked_at IS NULL",
+                    (user_id,),
+                ).fetchone()
+            if marked is not None and tg_row is not None:
+                notify_key_frozen_async(int(tg_row["telegram_id"] or 0), leftover, IDLE_FREEZE_DAYS)
             frozen_now = True
             log.info(
                 "ключ user=%s обнулён у поставщика при балансе %.4f USD — помечен замороженным",

@@ -1792,7 +1792,7 @@ td .rub { display: block; font-weight: 400; }
 }
 .pay-ring::after {
   content: ""; position: absolute; inset: 12%; z-index: -1; border-radius: inherit;
-  background: inherit; filter: blur(46px); opacity: 0.55;
+  background: conic-gradient(#d9653b, #e8a04a, #b07be0, #6f7cf0, #d9653b); filter: blur(46px); opacity: 0.55;
 }
 @property --cab-angle { syntax: "<angle>"; initial-value: 0deg; inherits: false; }
 @keyframes cab-spin { to { --cab-angle: 360deg; } }

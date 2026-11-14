@@ -426,7 +426,7 @@ onBeforeUnmount(() => {
   background: conic-gradient(from var(--pay-angle), #d9653b, #f2b27a, #b07be0, #6e8cf0, #d9653b);
   animation: p-spin 6s linear infinite;
 }
-.key-ring::after { content: ""; position: absolute; inset: 10px; border-radius: inherit; background: inherit; filter: blur(30px); opacity: 0.45; z-index: -1; }
+.key-ring::after { content: ""; position: absolute; inset: 10px; border-radius: inherit; background: conic-gradient(#d9653b, #f2b27a, #b07be0, #6e8cf0, #d9653b); filter: blur(30px); opacity: 0.45; z-index: -1; }
 @keyframes p-spin { to { --pay-angle: 360deg; } }
 .key-inner { position: relative; padding: 8px; border-radius: 26px; background: rgba(255, 255, 255, 0.92); }
 .key-inner :deep(.card) { border: 0; box-shadow: none; background: transparent; margin: 0; }

@@ -49,6 +49,7 @@ from app.backend import (
     read_key,
     record_referral,
     reissue_key,
+    restore_key,
     upsert_user,
 )
 
@@ -155,6 +156,7 @@ def _explain(exc: BackendError, profile: dict | None = None) -> str:
         "key-exists": "Токен уже выпущен. Откройте «Мой токен».",
         "no-key": "Токена ещё нет. Пополните баланс и нажмите «Выпустить токен».",
         "supplier": "Сейчас нельзя провести операцию: на счёте поставщика не хватает лимита.",
+        "not-frozen": "Доступ уже активен — можно отправлять запросы.",
         "reissue-failed": "Старый токен удалён, новый не создался. Лимит сохранён — нажмите «Выпустить токен».",
     }
     if exc.status == 0:
@@ -368,6 +370,12 @@ def _today_label(raw: str) -> str:
     return datetime.now(_MSK).strftime("%d.%m.%Y")
 
 
+_FROZEN_NOTICE = (
+    "⏸ <b>Доступ приостановлен</b> из‑за отсутствия запросов более 14 дней.\n"
+    "Остаток сохранён на вашей учётной записи — нажмите «Возобновить доступ», ключ останется прежним."
+)
+
+
 def _cabinet_screen(profile: dict) -> tuple[str, InlineKeyboardMarkup]:
     balance = float(profile.get("balance_usd") or 0)
     week = profile.get("spent_week_usd") or []
@@ -381,7 +389,11 @@ def _cabinet_screen(profile: dict) -> tuple[str, InlineKeyboardMarkup]:
         f"Последняя трата: {last}\n\n"
         f"{_week_chart(week if isinstance(week, list) else [])}"
     )
-    return text, InlineKeyboardMarkup(inline_keyboard=_welcome_buttons(profile))
+    rows = _welcome_buttons(profile)
+    if profile.get("key_frozen"):
+        text += f"\n\n{_FROZEN_NOTICE}"
+        rows.insert(0, [_button("▶️ Возобновить доступ", callback="key:restore", green=True)])
+    return text, InlineKeyboardMarkup(inline_keyboard=rows)
 
 
 def _welcome_screen(profile: dict, *, just_accepted: bool = False) -> tuple[str, InlineKeyboardMarkup]:
@@ -975,6 +987,9 @@ def _token_screen(key: dict) -> tuple[str, InlineKeyboardMarkup]:
         f"📅 Создан: {_date_short(str(key.get('created_at') or ''))}"
     )
     rows: list[list[InlineKeyboardButton]] = []
+    if key.get("frozen"):
+        text += f"\n\n{_FROZEN_NOTICE}"
+        rows.append([_button("▶️ Возобновить доступ", callback="key:restore", green=True)])
     if secret:
         rows.append([_button("📋 Скопировать токен", copy=secret)])
     rows.extend(
@@ -1688,6 +1703,28 @@ async def _show_token(query: CallbackQuery) -> None:
         return
     text, markup = _token_screen(key)
     await _show_callback(query, "token", text, markup)
+
+
+@router.callback_query(F.data == "key:restore")
+async def key_restore(query: CallbackQuery, state: FSMContext) -> None:
+    await state.clear()
+    try:
+        key = await restore_key(query.from_user.id)
+        try:
+            key = await read_key(query.from_user.id)  # полная карточка: дата создания, статистика
+        except BackendError:
+            pass
+    except BackendError as exc:
+        if exc.detail == "not-frozen":
+            # Уже активен (например, восстановили на сайте) — просто показываем ключ.
+            await _show_token(query)
+            return
+        await query.answer(_explain(exc), show_alert=True)
+        return
+    await query.answer("✅ Доступ возобновлён — можно снова отправлять запросы", show_alert=True)
+    text, markup = _token_screen(key)
+    if query.message is not None:
+        await _edit(query.message, "token", text, markup)
 
 
 @router.callback_query(F.data == "key:stats")
