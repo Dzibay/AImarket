@@ -240,8 +240,11 @@ const planetState = [] // последние записанные значени
 let lastPx = NaN
 let lastPy = NaN
 
+// На телефоне орбиту не анимируем: рисуем один раз (и при повороте/ресайзе) — иначе страница лагает.
+const isStatic = () => touch || size.w < 760
+
 function frame(now) {
-  raf = requestAnimationFrame(frame)
+  if (!isStatic()) raf = requestAnimationFrame(frame)
   if (!visible) return
   const dt = Math.min(64, now - (last || now)) / 1000
   last = now
@@ -299,6 +302,10 @@ function measure() {
   const rect = stage.value.getBoundingClientRect()
   size.w = Math.max(320, rect.width)
   size.h = Math.max(260, rect.height)
+  if (isStatic()) {
+    cancelAnimationFrame(raf)
+    raf = requestAnimationFrame(frame)
+  }
 }
 
 function onPointerMove(e) {

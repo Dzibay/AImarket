@@ -364,6 +364,23 @@ code, .mono {
   .pay-bg .orb, .final-card > .glow {
     animation: none !important;
   }
+  /* Главная: никаких размытых слоёв, масок и бесконечных анимаций — только статичная графика. */
+  .home .aurora, .home .orb, .home .glow, .home .window-glow, .home .pay-ring::after,
+  .home .ring::after, .home .signup-form::before, .home .grain, .home .spot { display: none !important; }
+  .home *, .home *::before, .home *::after {
+    animation-iteration-count: 1 !important;
+    -webkit-mask-image: none !important;
+    mask-image: none !important;
+    will-change: auto !important;
+  }
+  .home .orbit-hero {
+    background:
+      radial-gradient(60% 40% at 10% 0%, rgba(255, 207, 174, 0.7), transparent 70%),
+      radial-gradient(50% 40% at 95% 5%, rgba(221, 208, 255, 0.7), transparent 70%);
+  }
+  .home .marquee .track { animation: none !important; flex-wrap: wrap; width: auto; gap: 14px 24px; }
+  .home .pipe i, .home .latency span, .home .logo, .home .mouse span { animation: none !important; }
+  .home .window { transform: none !important; transition: none !important; }
   /* Переливающиеся рамки (анимация custom property = перерисовка каждый кадр). */
   .pay-form-wrap .ring, .pay-ring, .key-ring { animation: none !important; }
 }
