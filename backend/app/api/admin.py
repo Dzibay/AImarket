@@ -20,6 +20,7 @@ from app.money import (
     min_topup_usd,
     normalize_bonus_tiers,
     referral_bonus_percent,
+    supplier_api_usd_rate,
     supplier_usd_price_rub,
     units_to_usd,
     usd_price_rub,
@@ -80,6 +81,7 @@ _TEXT_KEYS = (
     "public_base_url",
     "usd_price_rub",
     "supplier_usd_price_rub",
+    "supplier_api_usd_rate",
     "min_topup_usd",
     "topup_bonuses",
     "referral_bonus_percent",
@@ -103,6 +105,7 @@ class SettingsIn(BaseModel):
     public_base_url: str = Field(default="", max_length=300)
     usd_price_rub: str = Field(default="", max_length=32)
     supplier_usd_price_rub: str = Field(default="", max_length=32)
+    supplier_api_usd_rate: str = Field(default="", max_length=32)
     min_topup_usd: str = Field(default="", max_length=32)
     topup_bonuses: list[BonusTierIn] = Field(default_factory=list, max_length=20)
     referral_bonus_percent: str = Field(default="", max_length=32)
@@ -220,12 +223,16 @@ def _normalize_chat_id(raw: str) -> str:
 def _settings_payload() -> dict:
     root = get_setting("router_root_key")
     supplier = None
+    supplier_real = None
     supplier_error = ""
+    api_rate = supplier_api_usd_rate()
     if root:
         try:
-            supplier = float(upstream.supplier_balance_usd())
+            supplier_real = float(upstream.supplier_balance_real_usd())
+            supplier = float(Decimal(str(supplier_real)) * api_rate)
         except UpstreamError as exc:
             supplier_error = exc.message
+    rate_raw = get_setting("supplier_api_usd_rate").strip()
     return {
         "public_base_url": public_base_url(),
         "offer_url": offer_url(),
@@ -235,6 +242,7 @@ def _settings_payload() -> dict:
             if get_setting("supplier_usd_price_rub").strip()
             else ""
         ),
+        "supplier_api_usd_rate": rate_raw or str(api_rate),
         "min_topup_usd": str(min_topup_usd()),
         "topup_bonuses": bonus_tiers(),
         "referral_bonus_percent": (
@@ -249,6 +257,7 @@ def _settings_payload() -> dict:
         "router_root_key_set": bool(root),
         "router_root_key_hint": root[-4:] if len(root) >= 8 else "",
         "supplier_balance_usd": supplier,
+        "supplier_balance_real_usd": supplier_real,
         "supplier_error": supplier_error,
     }
 
@@ -281,6 +290,15 @@ def write_settings(body: SettingsIn) -> dict:
                 raise ValueError
         except Exception as exc:
             raise HTTPException(status_code=422, detail="supplier_price") from exc
+    api_rate = body.supplier_api_usd_rate.strip().replace(",", ".")
+    if api_rate:
+        try:
+            if Decimal(api_rate) <= 0:
+                raise ValueError
+        except Exception as exc:
+            raise HTTPException(status_code=422, detail="supplier_api_rate") from exc
+    else:
+        api_rate = "1"
     min_topup = body.min_topup_usd.strip().replace(",", ".")
     if min_topup:
         try:
@@ -309,6 +327,7 @@ def write_settings(body: SettingsIn) -> dict:
         "public_base_url": normalize_base_url(body.public_base_url),
         "usd_price_rub": price,
         "supplier_usd_price_rub": supplier_price,
+        "supplier_api_usd_rate": api_rate,
         "min_topup_usd": min_topup,
         "topup_bonuses": json.dumps(tiers, ensure_ascii=False) if tiers else "",
         "referral_bonus_percent": referral_percent,
@@ -997,11 +1016,14 @@ def analytics(days: int = Query(default=30, ge=7, le=90)) -> dict:
             (start,),
         ).fetchall()
     supplier = None
+    supplier_real = None
     if get_setting("router_root_key"):
         try:
-            supplier = float(upstream.supplier_balance_usd())
+            supplier_real = float(upstream.supplier_balance_real_usd())
+            supplier = float(Decimal(str(supplier_real)) * supplier_api_usd_rate())
         except UpstreamError:
             supplier = None
+            supplier_real = None
     revenue_days = _fill_days(start, days, revenue_rows)
     spend_days = _fill_days(start, days, spend_rows)
     user_days = _fill_days(start, days, user_rows)
@@ -1024,6 +1046,8 @@ def analytics(days: int = Query(default=30, ge=7, le=90)) -> dict:
         "keys_active": int(keys["active"] or 0),
         "customer_balance_usd": _money(balances["total"]),
         "supplier_balance_usd": supplier,
+        "supplier_balance_real_usd": supplier_real,
+        "supplier_api_usd_rate": float(supplier_api_usd_rate()),
         "revenue_by_day": [
             {
                 "day": day.isoformat(),

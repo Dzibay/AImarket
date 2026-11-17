@@ -351,6 +351,7 @@ CREATE TABLE IF NOT EXISTS app_settings (
 
 INSERT INTO app_settings (key, value) VALUES
     ('supplier_usd_price_rub', ''),
+    ('supplier_api_usd_rate', '1'),
     ('referral_bonus_percent', '20')
 ON CONFLICT (key) DO NOTHING;
 

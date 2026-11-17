@@ -34,16 +34,46 @@ def supplier_usd_price_rub() -> Decimal:
     return usd_price_rub()
 
 
+def supplier_api_usd_rate() -> Decimal:
+    """Сколько API-$ сайта в $1 квоты router.cheap.
+
+    1 — квота поставщика уже в тех же долларах, что балансы клиентов.
+    10 — если у поставщика real $, а на сайте доллары API при ~10% тарифах.
+    """
+    raw = get_setting("supplier_api_usd_rate").strip().replace(",", ".")
+    if raw:
+        try:
+            value = Decimal(raw)
+        except Exception:
+            value = Decimal(0)
+        if value > 0:
+            return value
+    return Decimal("1")
+
+
 def usd_to_units(usd: Decimal) -> int:
+    """API-$ сайта → единицы квоты поставщика."""
+    rate = supplier_api_usd_rate()
+    real = usd if rate == 1 else (usd / rate)
     return int(
-        (usd * Decimal(settings.router_quota_per_unit)).quantize(Decimal("1"), rounding=ROUND_HALF_UP)
+        (real * Decimal(settings.router_quota_per_unit)).quantize(Decimal("1"), rounding=ROUND_HALF_UP)
+    )
+
+
+def units_to_real_usd(units: int) -> Decimal:
+    """Единицы квоты → $ как в кабинете поставщика (без множителя API)."""
+    return (Decimal(int(units)) / Decimal(settings.router_quota_per_unit)).quantize(
+        Decimal("0.0001"), rounding=ROUND_HALF_UP
     )
 
 
 def units_to_usd(units: int) -> Decimal:
-    return (Decimal(int(units)) / Decimal(settings.router_quota_per_unit)).quantize(
-        Decimal("0.0001"), rounding=ROUND_HALF_UP
-    )
+    """Единицы квоты поставщика → API-$ сайта."""
+    real = units_to_real_usd(units)
+    rate = supplier_api_usd_rate()
+    if rate == 1:
+        return real
+    return (real * rate).quantize(Decimal("0.0001"), rounding=ROUND_HALF_UP)
 
 
 def rub_to_usd(amount_rub: Decimal) -> Decimal:

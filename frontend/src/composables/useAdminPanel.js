@@ -163,6 +163,7 @@ export function useAdminPanel() {
     public_base_url: '',
     usd_price_rub: '',
     supplier_usd_price_rub: '',
+    supplier_api_usd_rate: '1',
     min_topup_usd: '',
     referral_bonus_percent: '',
     offer_date: '',
@@ -184,6 +185,7 @@ export function useAdminPanel() {
   const rootKey = ref('')
   const rootHint = ref('')
   const supplierBalance = ref(null)
+  const supplierBalanceReal = ref(null)
   const saveStatus = ref('')
   const saveStatusIsError = ref(false)
 
@@ -417,9 +419,22 @@ export function useAdminPanel() {
     { value: 'topup', label: 'ЮKassa' },
   ]
 
-  const supplierDisplay = computed(() => {
+  const supplierApiDisplay = computed(() => {
     if (supplierBalance.value == null) return '—'
     return '$' + Number(supplierBalance.value).toFixed(2)
+  })
+
+  const supplierRealDisplay = computed(() => {
+    if (supplierBalanceReal.value == null) return '—'
+    return '$' + Number(supplierBalanceReal.value).toFixed(2)
+  })
+
+  const supplierDisplay = computed(() => {
+    if (supplierBalance.value == null && supplierBalanceReal.value == null) return '—'
+    const api = supplierApiDisplay.value
+    const real = supplierRealDisplay.value
+    if (api === real) return api + ' API'
+    return api + ' API · ' + real + ' real'
   })
 
   const referralCampaignItems = computed(() =>
@@ -647,7 +662,14 @@ export function useAdminPanel() {
 
   async function loadAnalytics() {
     const data = await api('/api/admin/analytics?days=' + period.value)
-    const supplier = data.supplier_balance_usd == null ? '—' : usd(data.supplier_balance_usd)
+    const supplierApi = data.supplier_balance_usd == null ? '—' : usd(data.supplier_balance_usd)
+    const supplierReal = data.supplier_balance_real_usd == null ? '—' : usd(data.supplier_balance_real_usd)
+    const supplier =
+      supplierApi === '—' && supplierReal === '—'
+        ? '—'
+        : supplierApi === supplierReal
+          ? `${supplierApi} API`
+          : `${supplierApi} API · ${supplierReal} real`
     const spendPeriod = (data.spend_by_day || []).reduce((sum, row) => sum + Number(row.usd || 0), 0)
     const requestsPeriod = (data.spend_by_day || []).reduce((sum, row) => sum + Number(row.requests || 0), 0)
 
@@ -758,6 +780,7 @@ export function useAdminPanel() {
     settingsForm.public_base_url = settings.public_base_url || ''
     settingsForm.usd_price_rub = settings.usd_price_rub || ''
     settingsForm.supplier_usd_price_rub = settings.supplier_usd_price_rub || ''
+    settingsForm.supplier_api_usd_rate = settings.supplier_api_usd_rate || '1'
     settingsForm.min_topup_usd = settings.min_topup_usd || ''
     settingsForm.referral_bonus_percent = settings.referral_bonus_percent || ''
     bonusTiers.value = (settings.topup_bonuses || []).map((tier) => ({
@@ -775,6 +798,7 @@ export function useAdminPanel() {
       ? 'Задан · …' + settings.router_root_key_hint
       : 'Ключ не задан'
     supplierBalance.value = settings.supplier_balance_usd
+    supplierBalanceReal.value = settings.supplier_balance_real_usd
 
     const ledger = await api('/api/admin/ledger')
     renderLedgerCheck(ledger.check || {})
@@ -1458,6 +1482,7 @@ export function useAdminPanel() {
           public_base_url: settingsForm.public_base_url,
           usd_price_rub: settingsForm.usd_price_rub,
           supplier_usd_price_rub: settingsForm.supplier_usd_price_rub,
+          supplier_api_usd_rate: settingsForm.supplier_api_usd_rate,
           min_topup_usd: settingsForm.min_topup_usd,
           topup_bonuses: bonusTiers.value
             .map((tier) => ({
@@ -1853,6 +1878,8 @@ export function useAdminPanel() {
     rootKey,
     rootHint,
     supplierDisplay,
+    supplierApiDisplay,
+    supplierRealDisplay,
     saveStatus,
     saveStatusIsError,
     kpiGroups,

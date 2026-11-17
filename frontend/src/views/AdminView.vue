@@ -252,6 +252,13 @@
                 autocomplete="off"
               >
               <p class="muted">{{ rootHint }}</p>
+              <p class="muted small">
+                Баланс квоты: <b>{{ supplierRealDisplay }}</b> real
+                · <b>{{ supplierApiDisplay }}</b> API
+                <template v-if="Number(settingsForm.supplier_api_usd_rate || 1) !== 1">
+                  (×{{ settingsForm.supplier_api_usd_rate }})
+                </template>
+              </p>
             </div>
             <div class="settings-block">
               <h3>Сайт</h3>
@@ -270,6 +277,17 @@
                 placeholder="как у клиентов"
               >
               <p class="muted small">Если пусто — для финансов берётся клиентский курс.</p>
+              <label for="supplier-api-rate">API-$ за $1 квоты поставщика</label>
+              <input
+                id="supplier-api-rate"
+                v-model="settingsForm.supplier_api_usd_rate"
+                inputmode="decimal"
+                placeholder="1"
+              >
+              <p class="muted small">
+                Если кабинет router.cheap показывает real $, а балансы клиентов — в долларах API
+                (тарифы ≈10%), укажите 10. Влияет на зачисление квоты и сверку баланса.
+              </p>
               <label for="min-topup">Минимальное пополнение, $</label>
               <input id="min-topup" v-model="settingsForm.min_topup_usd" inputmode="decimal" placeholder="10">
             </div>
@@ -361,13 +379,14 @@
             class="finance-alert"
           >
             Нужно пополнить баланс поставщика на
-            <b>{{ usd(financeSummary.supplier_shortfall_usd) }}</b>
+            <b>{{ usd(financeSummary.supplier_shortfall_usd) }}</b> API
             <span class="muted">
               (≈ {{ rub(financeSummary.supplier_shortfall_rub) }} по курсу поставщика
               {{ Number(financeSummary.supplier_rate || 0).toFixed(2) }} ₽/$).
               Обязательства к возврату {{ usd(financeSummary.refund_liability_usd) }},
               балансы клиентов {{ usd(financeSummary.customer_liability_usd) }},
-              у поставщика {{ usd(financeSummary.supplier_balance_usd) }}.
+              у поставщика {{ usd(financeSummary.supplier_balance_usd) }} API
+              / {{ usd(financeSummary.supplier_balance_real_usd) }} real.
             </span>
           </div>
 
@@ -411,8 +430,12 @@
             </div>
             <div class="finance-kpi" :class="{ bad: financeSummary.supplier_needs_topup }">
               <span>Поставщик</span>
-              <b>{{ usd(financeSummary.supplier_balance_usd) }}</b>
-              <small>курс {{ Number(financeSummary.supplier_rate || 0).toFixed(2) }} ₽/$</small>
+              <b>{{ usd(financeSummary.supplier_balance_usd) }} API</b>
+              <small>
+                {{ usd(financeSummary.supplier_balance_real_usd) }} real
+                · ×{{ Number(financeSummary.supplier_api_usd_rate || 1) }}
+                · {{ Number(financeSummary.supplier_rate || 0).toFixed(2) }} ₽/$
+              </small>
             </div>
             <div class="finance-kpi">
               <span>Расходы</span>
@@ -2015,6 +2038,8 @@ const {
   rootKey,
   rootHint,
   supplierDisplay,
+  supplierApiDisplay,
+  supplierRealDisplay,
   saveStatus,
   saveStatusIsError,
   kpiGroups,

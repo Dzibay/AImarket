@@ -7,7 +7,7 @@ from decimal import Decimal, ROUND_HALF_UP
 from zoneinfo import ZoneInfo
 
 from app.db import pool
-from app.money import supplier_usd_price_rub, usd_price_rub
+from app.money import supplier_api_usd_rate, supplier_usd_price_rub, usd_price_rub
 from app.upstream import UpstreamError, upstream
 
 _MSK = ZoneInfo("Europe/Moscow")
@@ -694,9 +694,12 @@ def build_summary() -> dict:
     )
 
     supplier = Decimal("0")
+    supplier_real = Decimal("0")
     supplier_error = ""
+    api_rate = supplier_api_usd_rate()
     try:
-        supplier = _q4(_d(upstream.supplier_balance_usd()))
+        supplier_real = _q4(_d(upstream.supplier_balance_real_usd()))
+        supplier = _q4(supplier_real * api_rate)
     except UpstreamError as exc:
         supplier_error = exc.message
 
@@ -729,6 +732,8 @@ def build_summary() -> dict:
         "supplier_reclaimed_rub": float(supplier_reclaimed_rub),
         "supplier_reclaimed_keys": int(frozen["count"] or 0),
         "supplier_balance_usd": float(supplier),
+        "supplier_balance_real_usd": float(supplier_real),
+        "supplier_api_usd_rate": float(api_rate),
         "supplier_error": supplier_error,
         "supplier_shortfall_usd": float(shortfall_usd),
         "supplier_shortfall_rub": float(shortfall_rub),
