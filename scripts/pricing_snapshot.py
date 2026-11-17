@@ -13,6 +13,7 @@ import sys
 sys.path.insert(0, "/app")
 
 from app.config import settings
+from app.db import pool
 from app.upstream import upstream
 
 
@@ -32,6 +33,7 @@ def _group_multiplier(row: dict, group_ratio: dict) -> float:
 
 
 def main() -> None:
+    pool.open()
     with upstream._lock:
         upstream._ensure_login()
         payload = upstream._authed("GET", "/api/pricing")
