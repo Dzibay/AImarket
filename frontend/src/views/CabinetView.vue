@@ -158,7 +158,7 @@
                       <ul>
                         <li><span class="get-icon"><AppIcon name="key" :size="16" /></span><span><b>API-ключ и Base URL</b>На экране и в письме — копируете и вставляете.</span></li>
                         <li><span class="get-icon"><AppIcon name="terminal" :size="16" /></span><span><b>Подключение одной командой</b>Cursor, Claude Code, Codex и другие приложения.</span></li>
-                        <li><span class="get-icon"><AppIcon name="spark" :size="16" /></span><span><b>Все модели по одному ключу</b>Списание — 10% от официальной цены, только за токены.</span></li>
+                        <li><span class="get-icon"><AppIcon name="spark" :size="16" /></span><span><b>Все модели по одному ключу</b>Текст, картинки, видео и озвучка — 10% от официальной цены.</span></li>
                       </ul>
                     </div>
                     <div v-if="profile.usd_price_rub" class="glass starter-prices">
@@ -329,7 +329,7 @@
                   <h3 class="card-title sm">Как расходуется баланс</h3>
                   <ul class="plain">
                     <li><AppIcon name="spark" :size="15" /><span>Один ключ открывает все модели — модель выбирается в поле <code>model</code>.</span></li>
-                    <li><AppIcon name="send" :size="15" /><span>Списание за токены — 10% от официальной цены, сразу после каждого ответа. <RouterLink to="/prices">Все цены</RouterLink>.</span></li>
+                    <li><AppIcon name="send" :size="15" /><span>Списание — 10% от официальной цены, сразу после каждого ответа. <RouterLink to="/prices">Все цены</RouterLink>.</span></li>
                     <li><AppIcon name="wallet" :size="15" /><span>При нулевом балансе запросы останавливаются, ключ остаётся вашим.</span></li>
                     <li v-if="profile.key.spent_usd != null"><AppIcon name="history" :size="15" /><span>Через этот ключ потрачено <b>{{ usdSmart(profile.key.spent_usd) }}</b>.</span></li>
                   </ul>
@@ -661,7 +661,7 @@ const track = [
 const STARTER_MODELS = [
   { id: 'claude-opus-5-5', brand: 'claude' },
   { id: 'gpt-6-astra', brand: 'gpt' },
-  { id: 'gemini-3.1-pro-preview', brand: 'gemini' },
+  { id: 'gemini-4-argon', brand: 'gemini' },
   { id: 'deepseek-v4-pro', brand: 'deepseek' },
 ]
 const starterModels = computed(() => {
@@ -824,7 +824,7 @@ const faq = computed(() => {
     {
       q: 'Как списываются деньги?',
       a: `<p>Списание идёт в реальном времени: вы отправляете запрос → он уходит поставщику модели → поставщик возвращает ответ и количество токенов → стоимость списывается с баланса.</p>
-          <p>Цена — 10% от официального тарифа модели: отдельно за входные токены, кэш промпта и выходные. Полная таблица — на странице <a href="/prices">«Цены»</a>. Каждое списание видно в истории операций с названием модели и объёмом токенов.</p>`,
+          <p>Цена — 10% от официального тарифа модели: у текстовых моделей отдельно за входные токены, кэш промпта и выходные, у картинок — за изображение, у видео — за секунду или ролик. Полная таблица — на странице <a href="/prices">«Цены»</a>. Каждое списание видно в истории операций с названием модели и объёмом токенов.</p>`,
     },
     {
       q: 'Какие модели доступны и как выбрать нужную?',

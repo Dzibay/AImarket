@@ -6,15 +6,15 @@
       <div class="container wrap">
         <header class="pr-hero">
           <p class="kicker">Прайс-лист · {{ total }} {{ plural(total, 'модель', 'модели', 'моделей') }}</p>
-          <h1 class="pr-title">Цены за 1 млн токенов —<br><span class="grad-text">в 10 раз ниже официальных</span></h1>
+          <h1 class="pr-title">Цены на нейросети —<br><span class="grad-text">в 10 раз ниже официальных</span></h1>
           <p class="pr-lead">
-            Баланс в долларах, списывается 10% от тарифа провайдера. Нажмите на модель — посчитаем стоимость
-            вашей нагрузки.
+            Баланс в долларах, списывается ровно цена из таблицы: за токены, изображение, секунду видео или запрос
+            озвучки. Нажмите на текстовую модель — посчитаем стоимость вашей нагрузки.
           </p>
           <div class="pr-stats">
-            <span class="pr-stat"><b>−90%</b><small>к цене провайдера</small></span>
+            <span class="pr-stat"><b>−{{ DISCOUNT_PERCENT }}%</b><small>к официальной цене</small></span>
             <span class="pr-stat"><b>1&nbsp;$&nbsp;=&nbsp;{{ rateLabel }}</b><small>курс при пополнении</small></span>
-            <span class="pr-stat"><b>{{ families.length }}</b><small>семейств моделей</small></span>
+            <span class="pr-stat"><b>{{ textModelCount }}&nbsp;+&nbsp;{{ mediaModelCount }}</b><small>текст и медиа</small></span>
           </div>
         </header>
 
@@ -22,7 +22,7 @@
           <label class="search-glow">
             <AppIcon name="search" :size="18" />
             <span class="sr">Найти модель</span>
-            <input v-model="query" type="search" placeholder="Найти модель: claude, gpt-6, gemini…" autocomplete="off">
+            <input v-model="query" type="search" placeholder="Найти модель: claude, gpt-6, gpt-image, veo…" autocomplete="off">
             <span v-if="query" class="found">{{ foundCount }}</span>
           </label>
           <div class="families" role="tablist" aria-label="Семейство">
@@ -40,10 +40,21 @@
             >
               <BrandLogo :brand="family.id === 'kimi' ? 'china' : family.id" :size="14" />{{ family.name }}
             </button>
+            <button
+              v-for="family in mediaFamilies"
+              :key="family.id"
+              type="button"
+              role="tab"
+              :class="{ on: familyId === family.id }"
+              :aria-selected="familyId === family.id"
+              @click="familyId = family.id"
+            >
+              <AppIcon :name="MEDIA_ICONS[family.id]" :size="14" />{{ family.name }}
+            </button>
           </div>
         </div>
 
-        <p v-if="!shown.length" class="empty glass">Ничего не нашлось. Проверьте написание или сбросьте фильтр.</p>
+        <p v-if="!shown.length && !shownMedia.length" class="empty glass">Ничего не нашлось. Проверьте написание или сбросьте фильтр.</p>
 
         <section v-for="group in shown" :key="group.id" class="glass group">
           <span class="group-glow" aria-hidden="true" />
@@ -123,12 +134,47 @@
           </div>
         </section>
 
+        <section v-for="group in shownMedia" :id="`media-${group.id}`" :key="group.id" class="glass group">
+          <span class="group-glow" aria-hidden="true" />
+          <header class="group-head">
+            <span class="logo"><AppIcon :name="MEDIA_ICONS[group.id]" :size="24" /></span>
+            <div>
+              <h2>{{ group.name }}</h2>
+              <p><code>{{ group.endpoint }}</code> · {{ group.models.length }} {{ plural(group.models.length, 'модель', 'модели', 'моделей') }}</p>
+            </div>
+          </header>
+          <div class="table-wrap">
+            <table class="media-table">
+              <thead>
+                <tr>
+                  <th>Модель</th>
+                  <th>Разработчик</th>
+                  <th>Единица</th>
+                  <th class="num">Цена, USD</th>
+                  <th class="num">Цена, ₽</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="model in group.models" :id="model.id" :key="model.id" :class="{ hit: model.id === highlight }">
+                  <td><span class="model-id"><BrandLogo :brand="model.brand" :size="14" /><code>{{ model.id }}</code></span></td>
+                  <td class="muted">{{ model.vendor }}</td>
+                  <td class="muted">{{ MEDIA_UNIT_LABELS[group.id][model.unit] }}</td>
+                  <td class="num"><span class="price-usd">{{ tokenUsd(model.price) }}</span></td>
+                  <td class="num">
+                    <span class="price-cell"><b>{{ tokenRub(ourRubPerMillion(model.price, usdPriceRub)) }}</b><s>{{ tokenRub(referenceRubPerMillion(model.price, usdPriceRub)) }}</s></span>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+
         <p class="footnote">
-          Баланс ведётся в долларах; с баланса списывается 10% от USD-тарифа в таблице
-          (вход, кэш промпта и выход — по отдельности).
-          Рубли — пересчёт для удобства при пополнении, курс как на главной ({{ rateLabel }}/$).
-          Источник каталога: router.cheap/pricing, снимок {{ priceAsOf }}. Цены могут меняться.
-          Модели генерации изображений в таблицу не входят.
+          Баланс ведётся в долларах; с баланса списывается ровно USD-цена из таблицы. Текстовые модели — за 1 млн
+          токенов (вход, кэш промпта и выход по отдельности), изображения — за картинку, видео — за секунду или
+          за ролик, озвучка — за запрос.
+          Рубли — пересчёт для удобства при пополнении, курс как на главной ({{ rateLabel }}/$). Зачёркнуто —
+          официальная цена модели по рыночному курсу доллара
         </p>
       </div>
     </main>
@@ -144,10 +190,16 @@ import SiteHeader from '../components/SiteHeader.vue'
 import AppIcon from '../components/ui/AppIcon.vue'
 import { useWebConfig } from '../composables/useWebConfig'
 import {
+  MEDIA_UNIT_LABELS,
   PRICE_AS_OF,
+  DISCOUNT_PERCENT,
   families,
+  mediaFamilies,
+  mediaModelCount,
+  modelCount,
   ourRubPerMillion,
   referenceRubPerMillion,
+  textModelCount,
 } from '../data/tokenPrices'
 import { contextSize, rub, tokenRub, tokenUsd } from '../utils/format'
 import { useHead } from '../utils/useHead'
@@ -190,19 +242,24 @@ function toggle(id) {
   openId.value = openId.value === id ? '' : id
 }
 
-const total = families.reduce((sum, family) => sum + family.models.length, 0)
+const MEDIA_ICONS = { image: 'image', video: 'video', audio: 'mic' }
+const total = modelCount
 
-const shown = computed(() => {
+function filterGroups(groups) {
   const needle = query.value.trim().toLowerCase()
-  return families
+  return groups
     .filter((family) => familyId.value === 'all' || family.id === familyId.value)
     .map((family) => ({
       ...family,
       models: family.models.filter((model) => !needle || model.id.includes(needle) || family.name.toLowerCase().includes(needle)),
     }))
     .filter((family) => family.models.length)
-})
-const foundCount = computed(() => shown.value.reduce((sum, family) => sum + family.models.length, 0))
+}
+const shown = computed(() => filterGroups(families))
+const shownMedia = computed(() => filterGroups(mediaFamilies))
+const foundCount = computed(() =>
+  [...shown.value, ...shownMedia.value].reduce((sum, family) => sum + family.models.length, 0),
+)
 
 function plural(n, one, few, many) {
   const mod10 = n % 10
@@ -346,6 +403,8 @@ onMounted(async () => {
 .group-head p { margin: 0; color: var(--muted); font-size: 13px; }
 .table-wrap { position: relative; overflow: auto; }
 table { width: 100%; border-collapse: collapse; min-width: 980px; }
+table.media-table { min-width: 680px; }
+.group-head p code { font-size: 12px; background: none; }
 th, td { text-align: left; padding: 12px 14px; border-top: 1px solid rgba(28, 25, 21, 0.07); vertical-align: middle; }
 th { color: var(--muted); font-size: 11.5px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; }
 td.num, th.num { text-align: right; }

@@ -564,6 +564,7 @@ def _model_row(row: dict) -> dict:
         "input_usd_per_million": float(input_per_million),
         "output_usd_per_million": float(output_per_million),
         "request_usd": request_usd,
+        "price_unit": "second" if row.get("price_unit") == "second" else "request",
     }
 
 

@@ -26,14 +26,12 @@
 
 <script setup>
 import { onBeforeUnmount, onMounted, ref } from 'vue'
-import { families } from '../../data/tokenPrices'
-
-const modelCount = families.reduce((sum, family) => sum + family.models.length, 0)
+import { modelCount } from '../../data/tokenPrices'
 
 const stats = [
   { to: 12400, suffix: '+', label: 'разработчиков пользуются Aimarket' },
   { to: 3.8, digits: 1, suffix: ' млрд', label: 'токенов обрабатываем каждый месяц' },
-  { to: modelCount, suffix: '', label: 'оригинальных моделей по одному ключу' },
+  { to: modelCount, suffix: '', label: 'моделей: текст, картинки, видео, озвучка' },
   { to: 99.95, digits: 2, suffix: '%', label: 'аптайм API за последние 90 дней' },
 ]
 const apps = [

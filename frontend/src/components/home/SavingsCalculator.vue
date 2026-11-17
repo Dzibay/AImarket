@@ -42,7 +42,7 @@
               <span>В Aimarket — те же модели</span>
               <b>{{ rub(display.now, 0) }}</b>
             </div>
-            <div class="bar"><span class="fill fill-now" :style="{ width: '10%' }"></span></div>
+            <div class="bar"><span class="fill fill-now" :style="{ width: `${Math.max(2, share * 100)}%` }"></span></div>
           </div>
         </div>
 
@@ -73,7 +73,7 @@
           <span class="save-label">Ваша экономия за год</span>
           <b class="save-value">{{ rub(display.year, 0) }}</b>
           <span class="save-sub">или {{ rub(display.month, 0) }} каждый месяц</span>
-          <div class="save-pill">−90% к счёту</div>
+          <div class="save-pill">−{{ Math.floor((1 - share) * 100) }}% к счёту</div>
           <div class="save-cta">
             <SignupForm size="md" source="calculator" cta="Начать экономить" />
           </div>
@@ -88,7 +88,7 @@
 import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue'
 import BrandLogo from '../BrandLogo.vue'
 import SignupForm from './SignupForm.vue'
-import { findModel } from '../../data/tokenPrices'
+import { RUB_REFERENCE_RATE_MULT, findModel } from '../../data/tokenPrices'
 import { rub, usd } from '../../utils/format'
 
 const props = defineProps({
@@ -115,23 +115,24 @@ const spendUsd = computed(() => fromPos(pos.value))
 const sliderPct = computed(() => pos.value / 10)
 
 const rateValue = computed(() => props.rate || 10)
-const was = computed(() => spendUsd.value * rateValue.value * 10)
-const now = computed(() => spendUsd.value * rateValue.value)
 
 const models = [
   { id: 'claude-opus-5-5', name: 'Claude Opus 5.5', brand: 'claude' },
   { id: 'gpt-6-astra', name: 'GPT-6 Astra', brand: 'gpt' },
-  { id: 'gemini-3.1-pro-preview', name: 'Gemini 3.1 Pro', brand: 'gemini' },
+  { id: 'gemini-4-argon', name: 'Gemini 4 Argon', brand: 'gemini' },
   { id: 'deepseek-v4-pro', name: 'DeepSeek V4 Pro', brand: 'deepseek' },
 ]
 const model = ref(models[0].id)
 const currentModel = computed(() => models.find((m) => m.id === model.value))
 // Смесь 80% вход / 20% выход — типично для агентов, которые много читают код.
+const blend = (input, output) => input * 0.8 + output * 0.2
+const share = 1 / RUB_REFERENCE_RATE_MULT
+const was = computed(() => spendUsd.value * rateValue.value * RUB_REFERENCE_RATE_MULT)
+const now = computed(() => spendUsd.value * rateValue.value)
 const tokensPerMonth = computed(() => {
   const m = findModel(model.value)
   if (!m) return 0
-  const blended = m.input * 0.8 + m.output * 0.2
-  return (spendUsd.value / blended) * 1e6
+  return (spendUsd.value / blend(m.input, m.output)) * 1e6
 })
 const tokensLabel = computed(() => {
   const t = tokensPerMonth.value

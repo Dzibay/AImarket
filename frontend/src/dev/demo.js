@@ -6,7 +6,7 @@
 const FLAG = 'aimarket-demo'
 const DEMO_SESSION = 'demo-session'
 const WEEKDAYS = ['пн', 'вт', 'ср', 'чт', 'пт', 'сб', 'вс']
-const MODELS = ['claude-opus-5-5', 'gpt-6-astra', 'claude-sonnet-5-5', 'gemini-3.1-pro-preview', 'deepseek-v4-pro']
+const MODELS = ['claude-opus-5-5', 'gpt-6-astra', 'claude-sonnet-5-5', 'gemini-4-argon', 'deepseek-v4-pro']
 
 export function demoScenario() {
   try {

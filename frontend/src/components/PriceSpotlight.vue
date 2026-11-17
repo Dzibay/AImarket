@@ -19,7 +19,7 @@
         <header>
           <span class="logo"><BrandLogo :brand="item.brand" :size="22" /></span>
           <span class="blurb">{{ item.blurb }}</span>
-          <span class="off">−90%</span>
+          <span class="off">−{{ DISCOUNT_PERCENT }}%</span>
         </header>
         <h3>{{ item.id }}</h3>
         <dl>
@@ -63,9 +63,10 @@ import { computed } from 'vue'
 import { RouterLink } from 'vue-router'
 import BrandLogo from './BrandLogo.vue'
 import {
-  families,
+  DISCOUNT_PERCENT,
   findModel,
   flagships,
+  modelCount,
   ourRubPerMillion,
   referenceRubPerMillion,
 } from '../data/tokenPrices'
@@ -77,7 +78,7 @@ const props = defineProps({
 
 const rateLabel = computed(() => (props.usdPriceRub > 0 ? rub(props.usdPriceRub) : '…'))
 
-const count = families.reduce((sum, family) => sum + family.models.length, 0)
+const count = modelCount
 const cards = flagships.map((item) => {
   const model = findModel(item.id)
   return {

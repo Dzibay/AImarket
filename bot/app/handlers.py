@@ -492,7 +492,9 @@ def _provider_title(provider: str) -> str:
 
 
 def _price_million(value: float) -> str:
-    return f"${value:.2f}"
+    if value >= 1 or value == 0:
+        return f"${value:.2f}"
+    return f"${value:.4g}"
 
 
 def _faq_price_lines(products: list[dict]) -> list[str]:

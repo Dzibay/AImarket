@@ -78,7 +78,7 @@
           <span class="tip-price">
             <s>{{ tip.was }}</s>
             <b>{{ tip.now }}</b>
-            <i>−90%</i>
+            <i>−{{ DISCOUNT_PERCENT }}%</i>
           </span>
         </template>
         <template v-else>
@@ -103,7 +103,7 @@
         </span>
       </h1>
       <p class="lead hero-in" style="--i: 5">
-        Claude, GPT, Gemini, Grok и ещё {{ modelCount - 4 }}+ моделей по одному API-ключу.
+        Claude, GPT, Gemini, Grok и ещё {{ modelCount - 4 }}+ моделей по одному API-ключу — текст, картинки, видео и озвучка.
         Без зарубежной карты — платите российской картой и работайте в Cursor, Claude Code и Codex.
       </p>
 
@@ -147,8 +147,8 @@
 import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import BrandLogo from '../BrandLogo.vue'
 import SignupForm from './SignupForm.vue'
-import { families, findModel, ourRubPerMillion, referenceRubPerMillion } from '../../data/tokenPrices'
-import { rub, usd } from '../../utils/format'
+import { DISCOUNT_PERCENT, findModel, modelCount, ourRubPerMillion, referenceRubPerMillion } from '../../data/tokenPrices'
+import { rub, tokenRub, tokenUsd, usd } from '../../utils/format'
 
 const props = defineProps({
   rate: { type: Number, default: 0 },
@@ -157,7 +157,6 @@ const props = defineProps({
 defineEmits(['pick'])
 
 const titleTop = ['Все', 'топовые', 'нейросети']
-const modelCount = families.reduce((sum, family) => sum + family.models.length, 0)
 const minLabel = computed(() => (props.rate > 0 ? rub(Math.ceil(props.minUsd * props.rate), 0) : usd(props.minUsd, 0)))
 
 const avatars = [
@@ -178,7 +177,7 @@ const RINGS = [
 const planets = [
   { key: 'claude', kind: 'model', brand: 'claude', label: 'Claude', model: 'claude-opus-5-5', ring: 0, big: true },
   { key: 'gpt', kind: 'model', brand: 'gpt', label: 'GPT', model: 'gpt-6-astra', ring: 0, big: true },
-  { key: 'gemini', kind: 'model', brand: 'gemini', label: 'Gemini', model: 'gemini-3.1-pro-preview', ring: 0, big: true },
+  { key: 'gemini', kind: 'model', brand: 'gemini', label: 'Gemini', model: 'gemini-4-argon', ring: 0, big: true },
   { key: 'grok', kind: 'model', brand: 'grok', label: 'Grok', model: 'grok-4.7', ring: 1 },
   { key: 'deepseek', kind: 'model', brand: 'deepseek', label: 'DeepSeek', model: 'deepseek-v4-pro', ring: 1 },
   { key: 'kimi', kind: 'model', brand: 'china', label: 'Kimi', model: 'kimi-k3', ring: 1 },
@@ -186,7 +185,7 @@ const planets = [
   { key: 'cursor', kind: 'app', label: 'Cursor', ring: 2 },
   { key: 'glm', kind: 'model', brand: 'china', label: 'GLM', model: 'glm-5.3', ring: 2 },
   { key: 'claude-code', kind: 'app', label: 'Claude Code', ring: 2 },
-  { key: 'minimax', kind: 'model', brand: 'china', label: 'MiniMax', model: 'minimax-m3', ring: 2 },
+  { key: 'minimax', kind: 'model', brand: 'china', label: 'MiniMax', model: 'minimax-m3.1-flash', ring: 2 },
   { key: 'codex', kind: 'app', label: 'Codex', ring: 2 },
 ]
 // Равномерно раскладываем планеты по своим кольцам, со сдвигом между кольцами.
@@ -336,12 +335,11 @@ function hover(i, e) {
     const model = findModel(planet.model)
     if (model && props.rate > 0) {
       data.was = rub(referenceRubPerMillion(model.output, props.rate), 0)
-      data.now = rub(ourRubPerMillion(model.output, props.rate), 0)
+      data.now = tokenRub(ourRubPerMillion(model.output, props.rate))
     } else if (model) {
       data.was = usd(model.output * 10, 0)
-      data.now = usd(model.output, 0)
-    }
-  }
+      data.now = tokenUsd(model.output)
+    }  }
   tip.value = data
 }
 function unhover(i) {

@@ -4,7 +4,7 @@
       <div class="guide-head-top">
         <h2 class="card-title">Подключение к приложению</h2>
         <div
-          v-if="current && current.id !== 'other' && !current.manual"
+          v-if="current && current.id !== 'other' && !current.manual && !current.media"
           class="segmented os-switch"
           role="tablist"
           aria-label="Система"
@@ -97,6 +97,50 @@
             </div>
           </details>
         </div>
+      </div>
+
+      <div v-else-if="current?.media" key="media" class="panel">
+        <p class="muted small other-lead">
+          Тот же ключ и Base URL работают для картинок, видео и озвучки. Цены — на странице
+          <router-link to="/prices#media-image">«Цены»</router-link>.
+        </p>
+        <div class="fields">
+          <CopyField label="Base URL" :value="normalizedBase" toast="Адрес скопирован" />
+          <CopyField v-if="secret" label="API-ключ" :value="secret" masked toast="Ключ скопирован" />
+          <div v-else class="copy-placeholder">
+            <span class="copy-label">API-ключ</span>
+            <span class="muted small">появится после первого пополнения</span>
+          </div>
+        </div>
+        <div class="media-switch">
+          <div class="segmented" role="tablist" aria-label="Что генерировать">
+            <button
+              v-for="item in MEDIA_KINDS"
+              :key="item.id"
+              type="button"
+              role="tab"
+              :class="{ on: mediaKind === item.id }"
+              :aria-selected="mediaKind === item.id"
+              @click="mediaKind = item.id"
+            ><AppIcon :name="item.icon" :size="14" />{{ item.title }}</button>
+          </div>
+          <div class="segmented" role="tablist" aria-label="Язык">
+            <button
+              v-for="item in MEDIA_LANGS"
+              :key="item.id"
+              type="button"
+              role="tab"
+              :class="{ on: mediaLang === item.id }"
+              :aria-selected="mediaLang === item.id"
+              @click="mediaLang = item.id"
+            >{{ item.title }}</button>
+          </div>
+        </div>
+        <CodeBlock :label="mediaLabel" icon="terminal" :code="mediaCode" />
+        <p class="note">
+          Ключ задайте переменной окружения <code>AIMARKET_API_KEY</code>: значение — из поля «API-ключ» выше.
+          {{ MEDIA_NOTES[mediaKind] }}
+        </p>
       </div>
 
       <div v-else-if="current && current.id !== 'other'" :key="`${app}-${os}`" class="panel">
@@ -254,7 +298,22 @@ const APPS = [
   { id: 'hermes', title: 'Hermes', file: 'hermes', linux: true, restore: true },
   { id: 'grok', title: 'Grok Build', file: 'grok-build', linux: true, restore: true },
   { id: 'other', title: 'Другое', file: '', linux: false, restore: false },
+  { id: 'media', title: 'Картинки, видео, голос', file: '', linux: false, restore: false, media: true },
 ]
+const MEDIA_KINDS = [
+  { id: 'image', title: 'Картинки', icon: 'image' },
+  { id: 'video', title: 'Видео', icon: 'video' },
+  { id: 'audio', title: 'Озвучка', icon: 'mic' },
+]
+const MEDIA_LANGS = [
+  { id: 'curl', title: 'curl' },
+  { id: 'python', title: 'Python' },
+]
+const MEDIA_NOTES = {
+  image: 'Ссылка на картинку живёт до 24 часов — сохраните файл сразу. Цена — за изображение; 2k/4k-модели дороже.',
+  video: 'Видео делается в фоне: создайте задачу, опрашивайте статус, после completed скачайте файл. Цена большинства моделей — за секунду ролика; длину задаёт поле seconds.',
+  audio: 'Ответ — сразу mp3-файл. Язык — поле language (ru, en); без него русский определяется сам.',
+}
 const OS = [
   { id: 'win', title: 'Windows', folder: 'windows', icon: 'windows' },
   { id: 'mac', title: 'macOS', folder: 'macos', icon: 'apple' },
@@ -292,6 +351,97 @@ const systems = computed(() => (current.value?.linux ? OS : OS.slice(0, 2)))
 const normalizedBase = computed(() => (props.baseUrl || 'https://router.cheap/v1').replace(/\/+$/, ''))
 const chatUrl = computed(() => `${normalizedBase.value}/chat/completions`)
 const anthropicUrl = computed(() => normalizedBase.value.replace(/\/v1$/, ''))
+
+const mediaKind = ref('image')
+const mediaLang = ref('curl')
+const mediaLabel = computed(() => (mediaLang.value === 'curl' ? 'Терминал · bash' : 'Python · pip install openai requests'))
+const mediaCode = computed(() => {
+  const base = normalizedBase.value
+  const auth = '-H "Authorization: Bearer $AIMARKET_API_KEY"'
+  const samples = {
+    image: {
+      curl: `curl ${base}/images/generations \\
+  ${auth} \\
+  -H "Content-Type: application/json" \\
+  -d '{"model": "gpt-image-2.6", "prompt": "Рыжий кот в скафандре, акварель"}'`,
+      python: `import base64
+import os
+import urllib.request
+
+from openai import OpenAI
+
+client = OpenAI(base_url="${base}", api_key=os.environ["AIMARKET_API_KEY"])
+
+result = client.images.generate(model="gpt-image-2.6", prompt="Рыжий кот в скафандре, акварель")
+image = result.data[0]
+if image.b64_json:
+    with open("image.png", "wb") as file:
+        file.write(base64.b64decode(image.b64_json))
+else:
+    urllib.request.urlretrieve(image.url, "image.png")`,
+    },
+    video: {
+      curl: `# 1. Создать задачу — в ответе будет id
+curl ${base}/videos \\
+  ${auth} \\
+  -H "Content-Type: application/json" \\
+  -d '{"model": "seedance-2.0-mini", "prompt": "Волны разбиваются о скалы на закате", "aspect_ratio": "16:9"}'
+
+# 2. Проверять статус, пока не станет completed
+curl ${base}/videos/VIDEO_ID ${auth}
+
+# 3. Скачать ролик
+curl ${base}/videos/VIDEO_ID/content ${auth} -o video.mp4`,
+      python: `import os
+import time
+
+import requests
+
+BASE = "${base}"
+HEADERS = {"Authorization": "Bearer " + os.environ["AIMARKET_API_KEY"]}
+
+response = requests.post(f"{BASE}/videos", headers=HEADERS, json={
+    "model": "seedance-2.0-mini",
+    "prompt": "Волны разбиваются о скалы на закате",
+    "aspect_ratio": "16:9",
+})
+response.raise_for_status()
+job = response.json()
+
+while job["status"] not in ("completed", "failed"):
+    time.sleep(10)
+    job = requests.get(f"{BASE}/videos/{job['id']}", headers=HEADERS).json()
+
+if job["status"] == "completed":
+    video = requests.get(f"{BASE}/videos/{job['id']}/content", headers=HEADERS)
+    with open("video.mp4", "wb") as file:
+        file.write(video.content)
+else:
+    print(job.get("error"))`,
+    },
+    audio: {
+      curl: `curl ${base}/audio/speech \\
+  ${auth} \\
+  -H "Content-Type: application/json" \\
+  -d '{"model": "grok-voice", "input": "Привет! Это проверка голоса.", "voice": "rex", "language": "ru"}' \\
+  -o speech.mp3`,
+      python: `import os
+
+from openai import OpenAI
+
+client = OpenAI(base_url="${base}", api_key=os.environ["AIMARKET_API_KEY"])
+
+speech = client.audio.speech.create(
+    model="grok-voice",
+    voice="rex",
+    input="Привет! Это проверка голоса.",
+    extra_body={"language": "ru"},
+)
+speech.write_to_file("speech.mp3")`,
+    },
+  }
+  return samples[mediaKind.value][mediaLang.value]
+})
 const folder = computed(() => OS.find((item) => item.id === os.value)?.folder || '')
 const canCommand = computed(() => Boolean(props.secret && current.value?.file && folder.value && !current.value?.manual))
 
@@ -471,6 +621,8 @@ function copyKey() {
 }
 .notice { margin-top: 4px; }
 .other-lead { margin: 0 0 14px; }
+.media-switch { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 10px; margin-bottom: 12px; }
+.media-switch .segmented { max-width: 100%; overflow-x: auto; }
 .manual-lead { margin: 0 0 14px; }
 
 .extras { margin-top: 18px; border-top: 1px solid var(--border); }
