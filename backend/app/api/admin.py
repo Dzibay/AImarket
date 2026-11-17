@@ -15,6 +15,7 @@ from app.billing import (
     adjust_usd,
     block_user,
     ensure_all_limit_by_wallet_charge,
+    sync_all,
     unblock_user,
 )
 from app.db import pool
@@ -234,8 +235,8 @@ def _settings_payload() -> dict:
     api_rate = supplier_api_usd_rate()
     if root:
         try:
+            supplier = float(upstream.supplier_balance_usd())
             supplier_real = float(upstream.supplier_balance_real_usd())
-            supplier = float(Decimal(str(supplier_real)) * api_rate)
         except UpstreamError as exc:
             supplier_error = exc.message
     rate_raw = get_setting("supplier_api_usd_rate").strip()
@@ -1025,8 +1026,8 @@ def analytics(days: int = Query(default=30, ge=7, le=90)) -> dict:
     supplier_real = None
     if get_setting("router_root_key"):
         try:
+            supplier = float(upstream.supplier_balance_usd())
             supplier_real = float(upstream.supplier_balance_real_usd())
-            supplier = float(Decimal(str(supplier_real)) * supplier_api_usd_rate())
         except UpstreamError:
             supplier = None
             supplier_real = None
@@ -1283,6 +1284,13 @@ def list_topups() -> dict:
 def ensure_keys_limit_by_wallet_charge() -> dict:
     """Включает на всех ключах router.cheap «считать лимит по списанию с баланса»."""
     return ensure_all_limit_by_wallet_charge()
+
+
+@router.post("/upstream/keys/sync", dependencies=[Depends(require_admin)])
+def sync_upstream_keys() -> dict:
+    """Сверяет локальные балансы с remain_quota ключей (API-$ без множителя)."""
+    sync_all()
+    return {"ok": True}
 
 
 @router.post("/topups/{topup_id}/settle", dependencies=[Depends(require_admin)])

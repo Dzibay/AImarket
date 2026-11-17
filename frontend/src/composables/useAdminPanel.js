@@ -191,6 +191,9 @@ export function useAdminPanel() {
   const ensureWalletChargeBusy = ref(false)
   const ensureWalletChargeStatus = ref('')
   const ensureWalletChargeIsError = ref(false)
+  const syncKeysBusy = ref(false)
+  const syncKeysStatus = ref('')
+  const syncKeysIsError = ref(false)
 
   const kpiGroups = ref([])
   const revenueChart = ref({ bars: [], ticks: [], totalLabel: '', subtitle: '' })
@@ -1501,6 +1504,22 @@ export function useAdminPanel() {
     }
   }
 
+  async function syncUpstreamKeys() {
+    syncKeysStatus.value = ''
+    syncKeysIsError.value = false
+    syncKeysBusy.value = true
+    try {
+      await api('/api/admin/upstream/keys/sync', { method: 'POST', body: '{}' })
+      syncKeysStatus.value = 'Балансы сверены с лимитами ключей (API-$)'
+      await load()
+    } catch (error) {
+      syncKeysIsError.value = true
+      syncKeysStatus.value = error.message || 'Не удалось сверить ключи'
+    } finally {
+      syncKeysBusy.value = false
+    }
+  }
+
   async function saveSettings() {
     saveStatus.value = ''
     saveStatusIsError.value = false
@@ -1913,6 +1932,10 @@ export function useAdminPanel() {
     ensureWalletChargeStatus,
     ensureWalletChargeIsError,
     ensureWalletChargeOnKeys,
+    syncKeysBusy,
+    syncKeysStatus,
+    syncKeysIsError,
+    syncUpstreamKeys,
     saveStatus,
     saveStatusIsError,
     kpiGroups,

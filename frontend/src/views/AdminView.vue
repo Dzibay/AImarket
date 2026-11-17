@@ -272,10 +272,22 @@
                 >
                   {{ ensureWalletChargeBusy ? 'Обновляю ключи…' : 'Включить лимит по списанию на всех ключах' }}
                 </button>
+                <button
+                  type="button"
+                  class="quiet sm"
+                  :disabled="syncKeysBusy"
+                  @click="syncUpstreamKeys"
+                >
+                  {{ syncKeysBusy ? 'Сверяю…' : 'Сверить балансы с ключами' }}
+                </button>
                 <span
                   v-if="ensureWalletChargeStatus"
                   :class="ensureWalletChargeIsError ? 'error' : 'ok-text'"
                 >{{ ensureWalletChargeStatus }}</span>
+                <span
+                  v-if="syncKeysStatus"
+                  :class="syncKeysIsError ? 'error' : 'ok-text'"
+                >{{ syncKeysStatus }}</span>
               </div>
             </div>
             <div class="settings-block">
@@ -295,7 +307,7 @@
                 placeholder="как у клиентов"
               >
               <p class="muted small">Если пусто — для финансов берётся клиентский курс.</p>
-              <label for="supplier-api-rate">API-$ за $1 квоты поставщика</label>
+              <label for="supplier-api-rate">API-$ за $1 в кабинете поставщика</label>
               <input
                 id="supplier-api-rate"
                 v-model="settingsForm.supplier_api_usd_rate"
@@ -303,8 +315,8 @@
                 placeholder="1"
               >
               <p class="muted small">
-                Если кабинет router.cheap показывает real $, а балансы клиентов — в долларах API
-                (тарифы ≈10%), укажите 10. Влияет на зачисление квоты и сверку баланса.
+                Только для отображения кошелька: сколько API-$ соответствует $1 в кабинете router.cheap.
+                Лимиты ключей и балансы клиентов всегда в API-$ и этим курсом не умножаются.
               </p>
               <label for="min-topup">Минимальное пополнение, $</label>
               <input id="min-topup" v-model="settingsForm.min_topup_usd" inputmode="decimal" placeholder="10">
@@ -2062,6 +2074,10 @@ const {
   ensureWalletChargeStatus,
   ensureWalletChargeIsError,
   ensureWalletChargeOnKeys,
+  syncKeysBusy,
+  syncKeysStatus,
+  syncKeysIsError,
+  syncUpstreamKeys,
   saveStatus,
   saveStatusIsError,
   kpiGroups,
