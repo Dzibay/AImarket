@@ -315,8 +315,8 @@
                 placeholder="1"
               >
               <p class="muted small">
-                Только для отображения кошелька: сколько API-$ соответствует $1 в кабинете router.cheap.
-                Лимиты ключей и балансы клиентов всегда в API-$ и этим курсом не умножаются.
+                Только дашборд: баланс кабинета router.cheap умножается на этот множитель
+                (API-$ = кабинет × множитель). Лимиты ключей и сверка клиентов не затрагиваются.
               </p>
               <label for="min-topup">Минимальное пополнение, $</label>
               <input id="min-topup" v-model="settingsForm.min_topup_usd" inputmode="decimal" placeholder="10">

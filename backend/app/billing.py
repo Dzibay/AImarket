@@ -726,7 +726,8 @@ def _ensure_pool(extra: Decimal, user_id: int) -> None:
         ).fetchone()
     promised = Decimal(row["total"]) + extra
     try:
-        master = upstream.supplier_balance_usd()
+        # Сырой баланс кабинета в тех же единицах, что лимиты ключей (без множителя дашборда).
+        master = upstream.supplier_balance_real_usd()
     except UpstreamError as exc:
         _reraise(exc)
     if promised > master + Decimal("0.01"):

@@ -8,7 +8,7 @@ import urllib.request
 from decimal import Decimal
 
 from app.config import settings
-from app.money import usd_to_units, units_to_real_usd, units_to_usd
+from app.money import cabinet_to_api_usd, usd_to_units, units_to_usd
 
 log = logging.getLogger("app.upstream")
 
@@ -55,16 +55,16 @@ class RouterCheap:
             self._user_id = ""
 
     def supplier_balance_real_usd(self) -> Decimal:
-        """Баланс в $ квоты router.cheap — как в кабинете поставщика."""
-        with self._lock:
-            self._ensure_login()
-            return units_to_real_usd(self._balance_units())
-
-    def supplier_balance_usd(self) -> Decimal:
-        """Баланс в API-$ сайта (для сверки с балансами клиентов)."""
+        """Сырой баланс кабинета router.cheap (как в их UI, без множителя)."""
         with self._lock:
             self._ensure_login()
             return units_to_usd(self._balance_units())
+
+    def supplier_balance_usd(self) -> Decimal:
+        """Баланс кабинета в API-$ для дашборда: кабинет × supplier_api_usd_rate."""
+        with self._lock:
+            self._ensure_login()
+            return cabinet_to_api_usd(units_to_usd(self._balance_units()))
 
     def get_token(self, token_id: int) -> dict | None:
         with self._lock:

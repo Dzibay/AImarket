@@ -698,9 +698,9 @@ def build_summary() -> dict:
     supplier_error = ""
     api_rate = supplier_api_usd_rate()
     try:
-        # API-$ — те же единицы, что балансы клиентов и лимиты ключей.
-        supplier = _q4(_d(upstream.supplier_balance_usd()))
         supplier_real = _q4(_d(upstream.supplier_balance_real_usd()))
+        # На дашборде кабинет × множитель; shortfall — к этому же API-виду.
+        supplier = _q4(_d(upstream.supplier_balance_usd()))
     except UpstreamError as exc:
         supplier_error = exc.message
 

@@ -35,10 +35,9 @@ def supplier_usd_price_rub() -> Decimal:
 
 
 def supplier_api_usd_rate() -> Decimal:
-    """Сколько API-$ в $1, как его показывает кабинет поставщика (только отображение).
+    """Множитель только для дашборда: API-$ = баланс кабинета router.cheap × rate.
 
-    Квоты ключей и сверка балансов клиентов всегда в API-$ (1:1 с remain_quota).
-    Множитель нужен, чтобы рядом показать «real $» кошелька router.cheap.
+    Квоты ключей и сверка балансов клиентов этим множителем не трогаем (1:1 с remain_quota).
     """
     raw = get_setting("supplier_api_usd_rate").strip().replace(",", ".")
     if raw:
@@ -59,19 +58,18 @@ def usd_to_units(usd: Decimal) -> int:
 
 
 def units_to_usd(units: int) -> Decimal:
-    """Единицы remain_quota → API-$ сайта (балансы клиентов и лимиты ключей)."""
+    """Единицы remain_quota → $ без множителя (ключи и сырой баланс кабинета)."""
     return (Decimal(int(units)) / Decimal(settings.router_quota_per_unit)).quantize(
         Decimal("0.0001"), rounding=ROUND_HALF_UP
     )
 
 
-def units_to_real_usd(units: int) -> Decimal:
-    """Единицы квоты → $ «как в кабинете поставщика» (API-$ / курс)."""
-    api = units_to_usd(units)
+def cabinet_to_api_usd(cabinet_usd: Decimal) -> Decimal:
+    """Баланс кабинета поставщика → API-$ для дашборда."""
     rate = supplier_api_usd_rate()
     if rate == 1:
-        return api
-    return (api / rate).quantize(Decimal("0.0001"), rounding=ROUND_HALF_UP)
+        return cabinet_usd
+    return (cabinet_usd * rate).quantize(Decimal("0.0001"), rounding=ROUND_HALF_UP)
 
 
 def rub_to_usd(amount_rub: Decimal) -> Decimal:
