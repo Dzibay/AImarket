@@ -188,6 +188,9 @@ export function useAdminPanel() {
   const supplierBalanceReal = ref(null)
   const saveStatus = ref('')
   const saveStatusIsError = ref(false)
+  const ensureWalletChargeBusy = ref(false)
+  const ensureWalletChargeStatus = ref('')
+  const ensureWalletChargeIsError = ref(false)
 
   const kpiGroups = ref([])
   const revenueChart = ref({ bars: [], ticks: [], totalLabel: '', subtitle: '' })
@@ -1472,6 +1475,32 @@ export function useAdminPanel() {
     await loadAnalytics()
   }
 
+  async function ensureWalletChargeOnKeys() {
+    ensureWalletChargeStatus.value = ''
+    ensureWalletChargeIsError.value = false
+    ensureWalletChargeBusy.value = true
+    try {
+      const result = await api('/api/admin/upstream/keys/ensure-limit-by-wallet-charge', {
+        method: 'POST',
+        body: '{}',
+      })
+      const checked = Number(result.checked || 0)
+      const updated = Number(result.updated || 0)
+      const missing = Number(result.missing || 0)
+      const errCount = Number(result.error_count || 0)
+      ensureWalletChargeIsError.value = errCount > 0 && updated === 0
+      ensureWalletChargeStatus.value =
+        `Проверено ${checked}, обновлено ${updated}` +
+        (missing ? `, нет у поставщика ${missing}` : '') +
+        (errCount ? `, ошибок ${errCount}` : '')
+    } catch (error) {
+      ensureWalletChargeIsError.value = true
+      ensureWalletChargeStatus.value = error.message || 'Не удалось обновить ключи'
+    } finally {
+      ensureWalletChargeBusy.value = false
+    }
+  }
+
   async function saveSettings() {
     saveStatus.value = ''
     saveStatusIsError.value = false
@@ -1880,6 +1909,10 @@ export function useAdminPanel() {
     supplierDisplay,
     supplierApiDisplay,
     supplierRealDisplay,
+    ensureWalletChargeBusy,
+    ensureWalletChargeStatus,
+    ensureWalletChargeIsError,
+    ensureWalletChargeOnKeys,
     saveStatus,
     saveStatusIsError,
     kpiGroups,

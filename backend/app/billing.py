@@ -53,6 +53,52 @@ def sync_all() -> None:
     check_low_balance_users()
 
 
+def ensure_all_limit_by_wallet_charge() -> dict:
+    """Включает limit_by_wallet_charge на всех активных ключах у поставщика."""
+    with pool.connection() as conn:
+        rows = conn.execute(
+            """
+            SELECT upstream_id
+            FROM api_keys
+            WHERE revoked_at IS NULL
+              AND upstream_id IS NOT NULL
+            ORDER BY id
+            """
+        ).fetchall()
+    checked = 0
+    updated = 0
+    missing = 0
+    errors: list[str] = []
+    with billing_lock:
+        for row in rows:
+            upstream_id = int(row["upstream_id"])
+            checked += 1
+            try:
+                token = upstream.get_token(upstream_id)
+                if token is None:
+                    missing += 1
+                    continue
+                if upstream.ensure_limit_by_wallet_charge(upstream_id, token):
+                    updated += 1
+            except UpstreamError as exc:
+                errors.append(f"{upstream_id}: {exc.message}")
+                log.warning(
+                    "ensure limit_by_wallet_charge id=%s: %s",
+                    upstream_id,
+                    exc.message,
+                )
+            except Exception as exc:
+                errors.append(f"{upstream_id}: {exc}")
+                log.exception("ensure limit_by_wallet_charge id=%s", upstream_id)
+    return {
+        "checked": checked,
+        "updated": updated,
+        "missing": missing,
+        "errors": errors[:20],
+        "error_count": len(errors),
+    }
+
+
 def sync_user(user_id: int, *, force: bool = False) -> None:
     if not force:
         now = time.monotonic()
@@ -504,6 +550,17 @@ def _sync_key(user_id: int, upstream_id: int, *, force: bool = False) -> None:
                 (upstream_id,),
             )
         return
+    if not bool(token.get("limit_by_wallet_charge")):
+        try:
+            if upstream.ensure_limit_by_wallet_charge(upstream_id, token):
+                token = upstream.get_token(upstream_id) or token
+                log.info("ключ %s: включён limit_by_wallet_charge", upstream_id)
+        except UpstreamError as exc:
+            log.warning(
+                "не удалось включить limit_by_wallet_charge для ключа %s: %s",
+                upstream_id,
+                exc.message,
+            )
     amount = units_to_usd(int(token.get("remain_quota") or 0))
     with pool.connection() as conn:
         row = conn.execute(

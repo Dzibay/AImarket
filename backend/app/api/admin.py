@@ -10,7 +10,13 @@ from psycopg.errors import UniqueViolation
 from pydantic import BaseModel, Field
 
 from app.auth import check_password, make_token, require_admin
-from app.billing import BillingError, adjust_usd, block_user, unblock_user
+from app.billing import (
+    BillingError,
+    adjust_usd,
+    block_user,
+    ensure_all_limit_by_wallet_charge,
+    unblock_user,
+)
 from app.db import pool
 from app.config import settings
 from app.mailer import MailerError, enabled as mail_enabled
@@ -1271,6 +1277,12 @@ def list_topups() -> dict:
         "items": items,
         "awaiting_supplier_count": sum(1 for item in items if item["status"] == "awaiting_supplier"),
     }
+
+
+@router.post("/upstream/keys/ensure-limit-by-wallet-charge", dependencies=[Depends(require_admin)])
+def ensure_keys_limit_by_wallet_charge() -> dict:
+    """Включает на всех ключах router.cheap «считать лимит по списанию с баланса»."""
+    return ensure_all_limit_by_wallet_charge()
 
 
 @router.post("/topups/{topup_id}/settle", dependencies=[Depends(require_admin)])

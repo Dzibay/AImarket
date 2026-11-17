@@ -259,6 +259,24 @@
                   (×{{ settingsForm.supplier_api_usd_rate }})
                 </template>
               </p>
+              <p class="muted small">
+                Новые ключи создаются с «считать лимит по списанию с баланса».
+                Старые подхватываются при сверке; можно обновить все сразу.
+              </p>
+              <div class="row">
+                <button
+                  type="button"
+                  class="quiet sm"
+                  :disabled="ensureWalletChargeBusy"
+                  @click="ensureWalletChargeOnKeys"
+                >
+                  {{ ensureWalletChargeBusy ? 'Обновляю ключи…' : 'Включить лимит по списанию на всех ключах' }}
+                </button>
+                <span
+                  v-if="ensureWalletChargeStatus"
+                  :class="ensureWalletChargeIsError ? 'error' : 'ok-text'"
+                >{{ ensureWalletChargeStatus }}</span>
+              </div>
             </div>
             <div class="settings-block">
               <h3>Сайт</h3>
@@ -2040,6 +2058,10 @@ const {
   supplierDisplay,
   supplierApiDisplay,
   supplierRealDisplay,
+  ensureWalletChargeBusy,
+  ensureWalletChargeStatus,
+  ensureWalletChargeIsError,
+  ensureWalletChargeOnKeys,
   saveStatus,
   saveStatusIsError,
   kpiGroups,

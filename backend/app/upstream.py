@@ -118,6 +118,7 @@ class RouterCheap:
                     "remain_quota": units,
                     "expired_time": -1,
                     "unlimited_quota": False,
+                    "limit_by_wallet_charge": True,
                     "model_limits_enabled": False,
                     "model_limits": "",
                     "allow_ips": "",
@@ -316,6 +317,19 @@ class RouterCheap:
             raise UpstreamError("созданный ключ не найден")
         return int(matches[0]["id"])
 
+    def ensure_limit_by_wallet_charge(self, token_id: int, current: dict | None = None) -> bool:
+        """Включает «считать лимит по списанию с баланса». True — если обновили ключ."""
+        with self._lock:
+            self._ensure_login()
+            token = current if current is not None else self._token(token_id)
+            if token is None:
+                raise UpstreamError("ключ не найден")
+            if bool(token.get("limit_by_wallet_charge")):
+                return False
+            units = int(token.get("remain_quota") or 0)
+            self._put_quota(token_id, token, units)
+            return True
+
     def _put_quota(self, token_id: int, current: dict, units: int) -> None:
         self._authed(
             "PUT",
@@ -326,6 +340,8 @@ class RouterCheap:
                 "remain_quota": units,
                 "expired_time": current.get("expired_time") if current.get("expired_time") is not None else -1,
                 "unlimited_quota": False,
+                # Лимит ключа должен списываться как баланс (после цены источника и конвертации).
+                "limit_by_wallet_charge": True,
                 "model_limits_enabled": bool(current.get("model_limits_enabled")),
                 "model_limits": current.get("model_limits") or "",
                 "allow_ips": current.get("allow_ips") or "",
