@@ -511,7 +511,6 @@ def user_detail(user_id: int, days: int = Query(default=30, ge=7, le=90)) -> dic
             FROM ledger
             WHERE user_id = %s
             ORDER BY id DESC
-            LIMIT 80
             """,
             (user_id,),
         ).fetchall()
@@ -1175,17 +1174,52 @@ def _ledger_check(conn) -> dict:
 
 
 @router.get("/ledger", dependencies=[Depends(require_admin)])
-def list_ledger() -> dict:
+def list_ledger(
+    user_id: int | None = Query(default=None, ge=1),
+    kind: str | None = Query(default=None),
+    q: str = Query(default="", max_length=120),
+    limit: int = Query(default=500, ge=1, le=5000),
+) -> dict:
+    kind_filter = (kind or "").strip()
+    if kind_filter and kind_filter not in _LEDGER_KINDS:
+        raise HTTPException(status_code=400, detail="kind")
+    needle = q.strip()
+    clauses = ["TRUE"]
+    params: list[object] = []
+    if user_id is not None:
+        clauses.append("l.user_id = %s")
+        params.append(user_id)
+    if kind_filter:
+        clauses.append("l.kind = %s")
+        params.append(kind_filter)
+    if needle:
+        clauses.append(
+            """
+            (
+              COALESCE(l.note, '') ILIKE %s
+              OR COALESCE(u.email, '') ILIKE %s
+              OR COALESCE(u.username, '') ILIKE %s
+              OR COALESCE(u.first_name, '') ILIKE %s
+              OR CAST(l.user_id AS TEXT) = %s
+            )
+            """
+        )
+        like = f"%{needle}%"
+        params.extend([like, like, like, like, needle])
+    params.append(limit)
+    where = " AND ".join(clauses)
     with pool.connection() as conn:
         rows = conn.execute(
-            """
+            f"""
             SELECT l.id, l.user_id, l.kind, l.note, l.amount_usd, l.amount_kopecks, l.created_at,
                    u.telegram_id, u.username, u.first_name, u.email
             FROM ledger l
             JOIN users u ON u.id = l.user_id
+            WHERE {where}
             ORDER BY l.id DESC
-            LIMIT 200
-            """
+            LIMIT %s
+            """,
+            params,
         ).fetchall()
         check = _ledger_check(conn)
     return {

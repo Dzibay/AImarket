@@ -208,6 +208,9 @@ export function useAdminPanel() {
   const ledgerCheckCards = ref([])
   const ledgerItems = ref([])
   const ledgerSearch = ref('')
+  const ledgerKindFilter = ref('')
+  const ledgerUserFilter = ref('')
+  const ledgerLoading = ref(false)
   const ledgerModalOpen = ref(false)
   const ledgerForm = reactive({
     user_id: '',
@@ -235,6 +238,8 @@ export function useAdminPanel() {
   const userDetailLoading = ref(false)
   const userDetailError = ref('')
   const userDetailPeriod = ref(30)
+  const userLedgerSearch = ref('')
+  const userLedgerKind = ref('')
   const userDetailSpendChart = ref({ bars: [], ticks: [], totalLabel: '', subtitle: '' })
   const userDetailActiveKey = computed(() => {
     const keys = userDetail.value?.keys || []
@@ -595,22 +600,69 @@ export function useAdminPanel() {
     ]
   }
 
-  const filteredLedgerItems = computed(() => {
-    const q = ledgerSearch.value.trim().toLowerCase()
-    if (!q) return ledgerItems.value
-    return ledgerItems.value.filter((item) => {
+  const filteredLedgerItems = computed(() => ledgerItems.value)
+
+  const filteredUserLedger = computed(() => {
+    const rows = userDetail.value?.ledger || []
+    const kind = userLedgerKind.value
+    const q = userLedgerSearch.value.trim().toLowerCase()
+    return rows.filter((item) => {
+      if (kind && item.kind !== kind) return false
+      if (!q) return true
       const hay = [
-        person(item),
         ledgerKindLabel(item.kind),
         item.note || '',
         ledgerAmountText(item),
         formatRecentAt(item.created_at),
+        String(item.id || ''),
       ]
         .join(' ')
         .toLowerCase()
       return hay.includes(q)
     })
   })
+
+  async function loadLedger() {
+    ledgerLoading.value = true
+    try {
+      const params = new URLSearchParams()
+      params.set('limit', '5000')
+      if (ledgerKindFilter.value) params.set('kind', ledgerKindFilter.value)
+      if (ledgerUserFilter.value) params.set('user_id', String(ledgerUserFilter.value))
+      if (ledgerSearch.value.trim()) params.set('q', ledgerSearch.value.trim())
+      const ledger = await api('/api/admin/ledger?' + params.toString())
+      renderLedgerCheck(ledger.check || {})
+      ledgerItems.value = ledger.items
+    } finally {
+      ledgerLoading.value = false
+    }
+  }
+
+  let ledgerSearchTimer = 0
+  function onLedgerSearchInput() {
+    clearTimeout(ledgerSearchTimer)
+    ledgerSearchTimer = window.setTimeout(() => {
+      loadLedger().catch(() => {})
+    }, 280)
+  }
+
+  function setLedgerKindFilter(kind) {
+    ledgerKindFilter.value = kind
+    loadLedger().catch(() => {})
+  }
+
+  function setLedgerUserFilter(userId) {
+    ledgerUserFilter.value = userId ? String(userId) : ''
+    loadLedger().catch(() => {})
+  }
+
+  function openUserLedger(userId) {
+    ledgerUserFilter.value = String(userId)
+    ledgerKindFilter.value = ''
+    ledgerSearch.value = ''
+    activeTab.value = 'ledger'
+    loadLedger().catch(() => {})
+  }
 
   function ledgerKindLabel(kind) {
     return LEDGER_KINDS[kind] || kind
@@ -806,9 +858,7 @@ export function useAdminPanel() {
     supplierBalance.value = settings.supplier_balance_usd
     supplierBalanceReal.value = settings.supplier_balance_real_usd
 
-    const ledger = await api('/api/admin/ledger')
-    renderLedgerCheck(ledger.check || {})
-    ledgerItems.value = ledger.items
+    await loadLedger()
 
     const topupsData = await api('/api/admin/topups')
     topups.value = topupsData.items
@@ -1268,6 +1318,8 @@ export function useAdminPanel() {
     userDetailId.value = id
     userDetailError.value = ''
     userDetailLoading.value = true
+    userLedgerSearch.value = ''
+    userLedgerKind.value = ''
     if (typeof window !== 'undefined') window.scrollTo({ top: 0, behavior: 'smooth' })
     try {
       const data = await api('/api/admin/users/' + id + '?days=' + userDetailPeriod.value)
@@ -1286,6 +1338,8 @@ export function useAdminPanel() {
     userDetail.value = null
     userDetailError.value = ''
     userDetailLoading.value = false
+    userLedgerSearch.value = ''
+    userLedgerKind.value = ''
     userDetailSpendChart.value = { bars: [], ticks: [], totalLabel: '', subtitle: '' }
   }
 
@@ -1951,6 +2005,14 @@ export function useAdminPanel() {
     ledgerItems,
     filteredLedgerItems,
     ledgerSearch,
+    ledgerKindFilter,
+    ledgerUserFilter,
+    ledgerLoading,
+    loadLedger,
+    onLedgerSearchInput,
+    setLedgerKindFilter,
+    setLedgerUserFilter,
+    openUserLedger,
     ledgerForm,
     ledgerError,
     ledgerUserOptions,
@@ -2018,6 +2080,9 @@ export function useAdminPanel() {
     userDetailPeriod,
     userDetailSpendChart,
     userDetailActiveKey,
+    userLedgerSearch,
+    userLedgerKind,
+    filteredUserLedger,
     openUserDetail,
     closeUserDetail,
     setUserDetailPeriod,

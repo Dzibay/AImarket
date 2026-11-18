@@ -748,7 +748,10 @@
               <h2>Транзакции</h2>
               <p class="muted ledger-sub">История операций и сверка платежей</p>
             </div>
-            <span class="stat-line">Всего: <strong>{{ ledgerItems.length }}</strong></span>
+            <span class="stat-line">
+              {{ ledgerLoading ? 'Загрузка…' : 'Показано' }}:
+              <strong>{{ filteredLedgerItems.length }}</strong>
+            </span>
           </div>
 
           <div class="ledger-checks">
@@ -773,14 +776,49 @@
                   <input
                     v-model="ledgerSearch"
                     type="search"
-                    placeholder="Поиск по клиенту или операции…"
+                    placeholder="Поиск по клиенту, id или заметке…"
+                    @input="onLedgerSearchInput"
                   >
+                </label>
+                <label class="ledger-user-filter">
+                  <select
+                    :value="ledgerUserFilter"
+                    aria-label="Клиент"
+                    @change="setLedgerUserFilter($event.target.value)"
+                  >
+                    <option value="">Все клиенты</option>
+                    <option
+                      v-for="item in ledgerUserOptions"
+                      :key="item.id"
+                      :value="String(item.id)"
+                    >
+                      {{ person(item) }}
+                    </option>
+                  </select>
                 </label>
                 <button type="button" class="sm" @click="openLedgerModal">
                   <AppIcon name="plus" :size="14" />
                   Добавить
                 </button>
               </div>
+            </div>
+            <div class="ledger-kind-filters" role="tablist" aria-label="Тип операции">
+              <button
+                type="button"
+                role="tab"
+                :class="{ on: !ledgerKindFilter }"
+                :aria-selected="!ledgerKindFilter"
+                @click="setLedgerKindFilter('')"
+              >Все</button>
+              <button
+                v-for="opt in ledgerKindOptions"
+                :key="opt.value"
+                type="button"
+                role="tab"
+                :class="{ on: ledgerKindFilter === opt.value }"
+                :aria-selected="ledgerKindFilter === opt.value"
+                @click="setLedgerKindFilter(opt.value)"
+              >{{ opt.label }}</button>
             </div>
             <div class="table-wrap ledger-table-wrap">
               <table class="ledger-table">
@@ -795,12 +833,12 @@
                 </thead>
                 <tbody>
                   <tr v-if="!filteredLedgerItems.length" class="empty">
-                    <td colspan="5">{{ ledgerItems.length ? 'Ничего не найдено' : 'Пока пусто' }}</td>
+                    <td colspan="5">{{ ledgerItems.length || ledgerLoading ? 'Ничего не найдено' : 'Пока пусто' }}</td>
                   </tr>
                   <tr v-for="item in filteredLedgerItems" :key="item.id">
                     <td class="nowrap muted ledger-when">{{ financeDateOnly(item.created_at) }}</td>
                     <td>
-                      <div class="user-cell compact">
+                      <button type="button" class="user-cell compact linkish" @click="openUserDetail(item.user_id)">
                         <span
                           class="user-channel"
                           :class="item.telegram_id ? 'tg' : 'web'"
@@ -809,7 +847,7 @@
                           <AppIcon :name="item.telegram_id ? 'telegram' : 'mail'" :size="13" />
                         </span>
                         <span class="user-name">{{ person(item) }}</span>
-                      </div>
+                      </button>
                     </td>
                     <td>
                       <div class="ledger-op">
@@ -1337,8 +1375,37 @@
 
               <div class="user-detail-grid">
                 <div>
-                  <h3>Журнал</h3>
-                  <div class="table-wrap user-detail-table-wrap">
+                  <div class="user-ledger-head">
+                    <h3>Журнал <span class="muted tiny">{{ filteredUserLedger.length }} / {{ userDetail.ledger.length }}</span></h3>
+                    <button type="button" class="quiet sm" @click="openUserLedger(userDetail.user.id)">
+                      В транзакциях
+                    </button>
+                  </div>
+                  <div class="user-ledger-tools">
+                    <label class="ledger-search">
+                      <AppIcon name="search" :size="15" />
+                      <input v-model="userLedgerSearch" type="search" placeholder="Поиск по заметке или сумме…">
+                    </label>
+                    <div class="ledger-kind-filters compact" role="tablist" aria-label="Тип операции">
+                      <button
+                        type="button"
+                        role="tab"
+                        :class="{ on: !userLedgerKind }"
+                        :aria-selected="!userLedgerKind"
+                        @click="userLedgerKind = ''"
+                      >Все</button>
+                      <button
+                        v-for="opt in ledgerKindOptions"
+                        :key="opt.value"
+                        type="button"
+                        role="tab"
+                        :class="{ on: userLedgerKind === opt.value }"
+                        :aria-selected="userLedgerKind === opt.value"
+                        @click="userLedgerKind = opt.value"
+                      >{{ opt.label }}</button>
+                    </div>
+                  </div>
+                  <div class="table-wrap user-detail-table-wrap user-ledger-table-wrap">
                     <table class="user-detail-table">
                       <thead>
                         <tr>
@@ -1349,10 +1416,10 @@
                         </tr>
                       </thead>
                       <tbody>
-                        <tr v-if="!userDetail.ledger.length" class="empty">
-                          <td colspan="4">Пока пусто</td>
+                        <tr v-if="!filteredUserLedger.length" class="empty">
+                          <td colspan="4">{{ userDetail.ledger.length ? 'Ничего не найдено' : 'Пока пусто' }}</td>
                         </tr>
-                        <tr v-for="row in userDetail.ledger" :key="row.id">
+                        <tr v-for="row in filteredUserLedger" :key="row.id">
                           <td>
                             <span class="ledger-kind" :class="ledgerKindClass(row.kind)">
                               {{ ledgerKindLabel(row.kind) }}
@@ -2093,6 +2160,13 @@ const {
   ledgerItems,
   filteredLedgerItems,
   ledgerSearch,
+  ledgerKindFilter,
+  ledgerUserFilter,
+  ledgerLoading,
+  onLedgerSearchInput,
+  setLedgerKindFilter,
+  setLedgerUserFilter,
+  openUserLedger,
   ledgerForm,
   ledgerError,
   ledgerUserOptions,
@@ -2155,6 +2229,9 @@ const {
   userDetailPeriod,
   userDetailSpendChart,
   userDetailActiveKey,
+  userLedgerSearch,
+  userLedgerKind,
+  filteredUserLedger,
   openUserDetail,
   closeUserDetail,
   setUserDetailPeriod,
@@ -2696,6 +2773,70 @@ onBeforeUnmount(() => {
   align-items: center;
   gap: 10px;
   flex-wrap: wrap;
+}
+.admin-page .ledger-user-filter {
+  margin: 0;
+  min-width: min(220px, 100%);
+}
+.admin-page .ledger-user-filter select {
+  height: 38px;
+  padding: 0 12px;
+  border-radius: 999px;
+  font-size: 13px;
+}
+.admin-page .ledger-kind-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0 0 12px;
+}
+.admin-page .ledger-kind-filters button {
+  height: 30px;
+  padding: 0 12px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: #fff;
+  color: var(--muted-2);
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.admin-page .ledger-kind-filters button.on {
+  background: var(--ink);
+  border-color: transparent;
+  color: #fff;
+}
+.admin-page .ledger-kind-filters.compact button {
+  height: 28px;
+  padding: 0 10px;
+  font-size: 12px;
+}
+.admin-page .user-ledger-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+.admin-page .user-ledger-head h3 { margin: 0; }
+.admin-page .user-ledger-tools {
+  display: grid;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+.admin-page .ledger-table .user-cell.linkish {
+  width: 100%;
+  border: 0;
+  padding: 0;
+  background: none;
+  text-align: left;
+  cursor: pointer;
+  font: inherit;
+  color: inherit;
+}
+.admin-page .ledger-table .user-cell.linkish:hover .user-name {
+  text-decoration: underline;
 }
 .admin-page .ledger-list-head {
   display: flex;
@@ -3449,6 +3590,10 @@ onBeforeUnmount(() => {
 .admin-page .user-detail-table-wrap {
   overflow-x: auto;
   -webkit-overflow-scrolling: touch;
+}
+.admin-page .user-ledger-table-wrap {
+  max-height: 420px;
+  overflow: auto;
 }
 .admin-page .user-detail-table {
   min-width: 0;
