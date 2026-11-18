@@ -80,8 +80,6 @@ class RouterCheap:
             current = self._token(token_id)
             if current is None:
                 raise UpstreamError("ключ не найден")
-            if extra_units > self._balance_units():
-                raise UpstreamError("на router.cheap не хватает баланса")
             new_units = int(current.get("remain_quota") or 0) + extra_units
             self._put_quota(token_id, current, new_units)
         return units_to_usd(new_units)
@@ -94,10 +92,6 @@ class RouterCheap:
             current = self._token(token_id)
             if current is None:
                 raise UpstreamError("ключ не найден")
-            old_units = int(current.get("remain_quota") or 0)
-            increase = units - old_units
-            if increase > self._balance_units():
-                raise UpstreamError("на router.cheap не хватает баланса")
             self._put_quota(token_id, current, units)
         return units_to_usd(units)
 
@@ -107,9 +101,6 @@ class RouterCheap:
             raise UpstreamError("лимит ключа слишком маленький")
         with self._lock:
             self._ensure_login()
-            balance = self._balance_units()
-            if units > balance:
-                raise UpstreamError("на router.cheap не хватает баланса")
             self._authed(
                 "POST",
                 "/api/token/",

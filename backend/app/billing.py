@@ -703,35 +703,10 @@ def _sync_key(user_id: int, upstream_id: int, *, force: bool = False) -> None:
 
 
 def _ensure_pool(extra: Decimal, user_id: int) -> None:
-    # Баланс на активном (незамороженном) ключе уже списан со счёта поставщика.
-    # Проверяем только то, что нужно забрать у поставщика сейчас: сумму операции и
-    # локальный остаток этого пользователя, если его ключ заморожен или отсутствует.
-    # Остатки других замороженных пользователей не учитываем — они забираются, когда
-    # те сами возвращаются, и каждый раз проходят эту же проверку.
-    with pool.connection() as conn:
-        row = conn.execute(
-            """
-            SELECT COALESCE(SUM(u.balance_usd), 0) AS total
-            FROM users u
-            WHERE u.id = %s
-              AND NOT EXISTS (
-                SELECT 1 FROM api_keys k
-                WHERE k.user_id = u.id
-                  AND k.revoked_at IS NULL
-                  AND k.upstream_id IS NOT NULL
-                  AND k.frozen_at IS NULL
-            )
-            """,
-            (user_id,),
-        ).fetchone()
-    promised = Decimal(row["total"]) + extra
-    try:
-        # Сырой баланс кабинета в тех же единицах, что лимиты ключей (без множителя дашборда).
-        master = upstream.supplier_balance_real_usd()
-    except UpstreamError as exc:
-        _reraise(exc)
-    if promised > master + Decimal("0.01"):
-        raise BillingError("supplier")
+    # Раньше сверяли сумму зачисления с балансом кабинета router.cheap и
+    # блокировали оплату статусом awaiting_supplier. Проверку убрали: лимит
+    # выставляем у поставщика без предпроверки. Аргументы оставлены — вызовы те же.
+    return
 
 
 def _require_offer(user_id: int) -> None:
