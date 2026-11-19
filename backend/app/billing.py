@@ -164,21 +164,21 @@ def _rebalance_key(key_id: int, user_id: int, rate: Decimal) -> bool:
         _set_key_rate(key_id, rate)
         return True
     upstream_id = int(key["upstream_id"])
-    if key["quota_rate"] is not None:
-        # Сначала досчитываем расход по старому курсу, потом переносим остаток.
-        _sync_key(user_id, upstream_id, force=True)
-        _user_sync_at[user_id] = time.monotonic()
-        with pool.connection() as conn:
-            still = conn.execute(
-                "SELECT frozen_at, revoked_at FROM api_keys WHERE id = %s",
-                (key_id,),
-            ).fetchone()
-        if still is None or still["revoked_at"] is not None:
-            return False
-        if still["frozen_at"] is not None:
-            _set_key_rate(key_id, rate)
-            return True
-    # Ключи до перехода (quota_rate IS NULL): верим локальному балансу сервиса.
+    # Сначала досчитываем расход по старому курсу (у старых ключей — 1:1),
+    # чтобы запросы до переключения не попали в журнал по новому курсу.
+    _sync_key(user_id, upstream_id, force=True)
+    _user_sync_at[user_id] = time.monotonic()
+    with pool.connection() as conn:
+        still = conn.execute(
+            "SELECT frozen_at, revoked_at FROM api_keys WHERE id = %s",
+            (key_id,),
+        ).fetchone()
+    if still is None or still["revoked_at"] is not None:
+        return False
+    if still["frozen_at"] is not None:
+        _set_key_rate(key_id, rate)
+        return True
+    # Квоту выставляем от локального баланса сервиса (ему верим), уже в реальных $.
     balance = max(_balance(user_id), Decimal(0))
     updated = upstream.update_quota(upstream_id, balance, rate)
     _set_key_rate(key_id, rate)
@@ -777,7 +777,7 @@ def _sync_key(user_id: int, upstream_id: int, *, force: bool = False) -> None:
                 key_label = f"{secret[:8]}...{secret[-4:]}"
             elif prefix:
                 key_label = prefix
-            limit_usd = real_units_to_api_usd(int(token.get("used_quota") or 0), rate) + amount
+            limit_usd = _key_spent_api_usd(key_id) + amount
         else:
             limit_usd = amount
     else:
@@ -940,6 +940,16 @@ def _set_key_quota(key_id: int, amount: Decimal) -> None:
         conn.execute("UPDATE api_keys SET quota_usd = %s WHERE id = %s", (amount, key_id))
 
 
+def _key_spent_api_usd(key_id: int) -> Decimal:
+    """Расход ключа в API-$ по журналу usage (уже по курсу, действовавшему на момент запроса)."""
+    with pool.connection() as conn:
+        row = conn.execute(
+            "SELECT COALESCE(SUM(quota_units), 0) AS units FROM usage WHERE api_key_id = %s",
+            (key_id,),
+        ).fetchone()
+    return units_to_usd(int(row["units"] or 0))
+
+
 def _set_key_rate(key_id: int, rate: Decimal) -> None:
     with pool.connection() as conn:
         conn.execute("UPDATE api_keys SET quota_rate = %s WHERE id = %s", (rate, key_id))
@@ -1012,7 +1022,9 @@ def _key_stats(
     with pool.connection() as conn:
         stats = usage_period_stats(conn, user_id)
     spent_logs = units_to_usd(int(stats["spent_units"]))
-    if spent_logs > used:
+    # used_quota у поставщика копит реальные $ за всю жизнь ключа, в т.ч. по старому курсу,
+    # поэтому × текущий курс его завышает. Журнал usage уже в API-$ — он главный.
+    if spent_logs > 0:
         used = spent_logs
     limit = (remain + used).quantize(Decimal("0.01"))
     last = stats["last_request_at"]

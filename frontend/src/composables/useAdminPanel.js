@@ -203,6 +203,14 @@ export function useAdminPanel() {
   const syncKeysStatus = ref('')
   const syncKeysIsError = ref(false)
 
+  const balances = ref(null)
+  const balancesLoading = ref(false)
+  const balancesSyncing = ref(false)
+  const balancesError = ref('')
+  const balancesFilter = ref('problems')
+  const balancesSearch = ref('')
+  const balancesLoadedAt = ref('')
+
   const kpiGroups = ref([])
   const revenueChart = ref({ bars: [], ticks: [], totalLabel: '', subtitle: '' })
   const spendChart = ref({ bars: [], ticks: [], totalLabel: '', subtitle: '' })
@@ -412,6 +420,12 @@ export function useAdminPanel() {
     },
     { id: 'ledger', label: 'Транзакции' },
     { id: 'users', label: 'Пользователи' },
+    {
+      id: 'balances',
+      label: balances.value?.counts?.bad > 0
+        ? `Балансы (${balances.value.counts.bad})`
+        : 'Балансы',
+    },
     {
       id: 'emails',
       label: emailsFailedCount.value > 0
@@ -662,6 +676,11 @@ export function useAdminPanel() {
   function setLedgerUserFilter(userId) {
     ledgerUserFilter.value = userId ? String(userId) : ''
     loadLedger().catch(() => {})
+  }
+
+  function openBalanceUser(userId) {
+    setTab('users')
+    openUserDetail(userId)
   }
 
   function openUserLedger(userId) {
@@ -1252,6 +1271,7 @@ export function useAdminPanel() {
     }
     if (tab === 'finance') loadFinance()
     if (tab === 'emails') loadEmails()
+    if (tab === 'balances') loadBalances()
     if (tab !== 'users') closeUserDetail()
   }
 
@@ -1569,6 +1589,94 @@ export function useAdminPanel() {
       ensureWalletChargeBusy.value = false
     }
   }
+
+  async function loadBalances({ sync = false } = {}) {
+    balancesError.value = ''
+    if (sync) balancesSyncing.value = true
+    balancesLoading.value = true
+    try {
+      if (sync) await api('/api/admin/upstream/keys/sync', { method: 'POST', body: '{}' })
+      balances.value = await api('/api/admin/balances')
+      balancesLoadedAt.value = new Date().toLocaleTimeString('ru-RU')
+    } catch (err) {
+      balancesError.value = err?.message || 'Не удалось загрузить сверку'
+    } finally {
+      balancesLoading.value = false
+      balancesSyncing.value = false
+    }
+  }
+
+  const balanceCards = computed(() => {
+    const data = balances.value
+    if (!data) return []
+    const t = data.totals || {}
+    const c = data.counts || {}
+    const rate = Number(data.rate || 1)
+    const cards = [
+      {
+        label: 'Курс API-$',
+        value: `1 реальный $ = ${rate} API-$`,
+        hint: 'Из настроек. Ключ у поставщика = баланс клиента ÷ курс',
+        tone: 'neutral',
+      },
+      {
+        label: 'Ключи в порядке',
+        value: `${c.ok || 0} из ${(c.ok || 0) + (c.warn || 0) + (c.bad || 0)}`,
+        hint: (c.bad || c.warn)
+          ? `Ошибок: ${c.bad || 0}, предупреждений: ${c.warn || 0}`
+          : 'Все ключи сходятся с балансами',
+        ok: !(c.bad || c.warn),
+        tone: c.bad ? 'bad' : c.warn ? 'neutral' : 'ok',
+      },
+      {
+        label: 'Балансы клиентов',
+        value: usd4(t.local_usd),
+        hint: `Активные ${usd4(t.active_local_usd)} · заморож. ${usd4(t.frozen_local_usd)} · без ключа ${usd4(t.keyless_local_usd)}`,
+        tone: 'neutral',
+      },
+      {
+        label: 'На ключах у router.cheap',
+        value: `${usd4(t.keys_real_usd)} real`,
+        hint: `= ${usd4(t.keys_api_usd)} API-$ (активные балансы ${usd4(t.active_local_usd)})`,
+        tone: 'neutral',
+      },
+    ]
+    if (data.cabinet_real_usd == null) {
+      cards.push({
+        label: 'Кабинет router.cheap',
+        value: 'нет данных',
+        hint: data.cabinet_error || '',
+        tone: 'bad',
+      })
+    } else {
+      const coverage = Number(data.coverage_real_usd || 0)
+      cards.push({
+        label: 'Кабинет router.cheap',
+        value: `${usd4(data.cabinet_real_usd)} real`,
+        hint: `= ${usd4(data.cabinet_api_usd)} API-$`,
+        tone: 'neutral',
+      })
+      cards.push({
+        label: coverage >= 0 ? 'Запас в кабинете' : 'Не хватает в кабинете',
+        value: `${usd4(Math.abs(coverage))} real`,
+        hint: `Нужно на все балансы: ${usd4(data.need_real_usd)} real`,
+        ok: coverage >= 0,
+        tone: coverage >= 0 ? 'ok' : 'bad',
+      })
+    }
+    return cards
+  })
+
+  const filteredBalanceItems = computed(() => {
+    const items = balances.value?.items || []
+    const q = balancesSearch.value.trim().toLowerCase()
+    return items.filter((item) => {
+      if (balancesFilter.value === 'problems' && item.tone === 'ok') return false
+      if (balancesFilter.value === 'active' && (item.frozen || item.local_usd <= 0)) return false
+      if (!q) return true
+      return `${item.person} ${item.user_id} ${item.prefix}`.toLowerCase().includes(q)
+    })
+  })
 
   async function syncUpstreamKeys() {
     syncKeysStatus.value = ''
@@ -2172,6 +2280,17 @@ export function useAdminPanel() {
     ledgerAmountText,
     ledgerNoteText,
     formatRecentAt,
+    balances,
+    balancesLoading,
+    balancesSyncing,
+    balancesError,
+    balancesFilter,
+    balancesSearch,
+    balancesLoadedAt,
+    balanceCards,
+    filteredBalanceItems,
+    loadBalances,
+    openBalanceUser,
     modelRequests,
     payerAmount,
     topupAmount,

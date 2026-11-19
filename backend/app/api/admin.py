@@ -1357,6 +1357,14 @@ def ensure_keys_limit_by_wallet_charge() -> dict:
     return ensure_all_limit_by_wallet_charge()
 
 
+@router.get("/balances", dependencies=[Depends(require_admin)])
+def balances_report() -> dict:
+    """Сверка всех балансов: сервис (API-$) ↔ ключи router.cheap (реальные $ × курс)."""
+    from app.balance_check import balance_report
+
+    return balance_report()
+
+
 @router.post("/upstream/keys/sync", dependencies=[Depends(require_admin)])
 def sync_upstream_keys() -> dict:
     """Сверяет локальные балансы с remain_quota ключей (remain_quota × курс ключа = API-$)."""

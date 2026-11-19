@@ -1642,6 +1642,180 @@
           </template>
         </section>
 
+        <section v-show="activeTab === 'balances'" class="panel tab-balances">
+          <div class="panel-head ledger-head">
+            <div>
+              <h2>Балансы</h2>
+              <p class="muted ledger-sub">
+                Сверка каждого клиента: баланс в сервисе (API-$) ↔ остаток ключа у router.cheap (реальные $ × курс ключа)
+              </p>
+            </div>
+            <div class="balances-actions">
+              <span v-if="balancesLoadedAt" class="muted">Обновлено в {{ balancesLoadedAt }}</span>
+              <button type="button" class="quiet sm" :disabled="balancesLoading" @click="loadBalances()">
+                {{ balancesLoading && !balancesSyncing ? 'Проверяем…' : 'Проверить' }}
+              </button>
+              <button type="button" class="sm" :disabled="balancesLoading" @click="loadBalances({ sync: true })">
+                {{ balancesSyncing ? 'Синхронизируем…' : 'Синхронизировать и проверить' }}
+              </button>
+            </div>
+          </div>
+
+          <p v-if="balancesError" class="notice bad">{{ balancesError }}</p>
+          <p v-if="!balances && balancesLoading" class="muted">Опрашиваем ключи у router.cheap…</p>
+
+          <template v-if="balances">
+            <div class="ledger-checks">
+              <div
+                v-for="card in balanceCards"
+                :key="card.label"
+                class="ledger-check"
+                :class="card.tone || (card.ok ? 'ok' : 'bad')"
+              >
+                <span class="ledger-check-label">{{ card.label }}</span>
+                <b class="ledger-check-value">{{ card.value }}</b>
+                <small v-if="card.hint" class="ledger-check-hint">{{ card.hint }}</small>
+              </div>
+            </div>
+
+            <details class="balances-legend">
+              <summary>Как читать таблицу</summary>
+              <ul>
+                <li><b>Баланс клиента</b> — сколько API-$ видит клиент в сервисе.</li>
+                <li><b>Ключ у router.cheap</b> — остаток квоты ключа: сверху в API-$ (× курс ключа), снизу в реальных $ кабинета. Должен совпадать с балансом клиента (допуск ${{ balances.tolerance_usd }}).</li>
+                <li><b>Курс ключа</b> — по какому курсу выставлен ключ. Должен совпадать с курсом в настройках; «1:1 старый» — ключ ещё не переведён (переведёт ближайшая синхронизация).</li>
+                <li><b>Списано / журнал</b> — сколько реальных $ router.cheap списал с ключа за всё время и сколько реальных $ записано в журнале запросов. Совпадают — значит router.cheap списывает ключ в тех же единицах, что пишет в журнал.</li>
+                <li><b>Последний запрос</b> — во сколько раз API-$ клиента больше реальных $ в последнем запросе. После перехода должно быть равно курсу.</li>
+                <li>Замороженный ключ: квота у поставщика 0, баланс хранится в сервисе — это норма.</li>
+              </ul>
+            </details>
+
+            <div class="ledger-list">
+              <div class="ledger-list-head">
+                <h3>Ключи клиентов</h3>
+                <div class="ledger-list-tools">
+                  <label class="ledger-search">
+                    <AppIcon name="search" :size="15" />
+                    <input v-model="balancesSearch" type="search" placeholder="Клиент, id или префикс ключа…">
+                  </label>
+                  <label class="ledger-user-filter">
+                    <select v-model="balancesFilter" aria-label="Фильтр">
+                      <option value="problems">Только с замечаниями</option>
+                      <option value="active">Активные с балансом</option>
+                      <option value="all">Все ключи</option>
+                    </select>
+                  </label>
+                </div>
+              </div>
+              <div class="table-wrap">
+                <table class="balances-table">
+                  <thead>
+                    <tr>
+                      <th>Клиент</th>
+                      <th class="num">Баланс клиента</th>
+                      <th class="num">Ключ у router.cheap</th>
+                      <th class="num">Разница</th>
+                      <th class="num">Курс ключа</th>
+                      <th class="num">Списано / журнал</th>
+                      <th class="num">Последний запрос</th>
+                      <th>Проверка</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr v-if="!filteredBalanceItems.length" class="empty">
+                      <td colspan="8">
+                        {{ balancesFilter === 'problems' ? 'Замечаний нет — все ключи сходятся' : 'Пусто' }}
+                      </td>
+                    </tr>
+                    <tr
+                      v-for="item in filteredBalanceItems"
+                      :key="item.key_id"
+                      :class="{ 'row-alert': item.tone === 'bad' }"
+                    >
+                      <td>
+                        <button type="button" class="link-btn" @click="openBalanceUser(item.user_id)">
+                          {{ item.person }}
+                        </button>
+                        <div class="muted small">
+                          #{{ item.user_id }} · {{ item.prefix || 'ключ ' + item.upstream_id }}
+                          <span v-if="item.frozen" class="badge neutral">заморожен</span>
+                          <span v-if="item.blocked" class="badge bad">заблокирован</span>
+                          <span v-if="item.enabled === false && !item.blocked" class="badge warn">выключен</span>
+                        </div>
+                      </td>
+                      <td class="num"><b>{{ usd4(item.local_usd) }}</b></td>
+                      <td class="num">
+                        <template v-if="item.remain_real_usd != null">
+                          <b>{{ usd4(item.remain_api_usd) }}</b>
+                          <div class="muted small">{{ usd4(item.remain_real_usd) }} real</div>
+                        </template>
+                        <span v-else class="muted">—</span>
+                      </td>
+                      <td class="num">
+                        <span v-if="item.frozen" class="muted">—</span>
+                        <span
+                          v-else-if="item.diff_usd != null"
+                          :class="Math.abs(item.diff_usd) > balances.tolerance_usd ? 'diff-bad' : 'diff-ok'"
+                        >
+                          {{ Math.abs(item.diff_usd) > balances.tolerance_usd ? usd4(item.diff_usd) : '✓' }}
+                        </span>
+                      </td>
+                      <td class="num">
+                        <span v-if="item.key_rate == null" class="badge warn">1:1 старый</span>
+                        <span v-else :class="item.key_rate === balances.rate ? 'diff-ok' : 'diff-bad'">
+                          × {{ item.key_rate }}
+                        </span>
+                      </td>
+                      <td class="num">
+                        <template v-if="item.used_real_usd != null">
+                          {{ usd4(item.used_real_usd) }}
+                          <div class="muted small">журнал {{ usd4(item.log_real_usd) }} · {{ item.requests }} запр.</div>
+                        </template>
+                        <span v-else class="muted">—</span>
+                      </td>
+                      <td class="num">
+                        <template v-if="item.last_request_rate != null">
+                          <span :class="Math.abs(item.last_request_rate - balances.rate) < 0.01 ? 'diff-ok' : 'diff-warn'">
+                            × {{ item.last_request_rate }}
+                          </span>
+                          <div class="muted small">{{ formatRecentAt(item.last_request_at) }}</div>
+                        </template>
+                        <span v-else class="muted">нет запросов</span>
+                      </td>
+                      <td class="balances-checks">
+                        <span v-if="!item.checks.length" class="badge ok">Сходится</span>
+                        <div v-for="(check, i) in item.checks" :key="i" :class="['check-line', check.tone]">
+                          {{ check.text }}
+                        </div>
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <div v-if="balances.keyless.length" class="ledger-list">
+              <div class="ledger-list-head">
+                <h3>Баланс без ключа</h3>
+                <span class="muted">Деньги лежат только в сервисе — ключ создастся по текущему курсу</span>
+              </div>
+              <div class="table-wrap">
+                <table>
+                  <thead>
+                    <tr><th>Клиент</th><th class="num">Баланс</th></tr>
+                  </thead>
+                  <tbody>
+                    <tr v-for="item in balances.keyless" :key="item.user_id">
+                      <td>{{ item.person }} <span class="muted">#{{ item.user_id }}</span></td>
+                      <td class="num">{{ usd4(item.local_usd) }}</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </template>
+        </section>
+
         <section v-show="activeTab === 'referrals'" class="panel tab-referrals">
           <div class="panel-head">
             <h2>Рефералы</h2>
@@ -2313,6 +2487,17 @@ const {
   ledgerAmountText,
   ledgerNoteText,
   formatRecentAt,
+  balances,
+  balancesLoading,
+  balancesSyncing,
+  balancesError,
+  balancesFilter,
+  balancesSearch,
+  balancesLoadedAt,
+  balanceCards,
+  filteredBalanceItems,
+  loadBalances,
+  openBalanceUser,
   modelRequests,
   payerAmount,
   topupAmount,
@@ -2734,6 +2919,43 @@ onBeforeUnmount(() => {
 }
 .admin-page .ledger-check.ok .ledger-check-value { color: var(--ok); }
 .admin-page .ledger-check.bad .ledger-check-value { color: var(--danger); }
+.admin-page .balances-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.admin-page .balances-legend {
+  margin-top: 14px;
+  padding: 10px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-soft);
+  font-size: 13px;
+}
+.admin-page .balances-legend summary { cursor: pointer; font-weight: 600; }
+.admin-page .balances-legend ul { margin: 8px 0 0; padding-left: 18px; line-height: 1.55; }
+.admin-page .balances-table td { vertical-align: top; }
+.admin-page .balances-table .small { font-size: 12px; margin-top: 2px; }
+.admin-page .balances-checks { min-width: 260px; max-width: 420px; }
+.admin-page .check-line {
+  font-size: 12.5px;
+  line-height: 1.4;
+  padding: 2px 0 2px 8px;
+  border-left: 3px solid var(--border);
+  margin-bottom: 4px;
+}
+.admin-page .check-line.warn { border-color: var(--warn); color: var(--warn); }
+.admin-page .check-line.bad { border-color: var(--danger); color: var(--danger); }
+.admin-page .diff-ok { color: var(--ok); font-weight: 600; }
+.admin-page .diff-warn { color: var(--warn); font-weight: 600; }
+.admin-page .diff-bad { color: var(--danger); font-weight: 600; }
+.admin-page .link-btn {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--text);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+  text-align: left;
+}
+.admin-page .link-btn:hover { text-decoration: underline; }
 .admin-page .ledger-check-hint {
   color: var(--muted);
   font-size: 12px;
