@@ -33,6 +33,14 @@ export function usd4(value) {
   return '$' + Number(value).toFixed(4)
 }
 
+// Расход: API-$ (что списано с клиента) и реальные $ кабинета router.cheap.
+export function usdApiReal(api, real) {
+  const apiLabel = usd4(api || 0)
+  if (real === undefined || real === null) return apiLabel
+  const realLabel = usd4(real)
+  return realLabel === apiLabel ? apiLabel : `${apiLabel} · ${realLabel} real`
+}
+
 export function shortDate(value) {
   if (!value) return '—'
   const moment = new Date(value)
@@ -729,6 +737,10 @@ export function useAdminPanel() {
           ? `${supplierApi} API`
           : `${supplierApi} API · ${supplierReal} real`
     const spendPeriod = (data.spend_by_day || []).reduce((sum, row) => sum + Number(row.usd || 0), 0)
+    const spendPeriodReal = (data.spend_by_day || []).reduce(
+      (sum, row) => sum + Number(row.real_usd ?? row.usd ?? 0),
+      0,
+    )
     const requestsPeriod = (data.spend_by_day || []).reduce((sum, row) => sum + Number(row.requests || 0), 0)
 
     kpiGroups.value = [
@@ -746,8 +758,8 @@ export function useAdminPanel() {
       {
         title: 'Расход',
         cards: [
-          { label: 'Расход сегодня', value: usd4(data.spend_today_usd) },
-          { label: 'Расход за период', value: usd4(spendPeriod) },
+          { label: 'Расход сегодня', value: usdApiReal(data.spend_today_usd, data.spend_today_real_usd) },
+          { label: 'Расход за период', value: usdApiReal(spendPeriod, spendPeriodReal) },
           { label: 'Запросов сегодня', value: String(data.requests_today) },
           { label: 'Запросов за период', value: String(requestsPeriod) },
           { label: 'Балансы клиентов', value: usd(data.customer_balance_usd) },
@@ -2167,6 +2179,7 @@ export function useAdminPanel() {
     rub,
     usd,
     usd4,
+    usdApiReal,
     shortDate,
     conversion,
     statusBadgeClass,

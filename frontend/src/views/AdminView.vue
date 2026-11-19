@@ -121,7 +121,7 @@
                     </tr>
                     <tr v-for="row in models" :key="row.model">
                       <td>{{ row.model }}</td>
-                      <td class="num">{{ usd4(row.usd) }}</td>
+                      <td class="num">{{ usdApiReal(row.usd, row.real_usd) }}</td>
                       <td class="num">{{ modelRequests(row) }}</td>
                     </tr>
                   </tbody>
@@ -145,7 +145,7 @@
                     </tr>
                     <tr v-for="row in spenders" :key="row.name + row.usd">
                       <td>{{ row.name }}</td>
-                      <td class="num">{{ usd4(row.usd) }}</td>
+                      <td class="num">{{ usdApiReal(row.usd, row.real_usd) }}</td>
                       <td class="num">{{ row.requests }}</td>
                     </tr>
                   </tbody>
@@ -227,7 +227,7 @@
                     <td>{{ row.name }}</td>
                     <td>{{ row.model }}</td>
                     <td class="num">{{ row.tokens }}</td>
-                    <td class="num">{{ usd4(row.usd) }}</td>
+                    <td class="num">{{ usdApiReal(row.usd, row.real_usd) }}</td>
                   </tr>
                 </tbody>
               </table>
@@ -315,8 +315,9 @@
                 placeholder="1"
               >
               <p class="muted small">
-                Только дашборд: баланс кабинета router.cheap умножается на этот множитель
-                (API-$ = кабинет × множитель). Лимиты ключей и сверка клиентов не затрагиваются.
+                API-$ = реальные $ кабинета × курс. Клиенты видят баланс в API-$, а лимит ключа
+                у router.cheap выставляется в реальных $ (баланс ÷ курс). При смене курса все ключи
+                пересчитываются в фоне так, чтобы балансы клиентов в API-$ не изменились.
               </p>
               <label for="min-topup">Минимальное пополнение, $</label>
               <input id="min-topup" v-model="settingsForm.min_topup_usd" inputmode="decimal" placeholder="10">
@@ -1200,12 +1201,12 @@
                 </div>
                 <div class="user-kpi">
                   <span>Расход всего</span>
-                  <b>{{ usd4(userDetail.summary.spend_usd) }}</b>
+                  <b>{{ usdApiReal(userDetail.summary.spend_usd, userDetail.summary.spend_real_usd) }}</b>
                   <em>{{ userDetail.summary.requests_total }} запр.</em>
                 </div>
                 <div class="user-kpi">
                   <span>Расход за период</span>
-                  <b>{{ usd4(userDetail.summary.spend_period_usd) }}</b>
+                  <b>{{ usdApiReal(userDetail.summary.spend_period_usd, userDetail.summary.spend_period_real_usd) }}</b>
                   <em>{{ userDetail.summary.requests_period }} запр.</em>
                 </div>
                 <div class="user-kpi">
@@ -1263,7 +1264,7 @@
                         </tr>
                         <tr v-for="row in userDetail.models" :key="row.model">
                           <td class="model">{{ row.model }}</td>
-                          <td class="num">{{ usd4(row.usd) }}</td>
+                          <td class="num">{{ usdApiReal(row.usd, row.real_usd) }}</td>
                           <td class="num">{{ row.requests }}</td>
                           <td class="num">{{ row.tokens }}</td>
                         </tr>
@@ -1451,7 +1452,7 @@
                         </tr>
                         <tr v-for="(row, idx) in userDetail.recent_usage" :key="row.request_id || idx">
                           <td class="model">{{ row.model }}</td>
-                          <td class="num">{{ usd4(row.usd) }}</td>
+                          <td class="num">{{ usdApiReal(row.usd, row.real_usd) }}</td>
                           <td class="num">{{ row.tokens }}</td>
                           <td class="date">{{ formatRecentAt(row.created_at) }}</td>
                         </tr>
@@ -2319,6 +2320,7 @@ const {
   rub,
   usd,
   usd4,
+  usdApiReal,
   shortDate,
   conversion,
   statusBadgeClass,

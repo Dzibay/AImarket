@@ -95,6 +95,9 @@ ALTER TABLE api_keys ADD COLUMN IF NOT EXISTS quota_usd NUMERIC(12, 2) NOT NULL 
 ALTER TABLE api_keys ADD COLUMN IF NOT EXISTS secret TEXT NOT NULL DEFAULT '';
 ALTER TABLE api_keys ADD COLUMN IF NOT EXISTS limit_exhausted_notified_at TIMESTAMPTZ;
 ALTER TABLE api_keys ADD COLUMN IF NOT EXISTS frozen_at TIMESTAMPTZ;
+-- quota_rate: курс API-$ / реальный $, по которому выставлен remain_quota у router.cheap.
+-- NULL — ключ до перехода на курс (1:1); sync_all пересчитает его по курсу из админки.
+ALTER TABLE api_keys ADD COLUMN IF NOT EXISTS quota_rate NUMERIC(12, 6);
 
 CREATE INDEX IF NOT EXISTS idx_api_keys_user
     ON api_keys (user_id, created_at DESC);
@@ -144,6 +147,21 @@ CREATE TABLE IF NOT EXISTS usage (
 );
 
 ALTER TABLE usage ADD COLUMN IF NOT EXISTS request_id TEXT NOT NULL DEFAULT '';
+-- quota_units — стоимость запроса в API-$ (что списано с клиента),
+-- real_units — сырые единицы журнала router.cheap (реальные $ кабинета).
+-- Старые строки списывались 1:1, для них real_units = quota_units.
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_name = 'usage' AND column_name = 'real_units'
+    ) THEN
+        ALTER TABLE usage ADD COLUMN real_units BIGINT;
+        UPDATE usage SET real_units = quota_units;
+        ALTER TABLE usage ALTER COLUMN real_units SET DEFAULT 0;
+        ALTER TABLE usage ALTER COLUMN real_units SET NOT NULL;
+    END IF;
+END $$;
 
 DROP INDEX IF EXISTS idx_usage_upstream_log;
 CREATE UNIQUE INDEX IF NOT EXISTS idx_usage_user_upstream_log

@@ -1,5 +1,6 @@
 import json
 import logging
+import threading
 from datetime import date, datetime, timedelta
 from decimal import Decimal
 from zoneinfo import ZoneInfo
@@ -15,6 +16,7 @@ from app.billing import (
     adjust_usd,
     block_user,
     ensure_all_limit_by_wallet_charge,
+    rebalance_key_rates,
     sync_all,
     unblock_user,
 )
@@ -330,6 +332,7 @@ def write_settings(body: SettingsIn) -> dict:
         except ValueError as exc:
             raise HTTPException(status_code=422, detail="offer_date") from exc
     tiers = normalize_bonus_tiers([tier.model_dump() for tier in body.topup_bonuses])
+    previous_api_rate = supplier_api_usd_rate()
     values = {
         "public_base_url": normalize_base_url(body.public_base_url),
         "usd_price_rub": price,
@@ -353,7 +356,20 @@ def write_settings(body: SettingsIn) -> dict:
     from app.api.web import invalidate_config_cache
 
     invalidate_config_cache()
+    if supplier_api_usd_rate() != previous_api_rate:
+        # Квоты ключей у router.cheap — в реальных $: переводим их на новый курс,
+        # чтобы балансы клиентов в API-$ не изменились. Долго — в фоне; sync_all добьёт сбои.
+        threading.Thread(
+            target=_rebalance_keys_quiet, name="rebalance-key-rates", daemon=True
+        ).start()
     return _settings_payload()
+
+
+def _rebalance_keys_quiet() -> None:
+    try:
+        rebalance_key_rates()
+    except Exception:
+        log.exception("не удалось пересчитать ключи по новому курсу")
 
 
 @router.get("/users", dependencies=[Depends(require_admin)])
@@ -442,21 +458,24 @@ def user_detail(user_id: int, days: int = Query(default=30, ge=7, le=90)) -> dic
             """
             SELECT
                 COALESCE(SUM(quota_units), 0) AS units,
+                COALESCE(SUM(real_units), 0) AS real_units,
                 COUNT(*) AS requests,
                 COALESCE(SUM(quota_units) FILTER (WHERE created_at >= %s), 0) AS period_units,
+                COALESCE(SUM(real_units) FILTER (WHERE created_at >= %s), 0) AS period_real_units,
                 COUNT(*) FILTER (WHERE created_at >= %s) AS period_requests,
                 MIN(created_at) AS first_at,
                 MAX(created_at) AS last_at
             FROM usage
             WHERE user_id = %s
             """,
-            (start, start, user_id),
+            (start, start, start, user_id),
         ).fetchone()
 
         spend_rows = conn.execute(
             """
             SELECT (created_at AT TIME ZONE 'Europe/Moscow')::date AS day,
                    COALESCE(SUM(quota_units), 0) AS units,
+                   COALESCE(SUM(real_units), 0) AS real_units,
                    COUNT(*) AS requests,
                    COALESCE(SUM(prompt_tokens), 0) AS prompt_tokens,
                    COALESCE(SUM(completion_tokens), 0) AS completion_tokens
@@ -471,6 +490,7 @@ def user_detail(user_id: int, days: int = Query(default=30, ge=7, le=90)) -> dic
             """
             SELECT COALESCE(NULLIF(model_name, ''), 'без модели') AS model,
                    COALESCE(SUM(quota_units), 0) AS units,
+                   COALESCE(SUM(real_units), 0) AS real_units,
                    COUNT(*) AS requests,
                    COALESCE(SUM(prompt_tokens + completion_tokens), 0) AS tokens
             FROM usage
@@ -484,7 +504,8 @@ def user_detail(user_id: int, days: int = Query(default=30, ge=7, le=90)) -> dic
 
         recent_rows = conn.execute(
             """
-            SELECT model_name, prompt_tokens, completion_tokens, quota_units, created_at, request_id
+            SELECT model_name, prompt_tokens, completion_tokens, quota_units, real_units,
+                   created_at, request_id
             FROM usage
             WHERE user_id = %s
             ORDER BY created_at DESC
@@ -608,7 +629,9 @@ def user_detail(user_id: int, days: int = Query(default=30, ge=7, le=90)) -> dic
             "topups_paid": int(money["paid_count"] or 0),
             "topups_all": int(money["all_count"] or 0),
             "spend_usd": float(units_to_usd(int(spend["units"] or 0))),
+            "spend_real_usd": float(units_to_usd(int(spend["real_units"] or 0))),
             "spend_period_usd": float(units_to_usd(int(spend["period_units"] or 0))),
+            "spend_period_real_usd": float(units_to_usd(int(spend["period_real_units"] or 0))),
             "requests_total": int(spend["requests"] or 0),
             "requests_period": int(spend["period_requests"] or 0),
             "keys_active": 1 if key_row is not None else 0,
@@ -625,6 +648,7 @@ def user_detail(user_id: int, days: int = Query(default=30, ge=7, le=90)) -> dic
             {
                 "day": day.isoformat(),
                 "usd": float(units_to_usd(int((row.get("units") or 0)))),
+                "real_usd": float(units_to_usd(int((row.get("real_units") or 0)))),
                 "requests": int(row.get("requests") or 0),
                 "tokens": int(row.get("prompt_tokens") or 0) + int(row.get("completion_tokens") or 0),
             }
@@ -634,6 +658,7 @@ def user_detail(user_id: int, days: int = Query(default=30, ge=7, le=90)) -> dic
             {
                 "model": row["model"],
                 "usd": float(units_to_usd(int(row["units"] or 0))),
+                "real_usd": float(units_to_usd(int(row["real_units"] or 0))),
                 "requests": int(row["requests"] or 0),
                 "tokens": int(row["tokens"] or 0),
             }
@@ -643,6 +668,7 @@ def user_detail(user_id: int, days: int = Query(default=30, ge=7, le=90)) -> dic
             {
                 "model": row["model_name"] or "—",
                 "usd": float(units_to_usd(int(row["quota_units"] or 0))),
+                "real_usd": float(units_to_usd(int(row["real_units"] or 0))),
                 "prompt_tokens": int(row["prompt_tokens"] or 0),
                 "completion_tokens": int(row["completion_tokens"] or 0),
                 "tokens": int(row["prompt_tokens"] or 0) + int(row["completion_tokens"] or 0),
@@ -931,6 +957,7 @@ def analytics(days: int = Query(default=30, ge=7, le=90)) -> dict:
             """
             SELECT (created_at AT TIME ZONE 'Europe/Moscow')::date AS day,
                    COALESCE(SUM(quota_units), 0) AS units,
+                   COALESCE(SUM(real_units), 0) AS real_units,
                    COUNT(*) AS requests,
                    COALESCE(SUM(prompt_tokens), 0) AS prompt_tokens,
                    COALESCE(SUM(completion_tokens), 0) AS completion_tokens
@@ -942,7 +969,9 @@ def analytics(days: int = Query(default=30, ge=7, le=90)) -> dict:
         ).fetchall()
         spend_now = conn.execute(
             """
-            SELECT COALESCE(SUM(quota_units), 0) AS units, COUNT(*) AS requests
+            SELECT COALESCE(SUM(quota_units), 0) AS units,
+                   COALESCE(SUM(real_units), 0) AS real_units,
+                   COUNT(*) AS requests
             FROM usage
             WHERE created_at >= %s
             """,
@@ -962,6 +991,7 @@ def analytics(days: int = Query(default=30, ge=7, le=90)) -> dict:
             """
             SELECT COALESCE(NULLIF(model_name, ''), 'без модели') AS model,
                    COALESCE(SUM(quota_units), 0) AS units,
+                   COALESCE(SUM(real_units), 0) AS real_units,
                    COUNT(*) AS requests,
                    COALESCE(SUM(prompt_tokens + completion_tokens), 0) AS tokens
             FROM usage
@@ -976,6 +1006,7 @@ def analytics(days: int = Query(default=30, ge=7, le=90)) -> dict:
             """
             SELECT u.telegram_id, u.username, u.first_name, u.email,
                    COALESCE(SUM(g.quota_units), 0) AS units,
+                   COALESCE(SUM(g.real_units), 0) AS real_units,
                    COUNT(*) AS requests
             FROM usage g
             JOIN users u ON u.id = g.user_id
@@ -1003,7 +1034,8 @@ def analytics(days: int = Query(default=30, ge=7, le=90)) -> dict:
         ).fetchall()
         recent_rows = conn.execute(
             """
-            SELECT g.created_at, g.model_name, g.quota_units, g.prompt_tokens, g.completion_tokens,
+            SELECT g.created_at, g.model_name, g.quota_units, g.real_units,
+                   g.prompt_tokens, g.completion_tokens,
                    u.telegram_id, u.username, u.first_name, u.email
             FROM usage g
             JOIN users u ON u.id = g.user_id
@@ -1045,6 +1077,7 @@ def analytics(days: int = Query(default=30, ge=7, le=90)) -> dict:
         "average_check_rub": (period_kop / 100 / paid) if paid else 0,
         "paying_users": int(money["payers"] or 0),
         "spend_today_usd": float(units_to_usd(int(spend_now["units"] or 0))),
+        "spend_today_real_usd": float(units_to_usd(int(spend_now["real_units"] or 0))),
         "requests_today": int(spend_now["requests"] or 0),
         "users": int(people["total"] or 0),
         "users_new": int(people["fresh"] or 0),
@@ -1067,6 +1100,7 @@ def analytics(days: int = Query(default=30, ge=7, le=90)) -> dict:
             {
                 "day": day.isoformat(),
                 "usd": float(units_to_usd(int(row.get("units") or 0))),
+                "real_usd": float(units_to_usd(int(row.get("real_units") or 0))),
                 "requests": int(row.get("requests") or 0),
                 "prompt_tokens": int(row.get("prompt_tokens") or 0),
                 "completion_tokens": int(row.get("completion_tokens") or 0),
@@ -1084,6 +1118,7 @@ def analytics(days: int = Query(default=30, ge=7, le=90)) -> dict:
             {
                 "model": row["model"],
                 "usd": float(units_to_usd(int(row["units"] or 0))),
+                "real_usd": float(units_to_usd(int(row["real_units"] or 0))),
                 "requests": int(row["requests"] or 0),
                 "tokens": int(row["tokens"] or 0),
             }
@@ -1093,6 +1128,7 @@ def analytics(days: int = Query(default=30, ge=7, le=90)) -> dict:
             {
                 "name": _person(row),
                 "usd": float(units_to_usd(int(row["units"] or 0))),
+                "real_usd": float(units_to_usd(int(row["real_units"] or 0))),
                 "requests": int(row["requests"] or 0),
             }
             for row in spender_rows
@@ -1112,6 +1148,7 @@ def analytics(days: int = Query(default=30, ge=7, le=90)) -> dict:
                 "name": _person(row),
                 "model": row["model_name"] or "без модели",
                 "usd": float(units_to_usd(int(row["quota_units"] or 0))),
+                "real_usd": float(units_to_usd(int(row["real_units"] or 0))),
                 "tokens": int(row["prompt_tokens"] or 0) + int(row["completion_tokens"] or 0),
             }
             for row in recent_rows
@@ -1322,7 +1359,7 @@ def ensure_keys_limit_by_wallet_charge() -> dict:
 
 @router.post("/upstream/keys/sync", dependencies=[Depends(require_admin)])
 def sync_upstream_keys() -> dict:
-    """Сверяет локальные балансы с remain_quota ключей (API-$ без множителя)."""
+    """Сверяет локальные балансы с remain_quota ключей (remain_quota × курс ключа = API-$)."""
     sync_all()
     return {"ok": True}
 

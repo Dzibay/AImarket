@@ -8,7 +8,7 @@ import urllib.request
 from decimal import Decimal
 
 from app.config import settings
-from app.money import cabinet_to_api_usd, usd_to_units, units_to_usd
+from app.money import api_usd_to_real_units, cabinet_to_api_usd, real_units_to_api_usd, units_to_usd
 
 log = logging.getLogger("app.upstream")
 
@@ -71,8 +71,12 @@ class RouterCheap:
             self._ensure_login()
             return self._token(token_id)
 
-    def add_quota(self, token_id: int, extra_usd: Decimal) -> Decimal:
-        extra_units = usd_to_units(extra_usd)
+    def add_quota(self, token_id: int, extra_usd: Decimal, rate: Decimal) -> Decimal:
+        """Добавляет к ключу extra_usd API-$. Квота у поставщика — в реальных $ (÷ rate).
+
+        Возвращает новый остаток ключа в API-$.
+        """
+        extra_units = api_usd_to_real_units(extra_usd, rate)
         if extra_units <= 0:
             raise UpstreamError("лимит ключа слишком маленький")
         with self._lock:
@@ -82,21 +86,22 @@ class RouterCheap:
                 raise UpstreamError("ключ не найден")
             new_units = int(current.get("remain_quota") or 0) + extra_units
             self._put_quota(token_id, current, new_units)
-        return units_to_usd(new_units)
+        return real_units_to_api_usd(new_units, rate)
 
-    def update_quota(self, token_id: int, quota_usd: Decimal) -> Decimal:
-        """Выставляет абсолютный remain_quota. Допускает 0 (полный сброс лимита)."""
-        units = max(0, usd_to_units(quota_usd))
+    def update_quota(self, token_id: int, quota_usd: Decimal, rate: Decimal) -> Decimal:
+        """Выставляет остаток ключа quota_usd API-$ (remain_quota = API-$ / rate). Допускает 0."""
+        units = max(0, api_usd_to_real_units(quota_usd, rate))
         with self._lock:
             self._ensure_login()
             current = self._token(token_id)
             if current is None:
                 raise UpstreamError("ключ не найден")
             self._put_quota(token_id, current, units)
-        return units_to_usd(units)
+        return real_units_to_api_usd(units, rate)
 
-    def create_child_key(self, name: str, quota_usd: Decimal) -> tuple[int, str]:
-        units = usd_to_units(quota_usd)
+    def create_child_key(self, name: str, quota_usd: Decimal, rate: Decimal) -> tuple[int, str]:
+        """Создаёт ключ с лимитом quota_usd API-$ (у поставщика — quota_usd / rate реальных $)."""
+        units = api_usd_to_real_units(quota_usd, rate)
         if units <= 0:
             raise UpstreamError("лимит ключа слишком маленький")
         with self._lock:

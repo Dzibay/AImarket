@@ -8,7 +8,13 @@ from decimal import Decimal
 
 from app.datetime_util import iso_utc
 from app.db import pool
-from app.money import usd_to_units, units_to_usd
+from app.money import (
+    key_rate,
+    real_units_to_api_units,
+    real_units_to_api_usd,
+    supplier_api_usd_rate,
+    units_to_usd,
+)
 from app.telegram_link import notify_key_frozen_async
 from app.upstream import UpstreamError, upstream
 from app.usage_logs import parse_usage_log
@@ -31,6 +37,10 @@ IDLE_FREEZE_DAYS = 14
 
 
 def sync_all() -> None:
+    try:
+        rebalance_key_rates()
+    except Exception:
+        log.exception("не удалось пересчитать ключи по курсу")
     with pool.connection() as conn:
         rows = conn.execute(
             """
@@ -97,6 +107,93 @@ def ensure_all_limit_by_wallet_charge() -> dict:
         "errors": errors[:20],
         "error_count": len(errors),
     }
+
+
+def rebalance_key_rates() -> dict:
+    """Переводит ключи на текущий курс API-$ из админки.
+
+    Квота у router.cheap списывается в реальных $, поэтому remain_quota = баланс клиента / курс.
+    Ключам, выставленным по другому курсу (или ещё до перехода — quota_rate IS NULL),
+    квота пересчитывается от локального баланса клиента: баланс в API-$ не меняется.
+    """
+    rate = supplier_api_usd_rate()
+    with pool.connection() as conn:
+        rows = conn.execute(
+            """
+            SELECT id, user_id
+            FROM api_keys
+            WHERE revoked_at IS NULL
+              AND upstream_id IS NOT NULL
+              AND quota_rate IS DISTINCT FROM %s
+            ORDER BY id
+            """,
+            (rate,),
+        ).fetchall()
+    updated = 0
+    errors = 0
+    for row in rows:
+        with billing_lock:
+            try:
+                if _rebalance_key(int(row["id"]), int(row["user_id"]), rate):
+                    updated += 1
+            except UpstreamError as exc:
+                errors += 1
+                log.warning("ключ id=%s не пересчитан по курсу %s: %s", row["id"], rate, exc.message)
+            except Exception:
+                errors += 1
+                log.exception("ключ id=%s не пересчитан по курсу %s", row["id"], rate)
+    if updated or errors:
+        log.info("пересчёт ключей по курсу %s: обновлено %s, ошибок %s", rate, updated, errors)
+    return {"rate": float(rate), "checked": len(rows), "updated": updated, "errors": errors}
+
+
+def _rebalance_key(key_id: int, user_id: int, rate: Decimal) -> bool:
+    with pool.connection() as conn:
+        key = conn.execute(
+            """
+            SELECT id, upstream_id, frozen_at, quota_rate
+            FROM api_keys
+            WHERE id = %s AND revoked_at IS NULL AND upstream_id IS NOT NULL
+            """,
+            (key_id,),
+        ).fetchone()
+    if key is None or (key["quota_rate"] is not None and Decimal(key["quota_rate"]) == rate):
+        return False
+    if key["frozen_at"] is not None:
+        # Квота у поставщика уже 0, баланс лежит локально — восстановление выставит по курсу.
+        _set_key_rate(key_id, rate)
+        return True
+    upstream_id = int(key["upstream_id"])
+    if key["quota_rate"] is not None:
+        # Сначала досчитываем расход по старому курсу, потом переносим остаток.
+        _sync_key(user_id, upstream_id, force=True)
+        _user_sync_at[user_id] = time.monotonic()
+        with pool.connection() as conn:
+            still = conn.execute(
+                "SELECT frozen_at, revoked_at FROM api_keys WHERE id = %s",
+                (key_id,),
+            ).fetchone()
+        if still is None or still["revoked_at"] is not None:
+            return False
+        if still["frozen_at"] is not None:
+            _set_key_rate(key_id, rate)
+            return True
+    # Ключи до перехода (quota_rate IS NULL): верим локальному балансу сервиса.
+    balance = max(_balance(user_id), Decimal(0))
+    updated = upstream.update_quota(upstream_id, balance, rate)
+    _set_key_rate(key_id, rate)
+    _set_key_quota(key_id, updated)
+    with pool.connection() as conn:
+        conn.execute("UPDATE users SET balance_usd = %s WHERE id = %s", (updated, user_id))
+    log.info(
+        "ключ id=%s user=%s: курс %s → %s, баланс %.4f API-$",
+        key_id,
+        user_id,
+        key["quota_rate"] if key["quota_rate"] is not None else "1 (старый)",
+        rate,
+        updated,
+    )
+    return True
 
 
 def sync_user(user_id: int, *, force: bool = False) -> None:
@@ -214,14 +311,18 @@ def add_usd(
                 # Пополнение снова активирует ключ: квота = локальный остаток + сумма.
                 local = _balance(user_id)
                 target = (local + amount).quantize(Decimal("0.0001"))
+                rate = supplier_api_usd_rate()
                 try:
-                    updated = upstream.update_quota(int(key["upstream_id"]), target)
+                    updated = upstream.update_quota(int(key["upstream_id"]), target, rate)
                 except UpstreamError as exc:
                     _reraise(exc)
+                _set_key_rate(int(key["id"]), rate)
                 _clear_frozen(int(key["id"]))
             else:
                 try:
-                    updated = upstream.add_quota(int(key["upstream_id"]), amount)
+                    updated = upstream.add_quota(
+                        int(key["upstream_id"]), amount, key_rate(key.get("quota_rate"))
+                    )
                 except UpstreamError as exc:
                     _reraise(exc)
             _set_key_quota(int(key["id"]), updated)
@@ -266,10 +367,12 @@ def adjust_usd(user_id: int, delta: Decimal, note: str = "") -> Decimal:
                 # Замороженный ключ: локальное списание без квоты у поставщика.
                 pass
             else:
+                rate = supplier_api_usd_rate()
                 try:
-                    updated = upstream.update_quota(int(key["upstream_id"]), updated)
+                    updated = upstream.update_quota(int(key["upstream_id"]), updated, rate)
                 except UpstreamError as exc:
                     _reraise(exc)
+                _set_key_rate(int(key["id"]), rate)
                 _set_key_quota(int(key["id"]), updated)
                 if key.get("frozen_at") is not None and updated > 0:
                     _clear_frozen(int(key["id"]))
@@ -308,13 +411,14 @@ def issue_key(user_id: int, telegram_id: int | None) -> dict:
             raise BillingError("balance")
         _ensure_pool(Decimal(0), user_id)
         name = _key_name(user_id, telegram_id)
+        rate = supplier_api_usd_rate()
         try:
-            upstream_id, secret = upstream.create_child_key(name, amount)
+            upstream_id, secret = upstream.create_child_key(name, amount, rate)
         except UpstreamError as exc:
             _reraise(exc)
-        created_at = _store_key(user_id, name, secret, upstream_id, amount)
+        created_at = _store_key(user_id, name, secret, upstream_id, amount, rate)
         key = _active_key(user_id)
-        stats = _key_stats(user_id, int(key["id"]), upstream_id, amount) if key else {}
+        stats = _key_stats(user_id, int(key["id"]), upstream_id, amount, rate) if key else {}
         return {
             "secret": secret,
             "base_url": _base_url(),
@@ -341,7 +445,9 @@ def reissue_key(user_id: int, telegram_id: int | None) -> dict:
             except UpstreamError as exc:
                 _reraise(exc)
             if token is not None:
-                amount = units_to_usd(int(token.get("remain_quota") or 0))
+                amount = real_units_to_api_usd(
+                    int(token.get("remain_quota") or 0), key_rate(key.get("quota_rate"))
+                )
                 _record_balance(user_id, amount)
             else:
                 amount = _balance(user_id)
@@ -357,14 +463,15 @@ def reissue_key(user_id: int, telegram_id: int | None) -> dict:
                 _reraise(exc)
         _revoke_key(int(key["id"]))
         name = _key_name(user_id, telegram_id)
+        rate = supplier_api_usd_rate()
         try:
-            new_id, secret = upstream.create_child_key(name, amount)
+            new_id, secret = upstream.create_child_key(name, amount, rate)
         except UpstreamError as exc:
             log.warning("перевыпуск не создал новый ключ, лимит сохранён у пользователя %s", user_id)
             raise BillingError("reissue-failed") from exc
-        created_at = _store_key(user_id, name, secret, new_id, amount)
+        created_at = _store_key(user_id, name, secret, new_id, amount, rate)
         key = _active_key(user_id)
-        stats = _key_stats(user_id, int(key["id"]), new_id, amount) if key else {}
+        stats = _key_stats(user_id, int(key["id"]), new_id, amount, rate) if key else {}
         return {
             "secret": secret,
             "base_url": _base_url(),
@@ -390,15 +497,17 @@ def restore_key(user_id: int) -> dict:
             raise BillingError("empty")
         # Баланс frozen-ключа уже в promised — проверяем покрытие без удвоения.
         _ensure_pool(Decimal(0), user_id)
+        rate = supplier_api_usd_rate()
         try:
-            updated = upstream.update_quota(int(key["upstream_id"]), amount)
+            updated = upstream.update_quota(int(key["upstream_id"]), amount, rate)
         except UpstreamError as exc:
             _reraise(exc)
+        _set_key_rate(int(key["id"]), rate)
         _clear_frozen(int(key["id"]))
         _set_key_quota(int(key["id"]), updated)
         with pool.connection() as conn:
             conn.execute("UPDATE users SET balance_usd = %s WHERE id = %s", (updated, user_id))
-        stats = _key_stats(user_id, int(key["id"]), int(key["upstream_id"]), updated)
+        stats = _key_stats(user_id, int(key["id"]), int(key["upstream_id"]), updated, rate)
         secret = str(key.get("secret") or "")
         return {
             "secret": secret,
@@ -417,7 +526,7 @@ def freeze_idle_keys() -> int:
         with pool.connection() as conn:
             rows = conn.execute(
                 """
-                SELECT k.id, k.user_id, k.upstream_id, u.balance_usd, u.telegram_id
+                SELECT k.id, k.user_id, k.upstream_id, k.quota_rate, u.balance_usd, u.telegram_id
                 FROM api_keys k
                 JOIN users u ON u.id = k.user_id
                 WHERE k.revoked_at IS NULL
@@ -436,13 +545,14 @@ def freeze_idle_keys() -> int:
             user_id = int(row["user_id"])
             key_id = int(row["id"])
             upstream_id = int(row["upstream_id"])
+            rate = key_rate(row.get("quota_rate"))
             try:
                 _sync_key(user_id, upstream_id, force=True)
                 amount = _balance(user_id)
                 if amount <= 0:
                     continue
                 try:
-                    upstream.update_quota(upstream_id, Decimal(0))
+                    upstream.update_quota(upstream_id, Decimal(0), rate)
                 except UpstreamError as exc:
                     log.warning(
                         "не удалось обнулить квоту ключа %s user=%s: %s",
@@ -464,7 +574,7 @@ def freeze_idle_keys() -> int:
                         ).fetchone()
                         if marked is None:
                             # Уже заморожен/отозван — вернём квоту на ключ.
-                            upstream.update_quota(upstream_id, amount)
+                            upstream.update_quota(upstream_id, amount, rate)
                             continue
                         # Локальный баланс сохраняем — sync больше не трогает frozen.
                         conn.execute(
@@ -474,7 +584,7 @@ def freeze_idle_keys() -> int:
                 except Exception:
                     # Квота уже 0 у поставщика — откатываем, чтобы sync не обнулил balance.
                     try:
-                        upstream.update_quota(upstream_id, amount)
+                        upstream.update_quota(upstream_id, amount, rate)
                     except UpstreamError:
                         log.exception(
                             "не удалось откатить квоту после сбоя заморозки user=%s key=%s",
@@ -524,7 +634,9 @@ def describe_key(user_id: int) -> dict:
                 (key["id"],),
             ).fetchone()
         quota = Decimal(quota_row["quota_usd"] or 0) if quota_row else Decimal(0)
-        stats = _key_stats(user_id, int(key["id"]), upstream_id, quota)
+        stats = _key_stats(
+            user_id, int(key["id"]), upstream_id, quota, key_rate(key.get("quota_rate"))
+        )
         return {
             "secret": secret,
             "prefix": key["prefix"],
@@ -561,17 +673,19 @@ def _sync_key(user_id: int, upstream_id: int, *, force: bool = False) -> None:
                 upstream_id,
                 exc.message,
             )
-    amount = units_to_usd(int(token.get("remain_quota") or 0))
     with pool.connection() as conn:
         row = conn.execute(
             """
-            SELECT u.balance_usd, k.id, k.name, k.secret
+            SELECT u.balance_usd, k.id, k.name, k.secret, k.quota_rate
             FROM users u
             JOIN api_keys k ON k.user_id = u.id AND k.revoked_at IS NULL
             WHERE u.id = %s AND k.upstream_id = %s
             """,
             (user_id, upstream_id),
         ).fetchone()
+    # remain_quota у поставщика — реальные $; клиенту — API-$ по курсу ключа.
+    rate = key_rate((row or {}).get("quota_rate"))
+    amount = real_units_to_api_usd(int(token.get("remain_quota") or 0), rate)
     key_id = int(row["id"]) if row else None
     token_name = str((row or {}).get("name") or token.get("name") or "")
     token_secret = str((row or {}).get("secret") or "")
@@ -587,6 +701,7 @@ def _sync_key(user_id: int, upstream_id: int, *, force: bool = False) -> None:
         key_id,
         upstream_id,
         token_name,
+        rate,
         token_secret=token_secret,
         force=force,
     )
@@ -662,7 +777,7 @@ def _sync_key(user_id: int, upstream_id: int, *, force: bool = False) -> None:
                 key_label = f"{secret[:8]}...{secret[-4:]}"
             elif prefix:
                 key_label = prefix
-            limit_usd = units_to_usd(int(token.get("used_quota") or 0)) + amount
+            limit_usd = real_units_to_api_usd(int(token.get("used_quota") or 0), rate) + amount
         else:
             limit_usd = amount
     else:
@@ -737,7 +852,7 @@ def _active_key(user_id: int) -> dict | None:
     with pool.connection() as conn:
         return conn.execute(
             """
-            SELECT id, upstream_id, prefix, secret, created_at, frozen_at
+            SELECT id, upstream_id, prefix, secret, created_at, frozen_at, quota_rate
             FROM api_keys
             WHERE user_id = %s AND revoked_at IS NULL AND upstream_id IS NOT NULL
             """,
@@ -825,23 +940,37 @@ def _set_key_quota(key_id: int, amount: Decimal) -> None:
         conn.execute("UPDATE api_keys SET quota_usd = %s WHERE id = %s", (amount, key_id))
 
 
+def _set_key_rate(key_id: int, rate: Decimal) -> None:
+    with pool.connection() as conn:
+        conn.execute("UPDATE api_keys SET quota_rate = %s WHERE id = %s", (rate, key_id))
+
+
 def _revoke_key(key_id: int) -> None:
     with pool.connection() as conn:
         conn.execute("UPDATE api_keys SET revoked_at = NOW() WHERE id = %s", (key_id,))
 
 
-def _store_key(user_id: int, name: str, secret: str, upstream_id: int, amount: Decimal) -> datetime:
+def _store_key(
+    user_id: int,
+    name: str,
+    secret: str,
+    upstream_id: int,
+    amount: Decimal,
+    rate: Decimal,
+) -> datetime:
     prefix = secret[:12]
     digest = hashlib.sha256(secret.encode()).hexdigest()
     try:
         with pool.connection() as conn:
             row = conn.execute(
                 """
-                INSERT INTO api_keys (user_id, name, prefix, secret_hash, secret, upstream_id, quota_usd)
-                VALUES (%s, %s, %s, %s, %s, %s, %s)
+                INSERT INTO api_keys (
+                    user_id, name, prefix, secret_hash, secret, upstream_id, quota_usd, quota_rate
+                )
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
                 RETURNING created_at
                 """,
-                (user_id, name, prefix, digest, secret, upstream_id, amount),
+                (user_id, name, prefix, digest, secret, upstream_id, amount, rate),
             ).fetchone()
         return row["created_at"]
     except Exception:
@@ -863,15 +992,21 @@ def _attach_usage_to_key(user_id: int, key_id: int, conn) -> None:
     )
 
 
-def _key_stats(user_id: int, key_id: int, upstream_id: int | None, quota_usd: Decimal) -> dict:
+def _key_stats(
+    user_id: int,
+    key_id: int,
+    upstream_id: int | None,
+    quota_usd: Decimal,
+    rate: Decimal,
+) -> dict:
     remain = quota_usd
     used = Decimal(0)
     if upstream_id:
         try:
             token = upstream.get_token(upstream_id)
             if token:
-                remain = units_to_usd(int(token.get("remain_quota") or 0))
-                used = units_to_usd(int(token.get("used_quota") or 0))
+                remain = real_units_to_api_usd(int(token.get("remain_quota") or 0), rate)
+                used = real_units_to_api_usd(int(token.get("used_quota") or 0), rate)
         except UpstreamError:
             pass
     with pool.connection() as conn:
@@ -910,6 +1045,7 @@ def _import_usage(
     key_id: int | None,
     upstream_id: int,
     token_name: str,
+    rate: Decimal,
     *,
     token_secret: str = "",
     force: bool = False,
@@ -940,7 +1076,7 @@ def _import_usage(
             if items:
                 fetched_rows += len(items)
                 page_units, page_usages, page_refreshed = _save_usage_page(
-                    user_id, key_id, items
+                    user_id, key_id, items, rate
                 )
                 inserted_units += page_units
                 refreshed_rows += page_refreshed
@@ -1061,22 +1197,31 @@ def _patch_usage_row(
     row_id: int,
     key_id: int,
     units: int,
+    real_units: int,
     model_name: str,
     prompt_tokens: int,
     completion_tokens: int,
     created_at: datetime,
 ) -> int:
-    """Обновляет строку расхода. Возвращает итоговые quota_units."""
+    """Обновляет строку расхода. Возвращает итоговые quota_units (API-единицы).
+
+    Уже посчитанную стоимость не переписываем: её пересчёт по текущему курсу
+    задним числом разошёлся бы с уже списанным балансом.
+    """
     prev = conn.execute(
         "SELECT quota_units FROM usage WHERE id = %s",
         (row_id,),
     ).fetchone()
     prev_units = int(prev["quota_units"] or 0) if prev else 0
+    if prev_units > 0:
+        units = 0
+        real_units = 0
     conn.execute(
         """
         UPDATE usage
         SET api_key_id = %s,
             quota_units = CASE WHEN %s > 0 THEN %s ELSE quota_units END,
+            real_units = CASE WHEN %s > 0 THEN %s ELSE real_units END,
             model_name = CASE WHEN %s <> '' THEN %s ELSE model_name END,
             prompt_tokens = CASE WHEN %s > 0 THEN %s ELSE prompt_tokens END,
             completion_tokens = CASE WHEN %s > 0 THEN %s ELSE completion_tokens END,
@@ -1087,6 +1232,8 @@ def _patch_usage_row(
             key_id,
             units,
             units,
+            real_units,
+            real_units,
             model_name,
             model_name,
             prompt_tokens,
@@ -1100,7 +1247,10 @@ def _patch_usage_row(
     return units if units > 0 else prev_units
 
 
-def _save_usage_page(user_id: int, key_id: int, items: list[dict]) -> tuple[int, list[dict], int]:
+def _save_usage_page(
+    user_id: int, key_id: int, items: list[dict], rate: Decimal
+) -> tuple[int, list[dict], int]:
+    """Сохраняет журнал. В логе router.cheap — реальные $; в usage.quota_units — API-$ по курсу ключа."""
     parsed: list[dict] = []
     for item in items:
         row = parse_usage_log(item)
@@ -1116,7 +1266,8 @@ def _save_usage_page(user_id: int, key_id: int, items: list[dict]) -> tuple[int,
         for row in parsed:
             log_id = int(row["upstream_log_id"])
             request_id = str(row.get("request_id") or "").strip()
-            units = int(row["quota_units"])
+            real_units = int(row["quota_units"])
+            units = real_units_to_api_units(real_units, rate)
             model_name = str(row["model_name"])
             prompt_tokens = int(row["prompt_tokens"])
             completion_tokens = int(row["completion_tokens"])
@@ -1149,6 +1300,7 @@ def _save_usage_page(user_id: int, key_id: int, items: list[dict]) -> tuple[int,
                     row_id=int(prev["id"]),
                     key_id=key_id,
                     units=units,
+                    real_units=real_units,
                     model_name=model_name,
                     prompt_tokens=prompt_tokens,
                     completion_tokens=completion_tokens,
@@ -1183,6 +1335,7 @@ def _save_usage_page(user_id: int, key_id: int, items: list[dict]) -> tuple[int,
                 created_at,
                 conn,
                 request_id=request_id,
+                real_units=real_units,
             ):
                 owner = conn.execute(
                     "SELECT user_id FROM usage WHERE upstream_log_id = %s",
@@ -1217,6 +1370,7 @@ def _save_usage_page(user_id: int, key_id: int, items: list[dict]) -> tuple[int,
                     row_id=int(prev["id"]),
                     key_id=key_id,
                     units=units,
+                    real_units=real_units,
                     model_name=model_name,
                     prompt_tokens=prompt_tokens,
                     completion_tokens=completion_tokens,
@@ -1264,7 +1418,7 @@ def _warn_if_usage_differs(user_id: int, token: dict) -> None:
         return
     with pool.connection() as conn:
         row = conn.execute(
-            "SELECT COALESCE(SUM(quota_units), 0) AS units FROM usage WHERE user_id = %s",
+            "SELECT COALESCE(SUM(real_units), 0) AS units FROM usage WHERE user_id = %s",
             (user_id,),
         ).fetchone()
     logged = int(row["units"] or 0)
@@ -1289,13 +1443,14 @@ def _insert_usage(
     conn=None,
     *,
     request_id: str = "",
+    real_units: int = 0,
 ) -> bool:
     sql = """
         INSERT INTO usage (
             user_id, api_key_id, upstream_log_id, request_id, model_name,
-            prompt_tokens, completion_tokens, quota_units, created_at
+            prompt_tokens, completion_tokens, quota_units, real_units, created_at
         )
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
     """
     if request_id:
         sql += (
@@ -1318,6 +1473,7 @@ def _insert_usage(
         max(prompt_tokens, 0),
         max(completion_tokens, 0),
         quota_units,
+        max(real_units, 0),
         created_at,
     )
     if conn is None:

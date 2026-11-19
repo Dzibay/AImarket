@@ -35,14 +35,16 @@ def supplier_usd_price_rub() -> Decimal:
 
 
 def supplier_api_usd_rate() -> Decimal:
-    """Множитель только для дашборда: API-$ = баланс кабинета router.cheap × rate.
+    """Курс API-$ к реальным $ кабинета router.cheap: API-$ = реальные $ × rate.
 
-    Квоты ключей и сверка балансов клиентов этим множителем не трогаем (1:1 с remain_quota).
+    Ключи у поставщика списываются в реальных $ (limit_by_wallet_charge), поэтому
+    квота ключа = API-$ клиента / rate, а баланс клиента = remain_quota × rate.
     """
     raw = get_setting("supplier_api_usd_rate").strip().replace(",", ".")
     if raw:
         try:
-            value = Decimal(raw)
+            # 6 знаков — как api_keys.quota_rate, иначе курс ключа никогда не совпадёт с настройкой.
+            value = Decimal(raw).quantize(Decimal("0.000001"), rounding=ROUND_HALF_UP)
         except Exception:
             value = Decimal(0)
         if value > 0:
@@ -51,14 +53,14 @@ def supplier_api_usd_rate() -> Decimal:
 
 
 def usd_to_units(usd: Decimal) -> int:
-    """API-$ (баланс клиента / лимит ключа) → единицы remain_quota."""
+    """$ → единицы квоты router.cheap (без курса; для ключей — api_usd_to_real_units)."""
     return int(
         (usd * Decimal(settings.router_quota_per_unit)).quantize(Decimal("1"), rounding=ROUND_HALF_UP)
     )
 
 
 def units_to_usd(units: int) -> Decimal:
-    """Единицы remain_quota → $ без множителя (ключи и сырой баланс кабинета)."""
+    """Единицы квоты → $ без курса (сырой баланс кабинета, API-единицы журнала usage)."""
     return (Decimal(int(units)) / Decimal(settings.router_quota_per_unit)).quantize(
         Decimal("0.0001"), rounding=ROUND_HALF_UP
     )
@@ -70,6 +72,35 @@ def cabinet_to_api_usd(cabinet_usd: Decimal) -> Decimal:
     if rate == 1:
         return cabinet_usd
     return (cabinet_usd * rate).quantize(Decimal("0.0001"), rounding=ROUND_HALF_UP)
+
+
+def key_rate(value: object) -> Decimal:
+    """Курс, по которому выставлена квота ключа. NULL/0 — старые ключи 1:1."""
+    try:
+        rate = Decimal(str(value)) if value not in (None, "") else Decimal(0)
+    except Exception:
+        rate = Decimal(0)
+    return rate if rate > 0 else Decimal("1")
+
+
+def api_usd_to_real_units(api_usd: Decimal, rate: Decimal) -> int:
+    """API-$ клиента → единицы remain_quota (реальные $ кабинета)."""
+    rate = key_rate(rate)
+    return usd_to_units(Decimal(api_usd) / rate)
+
+
+def real_units_to_api_usd(units: int, rate: Decimal) -> Decimal:
+    """Единицы remain_quota (реальные $) → API-$ клиента."""
+    rate = key_rate(rate)
+    return (Decimal(int(units)) * rate / Decimal(settings.router_quota_per_unit)).quantize(
+        Decimal("0.0001"), rounding=ROUND_HALF_UP
+    )
+
+
+def real_units_to_api_units(units: int, rate: Decimal) -> int:
+    """Единицы журнала router.cheap (реальные $) → единицы API-$ для таблицы usage."""
+    rate = key_rate(rate)
+    return int((Decimal(int(units)) * rate).quantize(Decimal("1"), rounding=ROUND_HALF_UP))
 
 
 def rub_to_usd(amount_rub: Decimal) -> Decimal:
